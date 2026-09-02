@@ -1,0 +1,50 @@
+<RCC>
+    <qresource prefix="/Iconos">
+        <file>Iconos/pause.ico</file>
+        <file>Iconos/play.ico</file>
+        <file>Iconos/stop.ico</file>
+        <file>Iconos/08.png</file>
+        <file>Iconos/Start Menu Search.png</file>
+        <file>Iconos/Start Menu Search+.png</file>
+        <file>Iconos/Start Menu Search1-.png</file>
+        <file>Iconos/regla.png</file>
+        <file>Iconos/poligono.png</file>
+        <file>Iconos/AvionRojo.png</file>
+        <file>Iconos/AvionVerde.png</file>
+        <file>Iconos/AvionAmarillo.png</file>
+        <file>Iconos/amarillo1.ico</file>
+        <file>Iconos/azul1.ico</file>
+        <file>Iconos/rojo1.ico</file>
+        <file>Iconos/verde1.ico</file>
+        <file>Iconos/rojo1.jpg</file>
+        <file>Iconos/amarillo1.jpg</file>
+        <file>Iconos/verde1.jpg</file>
+        <file>Iconos/azul1.jpg</file>
+        <file>Iconos/amarillo1.png</file>
+        <file>Iconos/azul1.png</file>
+        <file>Iconos/rojo1.png</file>
+        <file>Iconos/verde1.png</file>
+    </qresource>
+    <qresource prefix="/logos">
+        <file>Logos/ecs.png</file>
+        <file>Logos/ECS_Logo_Word.png</file>
+        <file>Logos/LOGOS/01.ico</file>
+        <file>Logos/LOGOS/01.png</file>
+        <file>Logos/LOGOS/02.png</file>
+        <file>Logos/LOGOS/03.png</file>
+        <file>Logos/LOGOS/04.png</file>
+        <file>Logos/LOGOS/05.png</file>
+        <file>Logos/LOGOS/06.png</file>
+        <file>Logos/LOGOS/07.png</file>
+        <file>Logos/LOGOS/08.png</file>
+        <file>Logos/LOGOS/09.png</file>
+        <file>Logos/LOGOS/10.png</file>
+        <file>Logos/LOGOS/FormatFactory01.ico</file>
+    </qresource>
+    <qresource prefix="/">
+        <file>Iconos/HomeH.png</file>
+        <file>Iconos/AvionAmarillo.png</file>
+        <file>Iconos/AvionRojo.png</file>
+        <file>Iconos/AvionVerde.png</file>
+    </qresource>
+</RCC>
