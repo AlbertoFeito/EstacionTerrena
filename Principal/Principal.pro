@@ -160,8 +160,10 @@ DEPENDPATH += $$PWD/../LibMapaStatic
 
 include (qfi/qfi.pri)
 
+# estilos.qrc no está en el repositorio: solo se incluye si existe en local
+exists($$PWD/../build/Recursos/estilos.qrc): RESOURCES += ../build/Recursos/estilos.qrc
+
 RESOURCES += \
-    ../build/Recursos/estilos.qrc \
     ../build/Recursos/estilosnuevos/dark/darkstyle.qrc \
     ../build/Recursos/estilosnuevos/light/lightstyle.qrc \
     ../build/Recursos/res.qrc
