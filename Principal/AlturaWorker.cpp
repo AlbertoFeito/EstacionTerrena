@@ -40,7 +40,7 @@ quint16 AlturaWorker::obtenerAlturaDesdeHGT(double lat, double lon)
 #ifdef Q_OS_WIN
     dirCubaAlt = QDir::rootPath ()+ "CubaAlt/"+hgtFileName;
 #else
-    dirCubaAlt = QDir::homePath ()+"/CubaAlt/"+nombreFichero;
+    dirCubaAlt = QDir::homePath ()+"/CubaAlt/"+hgtFileName;
 #endif
 //    qint16 altura = 0;
 

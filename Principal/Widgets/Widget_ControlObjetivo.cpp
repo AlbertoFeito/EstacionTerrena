@@ -334,7 +334,7 @@ float Widget_ControlObjetivo::Map(float x, float in_min, float in_max, float out
     return (x-in_min)*(out_max - out_min)/(in_max-in_min)+out_min;
 }
 
-void Widget_ControlObjetivo::on_cB_Drones_currentIndexChanged(const QString &arg1)
+void Widget_ControlObjetivo::on_cB_Drones_currentTextChanged(const QString &arg1)
 {
     ui->cB_Vuelos->clear ();
     listDatosVuelos.clear();
@@ -357,7 +357,7 @@ void Widget_ControlObjetivo::on_cB_Drones_currentIndexChanged(const QString &arg
     });
 }
 
-void Widget_ControlObjetivo::on_cB_Vuelos_currentIndexChanged(const QString &arg1)
+void Widget_ControlObjetivo::on_cB_Vuelos_currentTextChanged(const QString &arg1)
 {
     Vuelo = arg1;
     dronActivo = ui->cB_Drones->currentText();

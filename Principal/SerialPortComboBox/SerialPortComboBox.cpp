@@ -1,8 +1,9 @@
-#include "SerialPortComboBox.h"
-#include <windows.h>
 // SerialPortComboBox.cpp
 #include "SerialPortComboBox.h"
 #include <QDebug>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
 
 // Fix para MinGW
 #ifdef __MINGW32__
@@ -14,10 +15,12 @@ typedef struct _PHYSICAL_ADDRESS {
 #endif
 #endif
 
-#include <QMessageBox>
-#include <QSerialPortInfo>
 #include <initguid.h>
 #include <ntddser.h>  // GUID_DEVINTERFACE_COMPORT
+#endif
+
+#include <QMessageBox>
+#include <QSerialPortInfo>
 
 SerialPortComboBox::SerialPortComboBox(QWidget *parent)
     : QComboBox(parent)

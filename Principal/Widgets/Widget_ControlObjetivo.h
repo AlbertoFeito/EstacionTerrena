@@ -167,9 +167,9 @@ private slots:
 
     void on_pB_Graficar_clicked();
 
-    void on_cB_Drones_currentIndexChanged(const QString &arg1);
+    void on_cB_Drones_currentTextChanged(const QString &arg1);
 
-    void on_cB_Vuelos_currentIndexChanged(const QString &arg1);
+    void on_cB_Vuelos_currentTextChanged(const QString &arg1);
 
     void on_hS_Velocidad_valueChanged(int value);
 
