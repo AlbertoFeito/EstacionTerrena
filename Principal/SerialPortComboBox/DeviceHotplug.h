@@ -2,7 +2,14 @@
 #include <QObject>
 #include <QUuid>
 #include <QSharedPointer>
+#ifdef Q_OS_WIN
 #include <Windows.h>
+#else
+// Fuera de Windows no hay notificaciones de dispositivos: se define el GUID
+// de la clase de puertos COM para que el código cliente compile igual.
+static const QUuid GUID_DEVINTERFACE_COMPORT(0x86E0D1E0, 0x8089, 0x11D0,
+                                             0x9C, 0xE4, 0x08, 0x00, 0x3E, 0x30, 0x1F, 0x73);
+#endif
 class DeviceHotplugPrivate;
 
 /**

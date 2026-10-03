@@ -10,6 +10,7 @@
 #include <QStyle>
 #include <QListWidgetItem>
 #include <QHeaderView>
+#include <QRegularExpression>
 
 DroneDialog::DroneDialog(Mode mode, QWidget *parent)
     : QDialog(parent), currentMode(mode), originalMode(mode),
@@ -704,7 +705,7 @@ bool DroneDialog::validateDroneInputs()
         return false;
     }
 
-    if (droneName.contains(QRegExp("[\\\\/:\"*?<>|]"))) {
+    if (droneName.contains(QRegularExpression("[\\\\/:\"*?<>|]"))) {
         QMessageBox::warning(this, "Validación",
             "El nombre del dron contiene caracteres inválidos.\n"
             "No se permiten: \\ / : * ? \" < > |");
@@ -1067,7 +1068,7 @@ bool DroneDialog::validateRouteInputs()
         return false;
     }
 
-    if (routeName.contains(QRegExp("[\\\\/:\"*?<>|]"))) {
+    if (routeName.contains(QRegularExpression("[\\\\/:\"*?<>|]"))) {
         QMessageBox::warning(this, "Validación",
                              "El nombre de la ruta contiene caracteres inválidos.\n"
                              "No se permiten: \\ / : * ? \" < > |");
