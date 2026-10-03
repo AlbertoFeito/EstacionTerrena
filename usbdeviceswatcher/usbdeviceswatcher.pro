@@ -25,6 +25,8 @@ HEADERS += \
     usbdeviceswatcher.h \
     usbdeviceswatcher_p.h
 
+linux: LIBS += -ludev
+
 # Default rules for deployment.
 unix:target.path = /usr/lib
 !isEmpty(target.path): INSTALLS += target

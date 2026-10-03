@@ -36,6 +36,7 @@ static constexpr const wchar_t HwndClassName[] = L"UsbDevicesWatcherPrivate";
 #else
 #include <locale.h>
 #include <unistd.h>
+#include <sys/select.h>
 #endif
 
 UsbDevicesWatcherPrivate::UsbDevicesWatcherPrivate(QObject *parent)
