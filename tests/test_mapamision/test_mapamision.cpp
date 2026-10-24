@@ -180,6 +180,7 @@ private slots:
     void radioDeAcercamientoEnMetrosMercator();
     void puntoCumplidoEnVerde();
     void vehiculoConTrazaYRumbos();
+    void rotulosArrastradosSeQuedan();
     void limpiarVueloDejaLaRuta();
     void arrastrarUnPuntoAvisa();
 
@@ -336,6 +337,35 @@ void TestMapaMision::vehiculoConTrazaYRumbos()
     m_mision->ponerRumbos(50.0, 60.0, QGeoCoordinate(23.12, -82.36), false);
     QCOMPARE(mapa->rangeMarks().size(), 1);
     QCOMPARE(mapa->bearingLine(mapa->rangeMarks().first())->bearingDeg, 60.0);
+}
+
+// Los rotulos que el operador arrastra (el del dron y el de la linea al proximo
+// punto, «095° · 149 m») se quedan donde los deja aunque lleguen mas tramas.
+void TestMapaMision::rotulosArrastradosSeQuedan()
+{
+    auto *mapa = m_mision->mapa();
+    m_mision->actualizarVehiculo(kHabana, 90.0, Qt::red, QPixmap(), "V: 10");
+    m_mision->ponerRumbos(90.0, 95.0, QGeoCoordinate(23.12, -82.36), true);
+    qint64 lineaProximo = -1;
+    for (qint64 id : mapa->rangeMarks()) {
+        const auto l = mapa->bearingLine(id);
+        if (l && l->to.isValid())
+            lineaProximo = id;
+    }
+    QVERIFY(lineaProximo >= 0);
+
+    // Lo que hace el raton al arrastrar: cambiar el desplazamiento.
+    QVERIFY(mapa->setBearingLabelOffset(lineaProximo, QPointF(40, -60)));
+    QVERIFY(mapa->setTargetLabelOffset(mapa->targets().first().id, QPointF(-30, 25)));
+
+    // Mas tramas.
+    for (int i = 0; i < 3; ++i) {
+        m_mision->actualizarVehiculo(QGeoCoordinate(23.10 + i * 0.001, -82.40), 90.0, Qt::red,
+                                     QPixmap(), "V: 11");
+        m_mision->ponerRumbos(90.0, 95.0, QGeoCoordinate(23.12, -82.36), true);
+    }
+    QCOMPARE(mapa->bearingLine(lineaProximo)->labelOffsetPx, QPointF(40, -60));
+    QCOMPARE(mapa->targets().first().labelOffsetPx, QPointF(-30, 25));
 }
 
 // Al desconectar se va el vuelo (dron, rumbos, casa) pero no la ruta.

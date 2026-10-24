@@ -182,7 +182,8 @@ MapaMision::CapaBase MapaMision::capaBase() const
 
 // Reemplaza el objetivo del dron entero (posicion, rumbo, color y rotulo):
 // libmapa conserva su traza al reemplazarlo, y asi el color de la traza sigue
-// al modo de vuelo como en la libreria antigua.
+// al modo de vuelo como en la libreria antigua. El rotulo conserva donde lo
+// haya dejado el operador (se puede arrastrar).
 void MapaMision::actualizarVehiculo(const QGeoCoordinate &pos, double rumboDeg,
                                     const QColor &colorTraza, const QPixmap &simbolo,
                                     const QString &rotulo)
@@ -198,6 +199,8 @@ void MapaMision::actualizarVehiculo(const QGeoCoordinate &pos, double rumboDeg,
     t.label = rotulo;
     t.kind = QStringLiteral("dron");
     t.color = colorTraza;
+    if (const auto anterior = m_mapa->target(kIdVehiculo))
+        t.labelOffsetPx = anterior->labelOffsetPx;
     m_vehiculo = m_mapa->addTarget(t);
 }
 
@@ -221,21 +224,27 @@ double MapaMision::largoHastaBorde() const
 }
 
 // Pone, actualiza o quita cada linea de rumbo segun el modo. Se llama con cada
-// trama y al cambiar de zoom (el largo depende de la escala).
+// trama y al cambiar de zoom (el largo depende de la escala). El rotulo de cada
+// linea se queda donde lo haya arrastrado el operador: si se rehiciera con el
+// desplazamiento a cero en cada trama, no se podria mover.
 void MapaMision::refrescarRumbos()
 {
     if (!m_hayRumbos || m_vehiculo < 0)
         return;
 
-    auto poner = [this](qint64 &id, bool mostrar, const BearingLine &linea) {
+    auto poner = [this](qint64 &id, bool mostrar, BearingLine linea) {
         if (!mostrar) {
             if (id >= 0)
                 m_mapa->removeRangeMark(id);
             id = -1;
             return;
         }
-        if (id >= 0 && m_mapa->updateBearingLine(id, linea))
-            return;
+        if (id >= 0) {
+            if (const auto anterior = m_mapa->bearingLine(id))
+                linea.labelOffsetPx = anterior->labelOffsetPx;
+            if (m_mapa->updateBearingLine(id, linea))
+                return;
+        }
         id = m_mapa->addBearingLine(linea);
     };
 

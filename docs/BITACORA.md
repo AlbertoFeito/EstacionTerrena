@@ -223,3 +223,13 @@ no se marcaba nunca, hiciera lo que hiciera el dron después.
 - `test_simulador`: `laEstacionMarcaTodosLosPuntos` aplica la lógica de la
   estación a las tramas del simulador y exige los tres puntos; sin la regla del
   radio salen dos (comprobado), que es el fallo que se vio.
+
+## 7. Los rótulos del mapa se pueden arrastrar
+
+El rótulo de la línea al próximo punto («095° · 149 m») no se dejaba mover, y
+tapaba el del dron. La causa: `MapaMision` rehacía en cada trama (10 por
+segundo) la línea de rumbo y el objetivo del dron con el desplazamiento del
+rótulo a cero, así que lo que arrastraba el operador se borraba al instante.
+Ahora se conserva el desplazamiento que tengan (libmapa ya los deja arrastrar).
+`test_mapamision::rotulosArrastradosSeQuedan` lo comprueba (sin el arreglo, el
+rótulo vuelve a (0,0) con la siguiente trama).
