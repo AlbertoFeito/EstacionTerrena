@@ -59,6 +59,25 @@ protocolo de siempre (el dron no cambia nada):
 
 Lo elegido se guarda en `conf.ini`, sección `[ENLACE]`.
 
+**Estado del enlace**, siempre a la vista en la barra de estado:
+
+| Color | Qué pasa |
+|---|---|
+| Gris «Sin enlace» | No hay enlace abierto |
+| Verde «tcp 127.0.0.1:5760 · 10 tramas/s · última hace 0,1 s» | Llegan datos |
+| Ámbar | Conectado esperando la primera trama, o más de 1 s sin datos |
+| Rojo «SIN DATOS hace 5 s» | Más de 3 s sin datos: pitido (y otro cada 5 s), aviso en el panel de vuelo y nota en el log |
+
+## Panel de vuelo
+
+Arriba en el mapa, en grande y con unidades: **régimen** (rojo manual, ámbar
+estabilizado, verde automático, como el avión), **misión**, **punto** al que va
+(«P3 / 10»; «✓ 10/10» con la ruta cumplida), **distancia** al punto, **rumbo**
+actual → deseado y **satélites** (rojo por debajo de 6, ámbar por debajo de 8);
+debajo, la posición del dron. Se muestra u oculta en *Estado_Drone → Datos de
+vuelo*. El panel técnico de antes (ganancias, actuadores, convergencias) está en
+*Estado_Drone → Detalle técnico*.
+
 ## Simulador (sin dron)
 
 `simulador_dron` (se compila con el resto, queda junto al ejecutable) es un dron

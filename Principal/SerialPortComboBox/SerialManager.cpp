@@ -27,9 +27,12 @@ SerialManager::SerialManager(QObject *parent)
     // TCP: la conexion se confirma o falla mas tarde.
     m_esperaTcp.setSingleShot(true);
     m_esperaTcp.setInterval(5000);
+    // Primero se desconecta y luego se avisa: el aviso puede ser un dialogo
+    // modal y, mientras esta abierto, la estacion ya tiene que verse desconectada.
     connect(&m_esperaTcp, &QTimer::timeout, this, [this]() {
-        manejarError(tr("No se pudo conectar a %1: no responde").arg(m_currentPort));
+        const QString donde = m_currentPort;
         desconectar();
+        manejarError(tr("No se pudo conectar a %1: no responde").arg(donde));
     });
     connect(m_tcp, &QTcpSocket::connected, this, [this]() {
         m_esperaTcp.stop();
@@ -46,9 +49,10 @@ SerialManager::SerialManager(QObject *parent)
         if (m_enlace != Enlace::Tcp || m_currentPort.isEmpty() || m_cerrando)
             return;
         const QString motivo = m_tcp->errorString();
+        const QString donde = m_currentPort;
         m_esperaTcp.stop();
-        manejarError(tr("Enlace TCP %1: %2").arg(m_currentPort, motivo));
         desconectar();
+        manejarError(tr("Enlace TCP %1: %2").arg(donde, motivo));
     });
 }
 

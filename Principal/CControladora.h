@@ -6,6 +6,9 @@
 #include "Protocolo/ProyeccionMercator.h"
 #include "Protocolo/Tramas.h"
 #include "Protocolo/SeguimientoCumplidos.h"
+#include "Protocolo/MonitorEnlace.h"
+#include "Widgets/PanelVuelo.h"
+#include <QElapsedTimer>
 #include "Ci_Principal.h"
 #include "qfi/qfi_EADI.h"
 #include <QPixmap>
@@ -173,6 +176,21 @@ private:
     QList<QPointF> listPuntoF{};
     SeguimientoCumplidos m_cumplidos;      // que puntos del plan ha cumplido el dron
     void marcarCumplidos(const QPointF &cumplir, const QGeoCoordinate &posDron);
+    int m_puntoActual = -1;                // punto del plan al que va el dron
+
+    // Panel de vuelo (sobre el mapa) y estado del enlace (barra de estado).
+    PanelVuelo *m_panelVuelo = nullptr;
+    QAction *aDetalleTecnico = nullptr;
+    void actualizarPanel(int regimen, int mision, double distancia, double rumbo,
+                         double rumboDeseado, int satelites);
+    MonitorEnlace m_monitor;
+    QElapsedTimer m_reloj;
+    QLabel *m_lEnlace = nullptr;
+    QTimer *m_timerEnlace = nullptr;
+    MonitorEnlace::Estado m_estadoEnlace = MonitorEnlace::Estado::Desconectado;
+    qint64 m_ultimoPitido = 0;
+    void crearIndicadorEnlace();
+    void refrescarIndicadorEnlace();
 
     // QObject interface
     void guardaDatosDron();

@@ -233,3 +233,31 @@ rótulo a cero, así que lo que arrastraba el operador se borraba al instante.
 Ahora se conserva el desplazamiento que tengan (libmapa ya los deja arrastrar).
 `test_mapamision::rotulosArrastradosSeQuedan` lo comprueba (sin el arreglo, el
 rótulo vuelve a (0,0) con la siguiente trama).
+
+## 8. Estado del enlace y panel de vuelo
+
+Lo primero que pedía la vista: si se perdía la telemetría, el dron se quedaba
+quieto en el mapa y nada lo decía; y el panel de datos de arriba no se leía
+(verde oscuro sobre fondo oscuro, letra pequeña, ganancias que no cambian en
+vuelo y columnas «Reserva»).
+
+- **`Protocolo/MonitorEnlace`** (solo Qt Core, la hora se le pasa para poder
+  probarlo): cuenta las tramas de telemetría y dice si el enlace está sin
+  abrir, esperando, bien, lento (> 1 s sin datos) o perdido (> 3 s). En la barra
+  de estado, un indicador con color y texto («tcp 127.0.0.1:5760 · 10 tramas/s ·
+  última hace 0,1 s»); perdido: rojo, pitido al empezar y cada 5 s, aviso en el
+  panel de vuelo y nota en el log (y otra al recuperarse).
+- **`Widgets/PanelVuelo`**: régimen (con el color del avión), misión, punto al
+  que va («P3 / 10», «✓ 10/10»), distancia, rumbo actual → deseado y satélites
+  (rojo < 6, ámbar < 8), en grande y con unidades. Cada columna nace con el
+  ancho de su texto más largo: el panel no cambia de tamaño ni corta valores.
+  El panel técnico (`Widget_Parametros`) sigue en *Estado_Drone → Detalle
+  técnico*; las gráficas, que ocupan el mismo sitio, esconden los dos.
+- Al caerse el enlace TCP ahora se desconecta **antes** de avisar: el aviso es
+  un diálogo modal y, mientras estaba abierto, la estación seguía diciendo
+  «Desconectar».
+- `test_estado` (10 casos): estados y textos del monitor con la hora a mano, y
+  textos y colores del panel.
+- Visto con la aplicación entera en una pantalla virtual contra el simulador:
+  indicador verde en vuelo, panel con los datos, y al cerrar el simulador, el
+  enlace se cierra y luego se avisa.

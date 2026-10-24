@@ -55,6 +55,7 @@ SOURCES += \
     SerialPortComboBox/DeviceHotplug.cpp \
     SerialPortComboBox/SerialManager.cpp \
     SerialPortComboBox/SerialPortComboBox.cpp \
+    Widgets/PanelVuelo.cpp \
     Widgets/PerfilAltitudWidget.cpp \
     Widgets/Widget_Conexion.cpp \
     Widgets/Widget_ControlObjetivo.cpp \
@@ -96,11 +97,13 @@ HEADERS += \
     Reporte/qecsreport.h \
     Protocolo/ProyeccionMercator.h \
     Protocolo/SeguimientoCumplidos.h \
+    Protocolo/MonitorEnlace.h \
     Protocolo/Tramas.h \
     Reporte/sectionclass.h \
     SerialPortComboBox/DeviceHotplug.h \
     SerialPortComboBox/SerialManager.h \
     SerialPortComboBox/SerialPortComboBox.h \
+    Widgets/PanelVuelo.h \
     Widgets/PerfilAltitudWidget.h \
     Widgets/Widget_Conexion.h \
     Widgets/Widget_ControlObjetivo.h \

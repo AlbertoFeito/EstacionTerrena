@@ -57,8 +57,14 @@ RecursosDir.setPath (QDir::currentPath ());
     m_wGraficas->raise();
     m_wGraficas->setVisible (false);
 
+    // Detalle tecnico (ganancias, actuadores): escondido; en vuelo se ve el
+    // panel de vuelo, mas legible.
     m_wParametros = new Widget_Parametros(m_mapa->mapa ());
     m_wParametros->raise();
+    m_wParametros->setVisible (false);
+    m_panelVuelo = new PanelVuelo(m_mapa->mapa ());
+    m_panelVuelo->raise();
+    m_panelVuelo->adjustSize();
     loadInitialData ();
 
     auto vLine = new QFrame();
@@ -93,6 +99,7 @@ RecursosDir.setPath (QDir::currentPath ());
 
     mPrincipal->setWindowTitle ("ECT v.1.2 - Estación de Control Terrestre (CID3)");
     mPrincipal->showMaximized ();
+    QTimer::singleShot (0, this, [this]() { updateOverlayPosition(); });
 }
 
 bool CControladora::eventFilter(QObject *obj, QEvent *event)
@@ -230,6 +237,14 @@ void CControladora::Conectado(bool conectado)
     primeraCoordenada = conectado;
     m_wConexion->chB_Guardar ()->setChecked (false);
     m_Conectado = conectado;
+    m_monitor.setConectado (conectado, m_wConexion->serialManager ()->currentPort (),
+                            m_reloj.isValid () ? m_reloj.elapsed () : 0);
+    if (!conectado && m_panelVuelo) {
+        m_panelVuelo->limpiar ();
+        m_puntoActual = -1;
+    }
+    if (m_lEnlace)
+        refrescarIndicadorEnlace ();
     if (m_wPuntos)
         m_wPuntos->setEnlaceDisponible (conectado);
     if (!conectado && m_esperaAcusePlan) {
@@ -296,6 +311,7 @@ void CControladora::createMenus()
 
     mEstadoDrone = mPrincipal->menuBar ()->addMenu (tr("&Estado_Drone"));
     mEstadoDrone->addAction (aEstadoDrone);
+    mEstadoDrone->addAction (aDetalleTecnico);
     mEstadoDrone->addAction (aVerGraficaDrone);
 
     mRuta = mPrincipal->menuBar()->addMenu(tr("&Rutas"));
@@ -371,7 +387,7 @@ void CControladora::createActions()
     aG_Tema->addAction (aClaro);
     aG_Tema->addAction (aOscuro);
 
-    aEstadoDrone = new QAction(tr("&Datos"),mPrincipal);
+    aEstadoDrone = new QAction(tr("&Datos de vuelo"),mPrincipal);
     aEstadoDrone->setShortcut (QKeySequence(tr("Ctrl+E+D")));
     aEstadoDrone->setStatusTip(tr("Ver estado del drone activo"));
     aEstadoDrone->setCheckable (true);
@@ -408,19 +424,36 @@ void CControladora::createActions()
         // Actualizar combos si es necesario (se hace en Widget_Puntos al abrirse)
     });
 
+    aDetalleTecnico = new QAction(tr("Detalle &técnico (ganancias y actuadores)"), mPrincipal);
+    aDetalleTecnico->setStatusTip(tr("Ver todos los datos del autopiloto"));
+    aDetalleTecnico->setCheckable (true);
+    aDetalleTecnico->setChecked (false);
+
+    // Datos de vuelo y detalle tecnico se pueden ver a la vez; las graficas
+    // ocupan su sitio, asi que los esconden.
     connect (aEstadoDrone,&QAction::triggered,[this]()
     {
-        m_wParametros->setVisible (aEstadoDrone->isChecked ());
+        m_panelVuelo->setVisible (aEstadoDrone->isChecked ());
         m_wGraficas->setVisible (false);
         aVerGraficaDrone->setChecked (false);
+        updateOverlayPosition();
+    });
 
+    connect (aDetalleTecnico,&QAction::triggered,[this]()
+    {
+        m_wParametros->setVisible (aDetalleTecnico->isChecked ());
+        m_wGraficas->setVisible (false);
+        aVerGraficaDrone->setChecked (false);
+        updateOverlayPosition();
     });
 
     connect (aVerGraficaDrone,&QAction::triggered,[this]()
     {
         m_wGraficas->setVisible (aVerGraficaDrone->isChecked ());
         m_wParametros->setVisible (false);
+        m_panelVuelo->setVisible (false);
         aEstadoDrone->setChecked (false);
+        aDetalleTecnico->setChecked (false);
     });
 
     aLogger = new QAction(tr("&Logger"), mPrincipal);
@@ -594,6 +627,7 @@ void CControladora::conecciones()
     connect (m_wConexion,&Widget_Conexion::conectado, this,&CControladora::Conectado );
 
     crearEsperasDeAcuse();
+    crearIndicadorEnlace();
     connect (m_wMandos,&Widget_Mandos::enviaMandosDron, this, &CControladora::enviarMandos);
     connect (m_wGanancias,&Widget_Ganancias_Control::enviaMandosDron, this, &CControladora::enviarMandos);
 
@@ -947,6 +981,12 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
             m_ParametrosValues[24] = m_wConexion->serialManager ()->getS34 ().Convergencia_Cabeceo;
 
             updateParameters(m_ParametrosValues);
+            actualizarPanel (m_wConexion->serialManager ()->getS34 ().Realimentacion_Regimen,
+                             m_wConexion->serialManager ()->getS34 ().Realimentacion_ComendoMision,
+                             m_wConexion->serialManager ()->getS34 ().Distancia_Chequeo,
+                             m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
+                             cursoDeseado,
+                             m_wConexion->serialManager ()->getS34 ().Cantidad_Satelites);
             logHandler.appendLogMessage("TramaConstante(a,b,c):"
                                         "Parámetros actualizados");
 
@@ -1128,6 +1168,12 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
         m_ParametrosValues[24] = s_cuadropteros.Convergencia_Cabeceo;
 
         updateParameters(m_ParametrosValues);
+        actualizarPanel (s_cuadropteros.Realimentacion_Regimen,
+                         s_cuadropteros.Realimentacion_ComandoMision,
+                         s_cuadropteros.Distancia_Chequeo,
+                         s_cuadropteros.Realimentacion_Curso,
+                         cursoDeseado,
+                         s_cuadropteros.Cantidad_Satelites);
 
         //color de avion y traza en dependencia del modo de trabajo manu8al automatico semiautomatico
         QColor colorTraza = Qt::red;
@@ -1435,18 +1481,18 @@ void CControladora::guardaDatosDron()
 
 void CControladora::updateOverlayPosition()
 {   
-    if(m_wParametros && m_mapa) {
-        // Calcular posición relativa al área visible (los overlays son hijos del mapa)
-        QRect visibleRect = m_mapa->mapa ()->rect();
-        int xPos = (visibleRect.right() - m_wParametros->width())/2;
-        int yPos = visibleRect.top();
-
-        // Ajustar altura si sobrepasa el área
-        if(yPos + m_wParametros->height() > visibleRect.bottom()) {
-            yPos = visibleRect.bottom() - m_wParametros->height();
-        }
-
-        m_wParametros->move(xPos, yPos);
+    if(m_panelVuelo && m_mapa) {
+        // Panel de vuelo arriba en el centro y, debajo, el detalle tecnico (los
+        // overlays son hijos del mapa: coordenadas del mapa).
+        const QRect visibleRect = m_mapa->mapa ()->rect();
+        int yPos = visibleRect.top() + 8;
+        m_panelVuelo->adjustSize();
+        // Centrado, pero sin salirse por la izquierda si el mapa es estrecho.
+        m_panelVuelo->move(qMax(8, (visibleRect.width() - m_panelVuelo->width())/2), yPos);
+        if (m_panelVuelo->isVisible())
+            yPos += m_panelVuelo->height() + 6;
+        if (m_wParametros)
+            m_wParametros->move((visibleRect.width() - m_wParametros->width())/2, yPos);
     }
     if(m_wGraficas && m_mapa) {
         m_wGraficas->setFixedWidth (m_mapa->mapa ()->width () * 0.95);
@@ -1510,6 +1556,8 @@ void CControladora::loadInitialData()
     for(int i = 0; i < 25;i++)//24parametros
         m_ParametrosValues.append (0.0);
     updateParameters(m_ParametrosValues);
+    if (m_panelVuelo)
+        m_panelVuelo->limpiar ();
 }
 
 void CControladora::timerEvent(QTimerEvent *event)
@@ -1659,9 +1707,90 @@ void CControladora::crearEsperasDeAcuse()
 // tambien el ultimo).
 void CControladora::marcarCumplidos(const QPointF &cumplir, const QGeoCoordinate &posDron)
 {
+    m_puntoActual = listPuntoF.lastIndexOf (cumplir);
     const QPointF m = ProyeccionMercator::aMetros (posDron);
     const auto nuevos = m_cumplidos.actualizar (cumplir, QPointF(m.y (), m.x ()),
                                                 mandos.Radio_Acercamiento);
     for (int i : nuevos)
         m_mapa->marcarPuntoCumplido (i);
+}
+
+// Pone en el panel de vuelo los datos de una trama (ala fija o cuadroptero).
+// El punto al que va solo tiene sentido en automatico.
+void CControladora::actualizarPanel(int regimen, int mision, double distancia, double rumbo,
+                                    double rumboDeseado, int satelites)
+{
+    PanelVuelo::Datos d;
+    d.regimen = regimen;
+    d.mision = mision;
+    d.puntoActual = regimen == 2 ? m_puntoActual : -1;
+    d.totalPuntos = listPuntoF.size ();
+    d.puntosCumplidos = m_cumplidos.cuantos ();
+    d.distanciaPunto = distancia;
+    d.rumbo = rumbo;
+    d.rumboDeseado = rumboDeseado;
+    d.satelites = satelites;
+    d.posicion = geoPos;
+    m_panelVuelo->mostrar (d);
+}
+
+// Indicador del enlace en la barra de estado: cuenta las tramas de telemetria
+// que llegan y cada 250 ms dice como va (gris sin enlace, ambar esperando o
+// lento, verde bien, rojo sin datos).
+void CControladora::crearIndicadorEnlace()
+{
+    m_reloj.start ();
+    m_lEnlace = new QLabel(mPrincipal);
+    m_lEnlace->setMinimumWidth (330);
+    mPrincipal->statusBar ()->insertPermanentWidget (0, m_lEnlace);
+
+    SerialManager *enlace = m_wConexion->serialManager ();
+    connect (enlace, &SerialManager::newTramaConstanteReceived, this,
+             [this]() { m_monitor.registrarTrama (m_reloj.elapsed ()); });
+    connect (enlace, &SerialManager::newCuadropteros, this,
+             [this]() { m_monitor.registrarTrama (m_reloj.elapsed ()); });
+
+    m_timerEnlace = new QTimer(this);
+    connect (m_timerEnlace, &QTimer::timeout, this, &CControladora::refrescarIndicadorEnlace);
+    m_timerEnlace->start (250);
+    refrescarIndicadorEnlace ();
+}
+
+// Texto y color del indicador segun el estado del enlace. Al perder los datos
+// (mas de 3 s sin tramas): rojo, aviso en el panel de vuelo, pitido (y otro
+// cada 5 s mientras dure) y nota en el log; al recuperarlos, nota en el log.
+void CControladora::refrescarIndicadorEnlace()
+{
+    const qint64 ahora = m_reloj.elapsed ();
+    const MonitorEnlace::Estado e = m_monitor.estado (ahora);
+
+    QString fondo = QStringLiteral("#616161"), letra = QStringLiteral("white");
+    switch (e) {
+    case MonitorEnlace::Estado::Desconectado: break;
+    case MonitorEnlace::Estado::Esperando:
+    case MonitorEnlace::Estado::Lento:   fondo = QStringLiteral("#ffb300"); letra = QStringLiteral("black"); break;
+    case MonitorEnlace::Estado::Bien:    fondo = QStringLiteral("#2e7d32"); break;
+    case MonitorEnlace::Estado::Perdido: fondo = QStringLiteral("#c62828"); break;
+    }
+    m_lEnlace->setText (m_monitor.texto (ahora));
+    m_lEnlace->setStyleSheet (QStringLiteral("QLabel { background: %1; color: %2; padding: 1px 8px;"
+                                             " border-radius: 3px; font-weight: bold; }")
+                                  .arg (fondo, letra));
+
+    LogHandler& logHandler = LogHandler::getInstance ();
+    if (e == MonitorEnlace::Estado::Perdido) {
+        m_panelVuelo->setAviso (tr("SIN DATOS DEL DRON hace %1 s")
+                                    .arg (m_monitor.msDesdeUltima (ahora) / 1000));
+        if (m_estadoEnlace != MonitorEnlace::Estado::Perdido || ahora - m_ultimoPitido > 5000) {
+            QApplication::beep ();
+            m_ultimoPitido = ahora;
+        }
+        if (m_estadoEnlace != MonitorEnlace::Estado::Perdido)
+            logHandler.appendLogMessage ("Enlace: sin datos del dron (" + m_monitor.descripcion () + ")");
+    } else {
+        m_panelVuelo->setAviso (QString());
+        if (m_estadoEnlace == MonitorEnlace::Estado::Perdido && e == MonitorEnlace::Estado::Bien)
+            logHandler.appendLogMessage ("Enlace: datos recuperados");
+    }
+    m_estadoEnlace = e;
 }
