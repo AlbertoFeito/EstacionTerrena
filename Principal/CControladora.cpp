@@ -655,13 +655,26 @@ void CControladora::conecciones()
 
     // Posicion del raton y cota del terreno en la barra de estado (antes iban
     // al log en cada movimiento del raton).
+    // La cota se lee de disco: se pide solo cuando el raton se para (150 ms),
+    // no en cada movimiento, para no frenar el arrastre del mapa.
+    m_timerCota = new QTimer(this);
+    m_timerCota->setSingleShot (true);
+    m_timerCota->setInterval (150);
+    connect(m_timerCota, &QTimer::timeout, [this]()
+    {
+        auto alt = alturaWorkerPTR->obtenerAltura (m_posRaton.latitude (),m_posRaton.longitude ());
+        m_lPosicionRaton->setText (QString("Lat: %1  Lon: %2  Alt: %3 m")
+                                   .arg (m_posRaton.latitude (),0,'f',6)
+                                   .arg (m_posRaton.longitude (),0,'f',6)
+                                   .arg (alt));
+    });
     connect(m_mapa, &MapaMision::posicionRaton,[this](const QGeoCoordinate &coord)
     {
-        auto alt = alturaWorkerPTR->obtenerAltura (coord.latitude (),coord.longitude ());
-        m_lPosicionRaton->setText (QString("Lat: %1  Lon: %2  Alt: %3 m")
+        m_posRaton = coord;
+        m_lPosicionRaton->setText (QString("Lat: %1  Lon: %2")
                                    .arg (coord.latitude (),0,'f',6)
-                                   .arg (coord.longitude (),0,'f',6)
-                                   .arg (alt));
+                                   .arg (coord.longitude (),0,'f',6));
+        m_timerCota->start ();
     });
 
     connect(m_mapa, &MapaMision::medidaTerminada,[this](double rumbo, double distancia)
@@ -1596,14 +1609,10 @@ QString CControladora::dirPaqueteMapa() const
 
 // Crea el mapa (libmapa) sobre el paquete de datos, le da al worker de alturas
 // de donde leer la cota y pone en la barra de estado la posicion del raton.
-// Los poligonos que dibuje el operador se guardan junto a la base de drones.
 void CControladora::crearMapa()
 {
     const QString paquete = dirPaqueteMapa();
-    const QString dirDatos = RecursosDir.path() + "/Recursos/data";
-    QDir().mkpath(dirDatos);
-
-    m_mapa = new MapaMision(paquete, dirDatos + "/dibujos.db", mPrincipal);
+    m_mapa = new MapaMision(paquete, mPrincipal);
     alturaWorkerPTR->setMapa(m_mapa);
 
     m_lPosicionRaton = new QLabel(mPrincipal);

@@ -8,6 +8,15 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 Cuando se haya probado el cambio a libmapa (§1) con el dron y el mapa real:
 borrar la carpeta `LibMapaStatic/` (ya no se compila).
 
+## Mapa
+
+- **Overlays del paquete** (capas fijas y mapa híbrido): hoy se esconden (§3).
+  Decidir cuáles se ven y con qué menú.
+- **Guardar los polígonos del operador**: con `autosaveFeatures = false` no se
+  guardan; se puede hacer a mano con `saveFeaturesTo` / `loadFeaturesFrom`.
+- **Lentitud al hacer zoom**: comprobar en el PC si con §3 (sin híbrido) ya va
+  fluido; si no, medir qué capa base o qué tamaño de ventana lo frena.
+
 ## Fase 2: mejora del código (por orden)
 
 1. **Orden del repo**

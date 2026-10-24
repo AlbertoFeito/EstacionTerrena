@@ -28,17 +28,17 @@ const QColor kColorPunto(Qt::red);
 const QColor kColorCumplido(Qt::green);
 }
 
-// Abre el mapa sobre el paquete, prepara las capas propias y engancha las
-// senales de libmapa a las de la estacion. Si el paquete no trae elevacion se
-// prueba la carpeta de .hgt de siempre (C:/CubaAlt), para no perder la cota del
-// terreno que usan la ruta y el perfil.
-MapaMision::MapaMision(const QString &dirPaquete, const QString &ficheroEntidades,
-                       QWidget *padre)
+// Abre el mapa sobre el paquete como los ejemplos de libmapa (dataDir y sin
+// autoguardado), deja solo las capas base, prepara las capas propias y engancha
+// las senales de libmapa a las de la estacion. Si el paquete no trae elevacion
+// se prueba la carpeta de .hgt de siempre (C:/CubaAlt), para no perder la cota
+// del terreno que usan la ruta y el perfil.
+MapaMision::MapaMision(const QString &paquete, QWidget *padre)
     : QObject(nullptr)
 {
     MapConfig cfg;
-    cfg.dataDir = dirPaquete;
-    cfg.featuresDbFile = ficheroEntidades;
+    cfg.dataDir = paquete;
+    cfg.autosaveFeatures = false;   // no tocar las entidades del paquete
     m_mapa = new MapWidget(cfg, padre);
     // Hijo del mapa: se destruye con el, y el proveedor de simbolos (que
     // captura this) nunca sobrevive al mapa.
@@ -56,8 +56,10 @@ MapaMision::MapaMision(const QString &dirPaquete, const QString &ficheroEntidade
         }
     }
 
+    soloCapasBase();
     crearCapas();
     ponerCapaBase(CapaBase::Satelital);
+    m_mapa->setScaleBarVisible(true);
 
     m_mapa->setTargetTrailLength(-1);   // la traza entera, como antes (TODAS)
     m_mapa->setTargetSymbolProvider([this](const MapTarget &t) {
@@ -127,8 +129,20 @@ QStringList MapaMision::avisos() const
     return m_mapa->dataWarnings() + m_mapa->elevationWarnings();
 }
 
+// Fuera el mapa hibrido (las teselas vectoriales que el paquete pone encima de
+// la base) y las capas fijas del paquete (aguas, corredores...): de momento la
+// estacion solo muestra las capas base, satelital y OSM. Como no se carga
+// ninguna base de entidades, las capas que hay al abrir son todas del paquete.
+void MapaMision::soloCapasBase()
+{
+    if (m_mapa->hasVectorOverlay())
+        m_mapa->clearVectorOverlay();
+    for (const LayerInfo &capa : m_mapa->featureLayers())
+        m_mapa->setFeatureLayerVisible(capa.id, false);
+}
+
 // Capas de la estacion: la ruta (puntos arrastrables), la mision (la casa, que
-// no se selecciona) y los dibujos del operador, que si se guardan.
+// no se selecciona) y los dibujos del operador.
 void MapaMision::crearCapas()
 {
     m_mapa->addFeatureLayer(kCapaDibujos, tr("Dibujos"), 40);

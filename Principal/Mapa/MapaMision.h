@@ -27,9 +27,9 @@ struct PuntoRutaMapa
  * "pon el dron aqui" o "pinta esta ruta" y no saben de objetivos, capas ni
  * marcaciones; si libmapa cambia, solo se toca esta clase.
  *
- * Todo lo que dibuja va en capas TEMPORALES (no se guardan en la base de
- * entidades): la ruta vive en la base de rutas de Widget_Puntos y el vuelo se
- * rehace con la telemetria.
+ * No guarda nada en la base de entidades del paquete (autosaveFeatures =
+ * false, como los ejemplos que dibujan): la ruta vive en la base de rutas de
+ * Widget_Puntos y el vuelo se rehace con la telemetria.
  */
 class MapaMision : public QObject
 {
@@ -37,10 +37,11 @@ class MapaMision : public QObject
 public:
     enum class CapaBase { Satelital, OSM };
 
-    //! Crea el mapa sobre el paquete de datos \a dirPaquete (la carpeta con
-    //! `mapa.json`). Lo que el operador dibuje a mano se guarda en
-    //! \a ficheroEntidades. \a padre es el widget donde se incrusta.
-    MapaMision(const QString &dirPaquete, const QString &ficheroEntidades, QWidget *padre);
+    //! Crea el mapa sobre el paquete de datos \a paquete (su `mapa.json` o la
+    //! carpeta que lo tiene), como en los ejemplos de libmapa: solo las capas
+    //! base del paquete, sin mapa hibrido ni capas fijas. \a padre es el widget
+    //! donde se incrusta.
+    MapaMision(const QString &paquete, QWidget *padre);
 
     //! El widget del mapa, para meterlo en un layout o colgarle overlays.
     libmapa::MapWidget *mapa() const;
@@ -110,6 +111,7 @@ signals:
     void medidaTerminada(double rumboDeg, double distanciaM);
 
 private:
+    void soloCapasBase();
     void crearCapas();
     void refrescarRumbos();
     void refrescarAnillos();

@@ -114,6 +114,8 @@ private:
 
     MapaMision *m_mapa = nullptr;
     QLabel *m_lPosicionRaton = nullptr;
+    QTimer *m_timerCota = nullptr;       // la cota se pide al parar el raton
+    QGeoCoordinate m_posRaton;
     QString dirPaqueteMapa() const;
     void crearMapa();
     void pintarRutaEnMapa(bool visible);

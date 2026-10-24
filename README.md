@@ -42,9 +42,9 @@ Por este orden:
 
 3. `<carpeta de trabajo>/../Recursos`, como siempre.
 
-Si el paquete no trae elevación, se usa la carpeta de `.hgt` de siempre
-(`C:/CubaAlt`). Los polígonos que dibuja el operador se guardan en
-`Recursos/data/dibujos.db`, junto a la base de drones.
+Del paquete solo se muestran las capas base (Satelital y OSM): ni mapa híbrido
+ni capas fijas, de momento. Si el paquete no trae elevación, se usa la carpeta
+de `.hgt` de siempre (`C:/CubaAlt`).
 
 ## Documentación
 

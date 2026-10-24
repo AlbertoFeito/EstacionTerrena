@@ -73,10 +73,58 @@ bool crearBase(const QString &fichero)
     return ok;
 }
 
-// Paquete con dos capas ("osm" y "satelital") sobre la misma base.
+// MBTiles vectorial minimo (una tesela MVT con una linea en la capa
+// "transportation"), para que el paquete declare un mapa hibrido de verdad.
+bool crearHibrido(const QString &fichero)
+{
+    auto varint = [](quint32 n) {
+        QByteArray out;
+        do {
+            quint8 b = n & 0x7f;
+            n >>= 7;
+            out.append(char(n ? (b | 0x80) : b));
+        } while (n);
+        return out;
+    };
+    auto campo = [&](quint8 tag, const QByteArray &datos) {
+        return QByteArray(1, char(tag)) + varint(quint32(datos.size())) + datos;
+    };
+    QByteArray geometria;
+    for (quint32 v : {9u, 20u, 20u, 10u, 400u, 400u})   // MoveTo(10,10) LineTo(+200,+200)
+        geometria += varint(v);
+    const QByteArray entidad = QByteArray("\x08\x01\x18\x02", 4) + campo(0x22, geometria);
+    const QByteArray capa = QByteArray("\x78\x02", 2) + campo(0x0a, "transportation")
+                          + campo(0x12, entidad) + QByteArray("\x28", 1) + varint(4096);
+    const QByteArray tesela = campo(0x1a, capa);
+
+    bool ok = false;
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("hibrido"));
+        db.setDatabaseName(fichero);
+        if (db.open()) {
+            QSqlQuery q(db);
+            ok = q.exec(QStringLiteral("CREATE TABLE metadata (name TEXT, value TEXT)"))
+              && q.exec(QStringLiteral("CREATE TABLE tiles (zoom_level INTEGER, tile_column INTEGER, "
+                                       "tile_row INTEGER, tile_data BLOB)"))
+              && q.exec(QStringLiteral("INSERT INTO metadata VALUES ('name', 'calles'), ('format', 'pbf'), "
+                                       "('minzoom', '3'), ('maxzoom', '12'), "
+                                       "('bounds', '-82.8,22.8,-82.0,23.4')"));
+            q.prepare(QStringLiteral("INSERT INTO tiles VALUES (12, 1110, 2312, ?)"));
+            q.addBindValue(tesela);
+            ok = ok && q.exec();
+        }
+        db.close();
+    }
+    QSqlDatabase::removeDatabase(QStringLiteral("hibrido"));
+    return ok;
+}
+
+// Paquete con dos capas ("osm" y "satelital") sobre la misma base, un mapa
+// hibrido encima y una capa fija.
 bool crearPaquete(const QString &dir)
 {
-    if (!crearBase(dir + "/osm.sqlitedb") || !crearBase(dir + "/satelital.sqlitedb"))
+    if (!crearBase(dir + "/osm.sqlitedb") || !crearBase(dir + "/satelital.sqlitedb")
+        || !crearHibrido(dir + "/calles.mbtiles"))
         return false;
     QJsonArray datasets;
     for (const QString &id : {QStringLiteral("osm"), QStringLiteral("satelital")}) {
@@ -91,7 +139,17 @@ bool crearPaquete(const QString &dir)
                                 {"bounds", QJsonObject{{"north", 23.4}, {"west", -82.8},
                                                        {"south", 22.8}, {"east", -82.0}}}}},
         {"start", QJsonObject{{"layer", "osm"}, {"center", QJsonArray{23.1, -82.4}}, {"zoom", 12}}},
-        {"datasets", datasets}};
+        {"datasets", datasets},
+        // El mapa hibrido que pone libmapa encima de la base: la estacion lo quita.
+        {"vectorOverlay", QJsonObject{{"filePath", "calles.mbtiles"}}},
+        // Una capa fija que el paquete pide VISIBLE: la estacion la esconde.
+        {"overlays", QJsonArray{QJsonObject{{"id", "costa"}, {"name", "Costa"},
+                                            {"file", "costa.geo"}, {"visible", true}}}}};
+    QFile geo(dir + "/costa.geo");
+    if (!geo.open(QIODevice::WriteOnly))
+        return false;
+    geo.write("-82.50,23.15,\n-82.40,23.16,\n-82.30,23.15,\n");
+    geo.close();
     QFile f(dir + "/mapa.json");
     if (!f.open(QIODevice::WriteOnly))
         return false;
@@ -117,6 +175,7 @@ private slots:
     void cleanup();
 
     void abrePaqueteYCambiaCapa();
+    void soloCapasBaseConEscala();
     void pintaYQuitaLaRuta();
     void radioDeAcercamientoEnMetrosMercator();
     void puntoCumplidoEnVerde();
@@ -142,7 +201,7 @@ void TestMapaMision::init()
 {
     m_ventana = new QWidget;
     m_ventana->resize(800, 600);
-    m_mision = new MapaMision(m_dir.path(), m_dir.path() + "/dibujos.db", m_ventana);
+    m_mision = new MapaMision(m_dir.path() + "/mapa.json", m_ventana);
     m_mision->mapa()->setGeometry(0, 0, 800, 600);
     m_ventana->show();
     QVERIFY(QTest::qWaitForWindowExposed(m_ventana));
@@ -165,6 +224,31 @@ void TestMapaMision::abrePaqueteYCambiaCapa()
     QCOMPARE(m_mision->capaBase(), MapaMision::CapaBase::Satelital);
     QVERIFY(m_mision->ponerCapaBase(MapaMision::CapaBase::OSM));
     QCOMPARE(m_mision->mapa()->baseLayerId(), QStringLiteral("osm"));
+}
+
+// Como los ejemplos: barra de escala, sin mapa hibrido y con las capas fijas
+// del paquete escondidas aunque el mapa.json las pida visibles.
+void TestMapaMision::soloCapasBaseConEscala()
+{
+    // El paquete de prueba declara un hibrido valido: un MapWidget a pelo lo pone.
+    {
+        libmapa::MapConfig cfg;
+        cfg.dataDir = m_dir.path();
+        cfg.autosaveFeatures = false;
+        libmapa::MapWidget aPelo(cfg);
+        QVERIFY(aPelo.hasVectorOverlay());
+    }
+    auto *mapa = m_mision->mapa();
+    QVERIFY(mapa->isScaleBarVisible());
+    QVERIFY(!mapa->hasVectorOverlay());
+    bool hayCosta = false;
+    for (const auto &capa : mapa->featureLayers()) {
+        if (capa.id == QStringLiteral("costa")) {
+            hayCosta = true;
+            QVERIFY(!capa.visible);
+        }
+    }
+    QVERIFY(hayCosta);
 }
 
 // Una linea y un punto arrastrable por vertice, cada uno con su anillo.

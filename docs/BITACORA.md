@@ -100,3 +100,27 @@ real y el mapa de verdad en el PC.
   de Windows: eso estropeaba tildes y eñes, y obligaba a instalar el módulo
   «Qt 5 Compatibility» en Qt 6. Ahora usa la codificación local del sistema
   (`toLocal8Bit`); el fichero de log sigue en UTF-8.
+
+## 3. El mapa como en los ejemplos: solo capas base
+
+Con el mapa real en el PC se veía, pero iba lento al hacer zoom, y el paquete
+ponía encima el **mapa híbrido** (las teselas vectoriales de calles que
+`mapa.json` declara en `vectorOverlay`), que hay que dibujar en cada zoom.
+
+- `MapaMision` crea el mapa como los ejemplos de libmapa: `MapConfig::dataDir`
+  y `autosaveFeatures = false` (no toca la base de entidades del paquete) y
+  la barra de escala visible.
+- Solo las capas base que ya teníamos (Satelital y OSM): se quita el mapa
+  híbrido y se esconden las capas fijas del paquete (aguas, corredores...),
+  aunque el `mapa.json` las pida visibles. Los overlays se verán más adelante.
+- La cota del ratón se pide a la base de elevación solo cuando el ratón se para
+  (150 ms), no en cada movimiento.
+- El aviso `QLayout: Attempting to add QLayout "" to QWidget "", which already
+  has a layout` venía de `Widget_ControlObjetivo`: creaba el layout de los
+  botones del reporte con la ventana como padre, que ya tenía otro. Se crea sin
+  padre (luego entra con `addLayout`).
+- `test_mapamision` fabrica ahora un MBTiles vectorial mínimo y una capa fija
+  visible en su paquete: comprueba que un `MapWidget` a pelo pone el híbrido y
+  que `MapaMision` lo quita y esconde la capa fija.
+- Los polígonos que dibuja el operador ya no se guardan (antes iban a
+  `Recursos/data/dibujos.db`); anotado en pendientes.
