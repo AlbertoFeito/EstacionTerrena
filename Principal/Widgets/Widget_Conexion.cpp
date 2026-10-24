@@ -24,7 +24,9 @@ Widget_Conexion::Widget_Conexion(QWidget *parent) :
     // Configurar hotplug
     m_hotplug = new DeviceHotplug(this);
     QVector<QUuid> uuids;
+#ifdef Q_OS_WIN
     uuids << GUID_DEVINTERFACE_COMPORT;
+#endif
     m_hotplug->init(uuids);
     m_serialManager = new SerialManager(this);
     connect(m_serialManager, &SerialManager::connectionChanged, this, &Widget_Conexion::handleConnectionChange);

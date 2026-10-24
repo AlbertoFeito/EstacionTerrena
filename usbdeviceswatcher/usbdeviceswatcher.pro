@@ -17,6 +17,8 @@ MOC_DIR = $$DESTDIR/.moc/$$TARGET
 RCC_DIR = $$DESTDIR/.qrc/$$TARGET
 UI_DIR = $$DESTDIR/.ui/$$TARGET
 
+linux: LIBS += -ludev
+
 SOURCES += \
     usbdeviceswatcher.cpp
 
