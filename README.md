@@ -85,7 +85,9 @@ son vectores de 150 px; la línea morada va al punto al que se dirige el dron.
 
 A la izquierda, en vertical: **Enlace** (dron, enlace y conectar), **Drones**,
 **Mandos**, **Ganancias** y **Objetivo**. En *Mandos*, régimen y misión son
-botones que se encienden; *Usar posición actual del dron como casa* copia la
+botones que se encienden; arriba se ve en qué está el dron de verdad («Dron:
+Automático · Puntos», en ámbar si no es lo elegido; al conectar, la pestaña
+toma lo que diga el dron). *Usar posición actual del dron como casa* copia la
 última posición recibida a la casa, y **Enviar mandos** lo manda todo. Cuando
 el dron confirma, la «H» del mapa pasa a la casa enviada.
 
@@ -116,7 +118,8 @@ de 10 puntos en *Rutas*; para que la siga, *Mandos* en régimen automático.
    los 10 puntos, que se pueden arrastrar o editar en la tabla) y **Enviar**. Cuando el dron confirma, el botón se pone verde y
    la barra de estado dice «✓ El dron ha confirmado el plan». Sin respuesta en
    3 s, aviso; si lo rechaza, se reenvía hasta 3 veces.
-3. *Mandos*: **Automático**, la misión y **Enviar** (verde y «✓ El dron ha
+3. Con la ruta en el dron, este sigue dando vueltas a casa: solo la cumple en
+   automático. *Mandos*: **Automático**, la misión y **Enviar** (verde y «✓ El dron ha
    confirmado los mandos»). El dron sigue la ruta: líneas de rumbo, puntos
    cumplidos en verde.
 
