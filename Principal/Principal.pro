@@ -8,12 +8,6 @@ greaterThan(QT_MAJOR_VERSION, 5) {
     QT += svg
 }
 
-# Para QTextCodec compatibility
-greaterThan(QT_MAJOR_VERSION, 5) {
-    # Qt 6 - necesita core5compat
-    QT += core5compat
-    CONFIG += c++17
-}
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 

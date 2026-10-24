@@ -9,7 +9,7 @@ El mapa es **libmapa** (repositorio `LibMapaStatic`), instalada aparte.
 ## Qué hace falta
 
 - Qt 5.14 / 5.15 / 6.x con los módulos `sql`, `network`, `positioning`,
-  `printsupport`, `serialport` y `svg` (y `core5compat` en Qt 6).
+  `printsupport`, `serialport` y `svg`. Ya no hace falta `core5compat`.
 - **libmapa instalada con el mismo Qt**: por defecto en `C:/libmapa/qt6`
   (o `qt5`). Ver `docs/DESPLIEGUE.md` de LibMapaStatic. Trae dentro QCustomPlot
   2.1.1; la estación solo usa su cabecera (`Principal/graficar/qcustomplot.h`).
@@ -28,11 +28,19 @@ Los tests (`tests/`) se lanzan con `make check` (en Linux sin pantalla,
 
 ## Dónde busca el mapa
 
-En `<carpeta de trabajo>/../Recursos`, como siempre. Otra carpeta se indica
-en `conf.ini` (junto al ejecutable, en la carpeta de trabajo):
+Por este orden:
 
-    [MAPA]
-    paquete=D:/QtPro/Recursos
+1. **El primer argumento**: la ruta del `mapa.json` (o de su carpeta).
+
+       EstacionTerrena.exe D:/QtPro/Recursos/mapa.json
+
+   En Qt Creator: *Proyectos → Ejecutar → Argumentos de la línea de órdenes*.
+2. `conf.ini` (en la carpeta de trabajo):
+
+       [MAPA]
+       paquete=D:/QtPro/Recursos/mapa.json
+
+3. `<carpeta de trabajo>/../Recursos`, como siempre.
 
 Si el paquete no trae elevación, se usa la carpeta de `.hgt` de siempre
 (`C:/CubaAlt`). Los polígonos que dibuja el operador se guardan en

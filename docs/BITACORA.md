@@ -87,3 +87,16 @@ estación compila y enlaza contra ella, los 15 casos de test pasan y la
 aplicación arranca sin pantalla sobre un paquete de prueba (abre las dos capas
 y pinta teselas) y, sin paquete, avisa sin caerse. Falta la prueba con el dron
 real y el mapa de verdad en el PC.
+
+## 2. El mapa por argumento y fuera core5compat
+
+- **Ruta del mapa por argumento.** `EstacionTerrena D:/QtPro/Recursos/mapa.json`
+  (o la carpeta) abre ese paquete sin depender de la carpeta de trabajo, que
+  cambia según se lance desde Qt Creator, un acceso directo o el despliegue.
+  Manda sobre `conf.ini` (`[MAPA] paquete=`), y éste sobre la ruta de siempre
+  (`<trabajo>/../Recursos`). Si no se abre, el aviso explica las tres vías.
+- **Sin `core5compat`.** Solo lo pedía `LogHandler`, que pasaba a GB2312 (la
+  codificación del autor original del logger) lo que escribía en la consola
+  de Windows: eso estropeaba tildes y eñes, y obligaba a instalar el módulo
+  «Qt 5 Compatibility» en Qt 6. Ahora usa la codificación local del sistema
+  (`toLocal8Bit`); el fichero de log sigue en UTF-8.

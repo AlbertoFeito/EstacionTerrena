@@ -1,6 +1,7 @@
 #include "CControladora.h"
 #include <QAction>
 #include <QMenuBar>
+#include <QCoreApplication>
 #include <QDir>
 #include <QScrollBar>
 #include <logger/LogHandler.h>
@@ -1575,11 +1576,18 @@ void CControladora::updateStatus(double lat, double lon, bool isValid) {
     logHandler.appendLogMessage (status);
 }
 
-// Carpeta del paquete de datos del mapa (la que tiene mapa.json). Se puede
-// fijar en conf.ini, seccion [MAPA], clave paquete; si no, es la de siempre:
-// <carpeta de trabajo>/../Recursos (D:/QtPro/Recursos en el PC de desarrollo).
+// Paquete de datos del mapa: la ruta de su mapa.json (o la carpeta que lo
+// contiene). Por orden: el primer argumento de la linea de ordenes
+// (EstacionTerrena D:/QtPro/Recursos/mapa.json), conf.ini (seccion [MAPA],
+// clave paquete) o la de siempre, <carpeta de trabajo>/../Recursos.
 QString CControladora::dirPaqueteMapa() const
 {
+    const QStringList args = QCoreApplication::arguments();
+    for (int i = 1; i < args.size(); ++i) {
+        if (!args.at(i).startsWith('-'))
+            return QDir::fromNativeSeparators(args.at(i));
+    }
+
     MyQSetting settings;
     const QString fichero = QDir::currentPath() + "/conf.ini";
     const QString defecto = RecursosDir.path() + "/Recursos";
@@ -1606,7 +1614,9 @@ void CControladora::crearMapa()
         logHandler.appendLogMessage("Mapa: no se pudo abrir " + paquete + ": " + m_mapa->error());
         QMessageBox::warning(mPrincipal, tr("Mapa"),
                              tr("No se pudo abrir el paquete de mapas en %1:\n%2\n\n"
-                                "Indica su carpeta en conf.ini, sección [MAPA], clave paquete.")
+                                "Pasa la ruta de su mapa.json como argumento "
+                                "(EstacionTerrena D:/QtPro/Recursos/mapa.json) "
+                                "o indícala en conf.ini, sección [MAPA], clave paquete.")
                              .arg(QDir::toNativeSeparators(paquete), m_mapa->error()));
         return;
     }
