@@ -13,6 +13,10 @@
 //   simulador_dron --regimen 2 --mision 2   ... y lo repite una y otra vez
 //   simulador_dron --serie COM6          tambien por puerto serie
 //   simulador_dron --casa 22.98,-82.46 --velocidad 70 --hz 20
+//   simulador_dron --corte 120:20        corte de radio a los 120 s durante 20 s
+//
+// Sin enlace (se va la estacion TCP o hay un corte) el dron vuelve a casa y da
+// vueltas sobre ella a V.RTH y a la altura de casa hasta recibir mandos.
 //
 // En la estacion: elegir el dron (del tipo que se simula) en Configuracion,
 // el enlace (TCP o UDP) y Conectar.
@@ -78,8 +82,10 @@ int main(int argc, char *argv[])
     const QCommandLineOption oMision("mision", "Misión inicial: 0 puntos, 1 circular, 2 repetir, 3 RTL (0).",
                                      "0..3", "0");
     const QCommandLineOption oOrbita("radio-orbita", "Radio de las vueltas a casa, en m (300).", "m", "300");
+    const QCommandLineOption oCorte("corte", "Corte de radio simulado: a los INICIO s, durante DURACION s "
+                                             "(p. ej. 120:20). El dron vuelve a casa.", "inicio:duracion");
     p.addOptions({oTipo, oTcp, oSinTcp, oUdp, oUdpDestino, oSinUdp, oSerie, oHz, oCasa, oVel, oAlt,
-                  oRegimen, oMision, oOrbita});
+                  oRegimen, oMision, oOrbita, oCorte});
     p.process(app);
 
     SimuladorDron::Opciones op;
@@ -139,6 +145,17 @@ int main(int argc, char *argv[])
     QObject::connect(&enlaces, &EnlacesSimulador::recibido, &dron, &SimuladorDron::recibir);
     QObject::connect(&dron, &SimuladorDron::aviso, &escribir);
     QObject::connect(&enlaces, &EnlacesSimulador::aviso, &escribir);
+    QObject::connect(&enlaces, &EnlacesSimulador::enlacePerdido, &dron, &SimuladorDron::perderEnlace);
+    if (p.isSet(oCorte)) {
+        const QStringList corte = p.value(oCorte).split(':');
+        const int inicio = corte.value(0).toInt();
+        const int duracion = corte.value(1).toInt();
+        if (corte.size() != 2 || inicio < 0 || duracion <= 0) {
+            escribir("--corte tiene que ser inicio:duracion en segundos (p. ej. 120:20)");
+            return 2;
+        }
+        QTimer::singleShot(inicio * 1000, &enlaces, [&enlaces, duracion]() { enlaces.cortar(duracion); });
+    }
 
     escribir(QString("Dron simulado: %1, %2 Hz, casa %3")
                  .arg(op.tipo == SimuladorDron::Tipo::AlaFija ? "ala fija" : "cuadróptero")

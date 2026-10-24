@@ -343,3 +343,34 @@ anterior, la ruta nueva se cumplía al llegar aunque la pestaña dijera «Manual
 - `test_mandos` (nuevo, 4 casos): adopta el estado del dron, avisa si no
   coincide, la trama sale con lo elegido y V.RTH no crece al arrancar. 70
   pruebas en total.
+
+## 11. Sin enlace, el dron vuelve a casa
+
+El usuario repitió cómo es un vuelo: se conecta en manual, se manda la ruta (el
+dron no hace nada), estabilizado (el autopiloto ayuda, pero manda el operador),
+automático (cumple la ruta) y, al acabar, a casa a dar vueltas a la velocidad y
+la altura de casa. **Si se corta la transmisión, el dron vuelve a casa y da
+vueltas igual**. En manual y estabilizado manda el operador; como aquí no hay
+mando de radio, el simulador da vueltas a casa.
+
+Lo que ya hacía el simulador se ha fijado con una prueba de la secuencia
+entera (`secuenciaDelOperadorHastaCasa`, con V.RTH y altura de casa en los
+mandos). Lo nuevo es la pérdida de enlace:
+
+- `SimuladorDron::perderEnlace()` → fase **«ENLACE PERDIDO»**: en cualquier
+  régimen, a casa a V.RTH y a la altura de casa, y vueltas sobre ella (lo mismo
+  que al terminar la misión y que con RTL). Solo unos **mandos nuevos** lo
+  sacan de ahí (el operador vuelve a mandar); una ruta, no.
+- `EnlacesSimulador` avisa de que no hay enlace cuando se va la última
+  estación TCP y con un **corte de radio simulado**: `--corte 120:20` corta a
+  los 120 s durante 20 s (no sale ni entra nada por ninguna vía). La estación lo
+  ve como «SIN DATOS» (rojo y pitido), y sirve también con UDP y serie.
+- Probado con la app: con `--corte 15:8`, la estación pasa a «SIN DATOS hace
+  5 s» y el simulador escribe «Ahora: ENLACE PERDIDO…» y vuelve a casa.
+- Pruebas nuevas en `test_simulador`: la secuencia entera, sin enlace en
+  automático y en manual, y el aviso de las vías (corte y TCP). 73 en total.
+
+Queda una pregunta para quien programa el autopiloto (en `PENDIENTES.md`): la
+estación no manda nada periódico, así que el autopiloto real tiene que
+detectar la pérdida por la radio o por tiempo; y qué dice en la telemetría
+mientras vuelve sin enlace.

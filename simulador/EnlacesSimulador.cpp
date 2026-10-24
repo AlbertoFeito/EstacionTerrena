@@ -4,6 +4,7 @@
 #include <QSerialPort>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include <QTimer>
 #include <QUdpSocket>
 
 // Sin vias abiertas hasta que se pidan.
@@ -26,11 +27,18 @@ bool EnlacesSimulador::abrirTcp(quint16 puerto, QString *error)
             m_clientes.append(s);
             emit aviso(tr("Estación conectada por TCP desde %1:%2")
                            .arg(s->peerAddress().toString()).arg(s->peerPort()));
-            connect(s, &QTcpSocket::readyRead, this, [this, s]() { emit recibido(s->readAll()); });
+            connect(s, &QTcpSocket::readyRead, this, [this, s]() {
+                const QByteArray bytes = s->readAll();
+                if (!m_cortado)
+                    emit recibido(bytes);
+            });
+            // Sin ninguna estacion TCP, el dron se ha quedado sin enlace.
             connect(s, &QTcpSocket::disconnected, this, [this, s]() {
                 m_clientes.removeAll(s);
                 s->deleteLater();
                 emit aviso(tr("Estación TCP desconectada"));
+                if (m_clientes.isEmpty())
+                    emit enlacePerdido();
             });
         }
     });
@@ -55,8 +63,11 @@ bool EnlacesSimulador::abrirUdp(quint16 puertoLocal, const QString &hostRemoto,
         return false;
     }
     connect(m_udp, &QUdpSocket::readyRead, this, [this]() {
-        while (m_udp->hasPendingDatagrams())
-            emit recibido(m_udp->receiveDatagram().data());
+        while (m_udp->hasPendingDatagrams()) {
+            const QByteArray bytes = m_udp->receiveDatagram().data();
+            if (!m_cortado)
+                emit recibido(bytes);
+        }
     });
     return true;
 }
@@ -75,7 +86,11 @@ bool EnlacesSimulador::abrirSerie(const QString &puerto, QString *error)
             *error = tr("Serie %1: %2").arg(puerto, m_serie->errorString());
         return false;
     }
-    connect(m_serie, &QSerialPort::readyRead, this, [this]() { emit recibido(m_serie->readAll()); });
+    connect(m_serie, &QSerialPort::readyRead, this, [this]() {
+        const QByteArray bytes = m_serie->readAll();
+        if (!m_cortado)
+            emit recibido(bytes);
+    });
     return true;
 }
 
@@ -91,13 +106,30 @@ quint16 EnlacesSimulador::puertoUdp() const
     return m_udp ? m_udp->localPort() : 0;
 }
 
-// Lo mismo por todas las vias abiertas.
+// Lo mismo por todas las vias abiertas (nada durante un corte).
 void EnlacesSimulador::enviar(const QByteArray &bytes)
 {
+    if (m_cortado)
+        return;
     for (QTcpSocket *s : qAsConst(m_clientes))
         s->write(bytes);
     if (m_udp)
         m_udp->writeDatagram(bytes, m_udpRemoto, m_udpPuertoRemoto);
     if (m_serie && m_serie->isOpen())
         m_serie->write(bytes);
+}
+
+// Corte de radio de unos segundos: ni se manda ni se recibe nada; la estacion
+// lo vera como "SIN DATOS" y el dron se queda sin enlace.
+void EnlacesSimulador::cortar(int segundos)
+{
+    if (m_cortado || segundos <= 0)
+        return;
+    m_cortado = true;
+    emit aviso(tr("CORTE DE RADIO simulado durante %1 s").arg(segundos));
+    emit enlacePerdido();
+    QTimer::singleShot(segundos * 1000, this, [this]() {
+        m_cortado = false;
+        emit aviso(tr("Fin del corte de radio: el dron sigue volviendo a casa hasta recibir mandos"));
+    });
 }

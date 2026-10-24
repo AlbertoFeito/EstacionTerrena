@@ -52,6 +52,7 @@ public:
         Circular,         //!< Vueltas alrededor del punto al que iba.
         MisionCumplida,   //!< Plan recorrido (mision Puntos): vuelve a casa y da vueltas.
         Regreso,          //!< RTL: volviendo a casa (y luego vueltas sobre ella).
+        EnlacePerdido,    //!< Sin enlace con la estacion: a casa y vueltas sobre ella.
         Paracaidas        //!< Bajando con el paracaidas.
     };
 
@@ -96,12 +97,18 @@ public:
     Fase fase() const { return m_fase; }
     double altura() const { return m_altura; }
     double velocidad() const { return m_velocidad; }
+    //! Se perdio el enlace y aun no han llegado mandos nuevos.
+    bool enlacePerdido() const { return m_enlacePerdido; }
     //! Nombre de la fase para la consola.
     static QString nombreFase(Fase f);
 
 public slots:
     //! Bytes de la estacion (mandos o plan), en trozos cualesquiera.
     void recibir(const QByteArray &bytes);
+    //! Se ha cortado el enlace con la estacion: el dron vuelve a casa y da
+    //! vueltas sobre ella (a V.RTH y a la altura de casa), en cualquier
+    //! regimen, hasta que lleguen mandos otra vez.
+    void perderEnlace();
 
 signals:
     //! Bytes para la estacion: telemetria y acuses.
@@ -136,6 +143,7 @@ private:
     int m_regimen = 0;
     int m_comando = 0;
     bool m_paracaidas = false;
+    bool m_enlacePerdido = false;
     double m_radio = 20.0;      // metros Mercator (como Radio_Acercamiento)
     double m_velocidadRtl = 0;  // m/s (V.RTH)
     double m_alturaCasa = 0;    // m (Home[2]); 0 = la de siempre

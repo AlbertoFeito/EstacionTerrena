@@ -81,6 +81,7 @@ QString SimuladorDron::nombreFase(Fase f)
     case Fase::Circular:       return tr("circular sobre el punto");
     case Fase::MisionCumplida: return tr("misión cumplida: vuelve a casa y da vueltas sobre ella");
     case Fase::Regreso:        return tr("RTL: volviendo a casa");
+    case Fase::EnlacePerdido:  return tr("ENLACE PERDIDO: vuelve a casa y da vueltas sobre ella");
     case Fase::Paracaidas:     return tr("paracaídas");
     }
     return QString();
@@ -126,6 +127,8 @@ QByteArray SimuladorDron::avanzar(double dt)
     Fase f;
     if (m_paracaidas)
         f = Fase::Paracaidas;
+    else if (m_enlacePerdido)
+        f = Fase::EnlacePerdido;
     else if (m_regimen != 2)
         f = Fase::VueltasCasa;
     else if (m_comando == 3)
@@ -191,9 +194,10 @@ QByteArray SimuladorDron::avanzar(double dt)
         break;
 
     case Fase::MisionCumplida:
-    case Fase::Regreso: {
+    case Fase::Regreso:
+    case Fase::EnlacePerdido: {
         // A casa a V.RTH y a la altura de casa; ya alli, vueltas sobre ella.
-        // Igual al terminar la mision Puntos que con RTL.
+        // Igual al terminar la mision Puntos, con RTL y sin enlace.
         const QPointF c = ProyeccionMercator::aMetros(m_casa);
         m_objetivo = Punto();
         m_objetivo.pos = m_casa;
@@ -351,6 +355,10 @@ void SimuladorDron::alRecibirMandos(const sMANDOS &m, bool sumaCorrecta)
         emit bytesSalida(Tramas::acuse("xyz", false));
         return;
     }
+    if (m_enlacePerdido) {
+        m_enlacePerdido = false;
+        emit aviso(tr("Enlace recuperado: vuelve a obedecer los mandos"));
+    }
     m_regimen = std::max(0, std::min(2, int(m.Regimen)));
     m_comando = std::max(0, std::min(3, int(m.Comando_Mision)));
     m_paracaidas = m.Paracaidas != 0;
@@ -394,6 +402,16 @@ void SimuladorDron::alRecibirMandos(const sMANDOS &m, bool sumaCorrecta)
                    .arg(m_casa.toString(QGeoCoordinate::Degrees)).arg(m_alturaCasa)
                    .arg(m_paracaidas ? tr(", PARACAÍDAS") : QString()));
     emit bytesSalida(Tramas::acuse("xyz", true));
+}
+
+// Sin enlace: a casa. Solo unos mandos nuevos (el operador otra vez al
+// mando) lo sacan de ahi; un plan no, porque no dice que hacer.
+void SimuladorDron::perderEnlace()
+{
+    if (m_enlacePerdido)
+        return;
+    m_enlacePerdido = true;
+    emit aviso(tr("Sin enlace con la estación"));
 }
 
 // Plan: hasta 10 puntos en metros Mercator (norte, este), altura y velocidad.

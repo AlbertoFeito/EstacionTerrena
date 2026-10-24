@@ -7,9 +7,11 @@
 #include "Protocolo/ProyeccionMercator.h"
 #include "Protocolo/SeguimientoCumplidos.h"
 #include "Protocolo/Tramas.h"
+#include "EnlacesSimulador.h"
 #include "SimuladorDron.h"
 
 #include <QSignalSpy>
+#include <QTcpSocket>
 #include <QtTest>
 
 #include <cstring>
@@ -83,6 +85,9 @@ private slots:
     void rtlVuelveACasaAVelocidadYAltura();
     void manualDaVueltasACasa();
     void laRutaSoloSeSigueEnAutomatico();
+    void secuenciaDelOperadorHastaCasa();
+    void sinEnlaceVuelveACasaEnCualquierRegimen();
+    void enlacesAvisanDelCorte();
     void paracaidasBajaAlSuelo();
     void gananciasSoloLasMarcadas();
 };
@@ -291,6 +296,98 @@ void TestSimulador::laRutaSoloSeSigueEnAutomatico()
     dron.avanzar(0.1);
     QCOMPARE(dron.fase(), SimuladorDron::Fase::Ruta);
     QVERIFY(avanzarHasta(dron, 600.0, [&] { return dron.puntoActual() >= 1; }));
+}
+
+// La secuencia de vuelo: conectado en manual, ruta (no hace nada),
+// estabilizado (sigue sobre casa), automatico (cumple la ruta) y, al acabar,
+// a casa a dar vueltas a la velocidad (V.RTH) y la altura de casa.
+void TestSimulador::secuenciaDelOperadorHastaCasa()
+{
+    SimuladorDron dron(SimuladorDron::Opciones{});
+    auto conCasa = [](int regimen) {
+        sMANDOS m = mandos(regimen, 0);
+        m.Home[2] = 90.0f;           // altura de casa
+        m.Velocidad_RTH = 12.0f;     // m/s
+        return Tramas::mandos(m);
+    };
+    dron.recibir(conCasa(0));
+    dron.recibir(tramaPlan(150.0, 20.0));
+    avanzarHasta(dron, 30.0, [] { return false; });
+    QCOMPARE(dron.fase(), SimuladorDron::Fase::VueltasCasa);
+    dron.recibir(conCasa(1));
+    avanzarHasta(dron, 30.0, [] { return false; });
+    QCOMPARE(dron.fase(), SimuladorDron::Fase::VueltasCasa);
+
+    dron.recibir(conCasa(2));
+    QVERIFY(avanzarHasta(dron, 900.0, [&] { return dron.fase() == SimuladorDron::Fase::MisionCumplida; }));
+    avanzarHasta(dron, 300.0, [] { return false; });
+    QCOMPARE(dron.fase(), SimuladorDron::Fase::MisionCumplida);
+    QVERIFY(dron.posicion().distanceTo(dron.casa()) < 450.0);
+    QVERIFY(qAbs(dron.altura() - 90.0) < 3.0);
+    QVERIFY(qAbs(dron.velocidad() - 12.0) < 0.5);
+}
+
+// Sin enlace, en automatico siguiendo la ruta o en manual: a casa a V.RTH y a
+// la altura de casa, y vueltas sobre ella. Un plan no lo saca de ahi; los
+// mandos (el operador otra vez al mando) si.
+void TestSimulador::sinEnlaceVuelveACasaEnCualquierRegimen()
+{
+    for (int regimen : {2, 0}) {
+        SimuladorDron dron(SimuladorDron::Opciones{});
+        sMANDOS m = mandos(regimen, 0);
+        m.Home[2] = 80.0f;
+        m.Velocidad_RTH = 14.0f;
+        dron.recibir(tramaPlan(150.0, 20.0));
+        dron.recibir(Tramas::mandos(m));
+        avanzarHasta(dron, 60.0, [] { return false; });
+        QCOMPARE(dron.fase(), regimen == 2 ? SimuladorDron::Fase::Ruta : SimuladorDron::Fase::VueltasCasa);
+
+        dron.perderEnlace();
+        QVERIFY(dron.enlacePerdido());
+        avanzarHasta(dron, 400.0, [] { return false; });
+        QCOMPARE(dron.fase(), SimuladorDron::Fase::EnlacePerdido);
+        QVERIFY(dron.posicion().distanceTo(dron.casa()) < 450.0);
+        QVERIFY(qAbs(dron.altura() - 80.0) < 3.0);
+        QVERIFY(qAbs(dron.velocidad() - 14.0) < 0.5);
+
+        dron.recibir(tramaPlan(150.0, 20.0));
+        dron.avanzar(0.1);
+        QCOMPARE(dron.fase(), SimuladorDron::Fase::EnlacePerdido);
+
+        dron.recibir(Tramas::mandos(m));
+        dron.avanzar(0.1);
+        QVERIFY(!dron.enlacePerdido());
+        QCOMPARE(dron.fase(), regimen == 2 ? SimuladorDron::Fase::Ruta : SimuladorDron::Fase::VueltasCasa);
+    }
+}
+
+// Las vias del simulador avisan de que no hay enlace cuando se va la ultima
+// estacion TCP y al empezar un corte; durante el corte no pasa nada.
+void TestSimulador::enlacesAvisanDelCorte()
+{
+    EnlacesSimulador enlaces;
+    QString error;
+    QVERIFY2(enlaces.abrirTcp(0, &error), qPrintable(error));
+    QSignalSpy perdido(&enlaces, &EnlacesSimulador::enlacePerdido);
+    QSignalSpy recibido(&enlaces, &EnlacesSimulador::recibido);
+
+    QTcpSocket estacion;
+    estacion.connectToHost(QHostAddress::LocalHost, enlaces.puertoTcp());
+    QVERIFY(estacion.waitForConnected(3000));
+    QTRY_COMPARE(enlaces.clientesTcp(), 1);
+
+    enlaces.cortar(1);
+    QVERIFY(enlaces.cortado());
+    QCOMPARE(perdido.count(), 1);
+    estacion.write("xyz");
+    QTest::qWait(200);
+    QCOMPARE(recibido.count(), 0);              // durante el corte no llega nada
+    QTRY_VERIFY_WITH_TIMEOUT(!enlaces.cortado(), 3000);
+    estacion.write("xyz");
+    QTRY_COMPARE(recibido.count(), 1);
+
+    estacion.disconnectFromHost();
+    QTRY_COMPARE(perdido.count(), 2);           // se fue la ultima estacion
 }
 
 // Paracaidas: se para y baja hasta el suelo.

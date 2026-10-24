@@ -103,6 +103,7 @@ la vez TCP (servidor en 5760) y UDP (escucha en 14550, manda a
     simulador_dron --tipo cuadro       cuadróptero
     simulador_dron --regimen 2         sigue el plan en cuanto llega
     simulador_dron --serie COM6        también por puerto serie
+    simulador_dron --corte 120:20      corte de radio a los 120 s, de 20 s
     simulador_dron --help              todas las opciones
 
 En la estación: *Selecciona Drone* uno del mismo tipo que el simulado (ala fija
@@ -127,14 +128,15 @@ Lo que hace el simulador con cada mando:
 
 | Mando | Qué hace |
 |---|---|
-| Régimen Manual / Estabilizado | Vueltas alrededor de casa (no hay mando de radio) |
-| Automático + misión **Puntos** | Recorre la ruta una vez; al acabar, vuelve a casa y da vueltas sobre ella |
+| Régimen Manual / Estabilizado | El control lo tiene el operador; como aquí no hay mando de radio, da vueltas alrededor de casa. Con la ruta ya enviada, no la sigue |
+| Automático + misión **Puntos** | Recorre la ruta una vez; al acabar, vuelve a casa y da vueltas sobre ella a V.RTH y a la altura de casa |
 | Automático + **Circular** | Vueltas alrededor del punto al que iba |
 | Automático + **Repetir misión** | Recorre la ruta una y otra vez |
 | Automático + **RTL** | Vuelve a casa a V.RTH y a la altura de casa, y da vueltas sobre ella |
 | RPunto | Radio en el que da un punto por cumplido (metros Mercator, como el autopiloto) |
 | Casa (lat, lon, alt) y V.RTH | Destino, altura y velocidad del RTL |
 | Paracaídas | Se para y baja a 5 m/s hasta el suelo |
+| Sin enlace (se va la estación TCP, o `--corte`) | En cualquier régimen, vuelve a casa y da vueltas sobre ella a V.RTH y a la altura de casa, hasta que lleguen mandos nuevos |
 | Ganancias (pestaña Ganancias) | Devuelve en la telemetría solo las marcadas para actualizar |
 
 Cada punto de la ruta trae su altura y su velocidad, y el simulador las usa.

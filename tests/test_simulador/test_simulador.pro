@@ -1,6 +1,6 @@
 # El simulador obedeciendo los mandos (regimen, mision, RTL, paracaidas,
 # ganancias), sin red: se le dan las tramas de la estacion y se avanza a mano.
-QT += testlib positioning
+QT += testlib positioning network serialport
 QT -= gui
 CONFIG += c++17 testcase console
 CONFIG -= app_bundle
@@ -11,6 +11,8 @@ SOURCES += \
     test_simulador.cpp \
     $$PWD/../../Principal/Protocolo/Tramas.cpp \
     $$PWD/../../Principal/Protocolo/ProyeccionMercator.cpp \
-    $$PWD/../../simulador/SimuladorDron.cpp
+    $$PWD/../../simulador/SimuladorDron.cpp \
+    $$PWD/../../simulador/EnlacesSimulador.cpp
 HEADERS += \
-    $$PWD/../../simulador/SimuladorDron.h
+    $$PWD/../../simulador/SimuladorDron.h \
+    $$PWD/../../simulador/EnlacesSimulador.h
