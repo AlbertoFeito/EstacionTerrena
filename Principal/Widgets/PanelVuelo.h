@@ -8,14 +8,17 @@
 
 #include <limits>
 
+class QFrame;
 class QLabel;
+class QToolButton;
 
 /*!
  * \brief Panel de vuelo sobre el mapa: lo que importa en vuelo, en grande, con
  *        unidades y colores de alerta.
  *
- * Sustituye en vuelo al panel tecnico (Widget_Parametros, con ganancias y
- * actuadores), que sigue disponible en Estado_Drone -> Detalle tecnico.
+ * Debajo, plegado, el detalle tecnico (ganancias, actuadores, rumbo de la IMU,
+ * convergencias): se abre con su boton o con Estado_Drone -> Detalle tecnico.
+ * Antes era otro panel aparte (Widget_Parametros) que tapaba el mapa.
  *
  * Muestra: regimen (con el color del avion: rojo manual, amarillo estabilizado,
  * verde automatico), mision, punto al que va ("P3 / 10", o "✓ 10/10" con la
@@ -40,6 +43,18 @@ public:
         QGeoCoordinate posicion;
     };
 
+    //! Detalle tecnico; lo que no se sepa, NaN (sale un guion).
+    struct Detalle {
+        int tipoDron = 0;                 //!< 0 ala fija, 1 cuadroptero (nombres de los actuadores)
+        //! P e I de cabeceo, banqueo, velocidad y altura; P de curso; P e I de rumbo.
+        double ganancias[11];
+        double actuadores[4];             //!< estabilizadores, alerones, motor, rumbo (o los 4 motores)
+        double rumboImu = std::numeric_limits<double>::quiet_NaN();
+        double convergenciaBanqueo = std::numeric_limits<double>::quiet_NaN();
+        double convergenciaCabeceo = std::numeric_limits<double>::quiet_NaN();
+        Detalle();
+    };
+
     explicit PanelVuelo(QWidget *parent = nullptr);
 
     //! Pone los datos de una trama.
@@ -50,15 +65,33 @@ public:
     //! vacio lo quita y vuelve a la posicion del dron.
     void setAviso(const QString &aviso);
 
+    //! Pone el detalle tecnico de una trama (aunque este plegado).
+    void mostrarDetalle(const Detalle &d);
+    //! Abre o pliega el detalle tecnico (sin emitir detalleConmutado).
+    void setDetalleVisible(bool visible);
+    bool detalleVisible() const;
+
     //! Texto y color de un campo ("regimen", "mision", "punto", "distancia",
-    //! "rumbo", "satelites", "posicion"). Para pruebas.
+    //! "rumbo", "satelites", "posicion"; del detalle "g_cabeceo", "g_banqueo",
+    //! "g_velocidad", "g_altura", "g_curso", "g_rumbo", "act0".."act3",
+    //! "rumboImu", "convBanqueo", "convCabeceo"). Para pruebas.
     QString valor(const QString &campo) const;
     QColor color(const QString &campo) const;
+    //! Nombre del actuador \a i (cambia con el tipo de dron). Para pruebas.
+    QString nombreActuador(int i) const;
+
+signals:
+    //! El operador ha abierto o plegado el detalle con su boton.
+    void detalleConmutado(bool visible);
 
 private:
     void poner(const QString &campo, const QString &texto, const QColor &color);
+    QFrame *crearDetalle();
 
     QHash<QString, QLabel *> m_valores;
+    QFrame *m_detalle = nullptr;
+    QToolButton *m_botonDetalle = nullptr;
+    QLabel *m_nombresActuador[4] = {};
     QString m_aviso;
     QString m_textoPosicion;
 };

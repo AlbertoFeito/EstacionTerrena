@@ -35,7 +35,6 @@
 #include "Widgets/Widget_Estado_Cuadroptero.h"
 
 #include <Widgets/Widget_Ganancias_Control.h>
-#include <Widgets/Widget_Parametros.h>
 
 #include "Estructuras/Estructuras.h"
 
@@ -151,7 +150,7 @@ private:
     Widget_Puntos *m_wPuntos;
     Widget_Ganancias_Control *m_wGanancias;
 
-    Widget_Parametros *m_wParametros;
+    PanelVuelo::Detalle m_detalle;   // detalle tecnico de la ultima trama
 
     bool m_ControlObjetivo = false;
     bool m_Conectado = false;

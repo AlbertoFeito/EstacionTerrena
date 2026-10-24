@@ -43,9 +43,6 @@ borrar la carpeta `LibMapaStatic/` (ya no se compila).
      indicador usa el 6 como velocidad y el 8 como rumbo): parece un campo
      cambiado. Se ha mantenido igual al pasar a libmapa.
    - `m_ParametrosValues` tiene 25 valores para 24 nombres de `listaParametros`.
-   - `Widget_Mandos::on_pB_Enviar_clicked` mete en la trama la DIRECCIÓN del
-     puntero (`&mandos`, que ya es un puntero). No hace daño porque
-     `CControladora` rehace la trama, pero sobra.
    - Rutas que dependen del directorio de trabajo (`currentPath().cdUp()`).
    - `usbdeviceswatcher` en Linux nunca arranca su bucle de udev.
 3. ~~Protocolo en un módulo aparte con tests~~: hecho en §4 (`Protocolo/Tramas`).

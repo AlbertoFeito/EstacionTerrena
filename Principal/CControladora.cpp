@@ -36,7 +36,9 @@ indicador = new qfi_EADI(mPrincipal);
 
 tabOpciones = new QTabWidget(mPrincipal);
     tabOpciones->setFixedWidth (300);
-    tabOpciones->setTabPosition (QTabWidget::North);
+    // Pestanas a la izquierda, en vertical: con nombres cortos caben todas y
+    // enteras (arriba no cabian en 300 px y salian cortadas con flechas).
+    tabOpciones->setTabPosition (QTabWidget::West);
     tabOpciones->setTabShape (QTabWidget::Rounded);
 
 
@@ -57,14 +59,15 @@ RecursosDir.setPath (QDir::currentPath ());
     m_wGraficas->raise();
     m_wGraficas->setVisible (false);
 
-    // Detalle tecnico (ganancias, actuadores): escondido; en vuelo se ve el
-    // panel de vuelo, mas legible.
-    m_wParametros = new Widget_Parametros(m_mapa->mapa ());
-    m_wParametros->raise();
-    m_wParametros->setVisible (false);
+    // Panel de vuelo con el detalle tecnico (ganancias, actuadores) plegado
+    // debajo: un solo panel en lugar de dos.
     m_panelVuelo = new PanelVuelo(m_mapa->mapa ());
     m_panelVuelo->raise();
     m_panelVuelo->adjustSize();
+    connect (m_panelVuelo, &PanelVuelo::detalleConmutado, this, [this](bool abierto) {
+        aDetalleTecnico->setChecked (abierto);
+        updateOverlayPosition ();
+    });
     loadInitialData ();
 
     auto vLine = new QFrame();
@@ -116,10 +119,21 @@ bool CControladora::eventFilter(QObject *obj, QEvent *event)
     return QObject::eventFilter(obj, event);
 }
 
+// Detalle tecnico del panel de vuelo a partir del vector de siempre: 6 rumbo
+// de la IMU, 8..18 ganancias, 19..22 actuadores, 23..24 convergencias. El
+// cuadroptero no manda ganancias: se quedan sin dato. Tambien da al boton
+// "Usar posicion actual del dron como casa" la ultima posicion.
 void CControladora::updateParameters(const QVector<double> &values) {
-    m_wParametros->updateValues (values);
-    auto cantSatelites = m_wConexion->serialManager ()->getS34 ().Cantidad_Satelites;
-    m_wParametros->updateSatelites (int(cantSatelites));
+    const bool cuadro = m_detalle.tipoDron != 0;
+    m_detalle.rumboImu = values[6];
+    for (int i = 0; i < 11; ++i)
+        m_detalle.ganancias[i] = cuadro ? std::numeric_limits<double>::quiet_NaN () : values[8 + i];
+    for (int i = 0; i < 4; ++i)
+        m_detalle.actuadores[i] = values[19 + i];
+    m_detalle.convergenciaBanqueo = values[23];
+    m_detalle.convergenciaCabeceo = values[24];
+    m_panelVuelo->mostrarDetalle (m_detalle);
+    m_wMandos->setPosicionDron (geoPos);
 }
 
 void CControladora::initTabOpciones()
@@ -144,6 +158,7 @@ QWidget *w2 = new QWidget();
     QGridLayout *LayOutMandos = new QGridLayout;
     m_wMandos = new Widget_Mandos(&mandos);
     m_wMandosCuadroptero = new Widget_Mandos_Cuadroptero();
+    LayOutMandos->setContentsMargins (0, 0, 0, 0);
     LayOutMandos->addWidget (m_wMandos);
     LayOutMandos->addWidget (m_wMandosCuadroptero);
     w3->setLayout (LayOutMandos);
@@ -160,11 +175,17 @@ QWidget *w4 = new QWidget();
     LayOutConexion->addWidget (m_wConexion);
     w5->setLayout (LayOutConexion);
 
-    tabOpciones->addTab (w5,"Configuración");
-    tabOpciones->addTab (w1,"Datos_Drones");
-    tabOpciones->addTab (w3,"Mandos");
-    tabOpciones->addTab (w4,"Ganacias_Control");
-    tabOpciones->addTab (w2,"Control_Objetivo");
+    const struct { QWidget *pagina; const char *nombre; const char *ayuda; } pestanas[] = {
+        {w5, "Enlace", "Configuración: dron, enlace y conexión"},
+        {w1, "Drones", "Datos de los drones"},
+        {w3, "Mandos", "Régimen, misión, navegación y casa"},
+        {w4, "Ganancias", "Ganancias del control"},
+        {w2, "Objetivo", "Control de objetivo"},
+    };
+    for (const auto &p : pestanas) {
+        const int i = tabOpciones->addTab (p.pagina, tr(p.nombre));
+        tabOpciones->setTabToolTip (i, tr(p.ayuda));
+    }
 
     mPrincipal->installEventFilter(this);
 }
@@ -273,7 +294,7 @@ void CControladora::Conectado(bool conectado)
                 tipoDrone = tipodrone == "Ala fija" ? 0 : 1;
                 vueloID = res.value(0, "Vuelos").toInt () ;
                 m_wConexion->serialManager ()->setTipo_dron (tipoDrone);
-                m_wParametros->setTipo_dron (tipoDrone);
+                m_detalle.tipoDron = tipoDrone;
             });
         }
         else
@@ -439,9 +460,14 @@ void CControladora::createActions()
         updateOverlayPosition();
     });
 
+    // El detalle va dentro del panel de vuelo: abrirlo lo muestra tambien.
     connect (aDetalleTecnico,&QAction::triggered,[this]()
     {
-        m_wParametros->setVisible (aDetalleTecnico->isChecked ());
+        m_panelVuelo->setDetalleVisible (aDetalleTecnico->isChecked ());
+        if (aDetalleTecnico->isChecked ()) {
+            m_panelVuelo->setVisible (true);
+            aEstadoDrone->setChecked (true);
+        }
         m_wGraficas->setVisible (false);
         aVerGraficaDrone->setChecked (false);
         updateOverlayPosition();
@@ -450,10 +476,8 @@ void CControladora::createActions()
     connect (aVerGraficaDrone,&QAction::triggered,[this]()
     {
         m_wGraficas->setVisible (aVerGraficaDrone->isChecked ());
-        m_wParametros->setVisible (false);
         m_panelVuelo->setVisible (false);
         aEstadoDrone->setChecked (false);
-        aDetalleTecnico->setChecked (false);
     });
 
     aLogger = new QAction(tr("&Logger"), mPrincipal);
@@ -1482,17 +1506,13 @@ void CControladora::guardaDatosDron()
 void CControladora::updateOverlayPosition()
 {   
     if(m_panelVuelo && m_mapa) {
-        // Panel de vuelo arriba en el centro y, debajo, el detalle tecnico (los
-        // overlays son hijos del mapa: coordenadas del mapa).
+        // Panel de vuelo (con su detalle) arriba en el centro (los overlays
+        // son hijos del mapa: coordenadas del mapa).
         const QRect visibleRect = m_mapa->mapa ()->rect();
         int yPos = visibleRect.top() + 8;
         m_panelVuelo->adjustSize();
         // Centrado, pero sin salirse por la izquierda si el mapa es estrecho.
         m_panelVuelo->move(qMax(8, (visibleRect.width() - m_panelVuelo->width())/2), yPos);
-        if (m_panelVuelo->isVisible())
-            yPos += m_panelVuelo->height() + 6;
-        if (m_wParametros)
-            m_wParametros->move((visibleRect.width() - m_wParametros->width())/2, yPos);
     }
     if(m_wGraficas && m_mapa) {
         m_wGraficas->setFixedWidth (m_mapa->mapa ()->width () * 0.95);
@@ -1697,6 +1717,9 @@ void CControladora::crearEsperasDeAcuse()
     });
     connect (enlace, &SerialManager::si_AcuseReciboXYZ, this, [this]() {
         m_esperaAcuseMandos->stop ();
+        // La "H" del mapa es la casa que el dron acaba de aceptar (norte, este).
+        if (mandos.Home[0] != 0.0f || mandos.Home[1] != 0.0f)
+            m_mapa->ponerHome (ProyeccionMercator::aGeo (QPointF(mandos.Home[1], mandos.Home[0])));
         mPrincipal->statusBar ()->showMessage (tr("✓ El dron ha confirmado los mandos"), 5000);
     });
 }

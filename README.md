@@ -48,7 +48,7 @@ de `.hgt` de siempre (`C:/CubaAlt`).
 
 ## Enlace con el dron: serie, TCP o UDP
 
-En la pestaña *Configuración*, **Enlace** elige por dónde llega el mismo
+En la pestaña *Enlace*, **Enlace** elige por dónde llega el mismo
 protocolo de siempre (el dron no cambia nada):
 
 - **Serie**: el puerto, a 115200 8N1, como siempre.
@@ -74,9 +74,20 @@ Arriba en el mapa, en grande y con unidades: **régimen** (rojo manual, ámbar
 estabilizado, verde automático, como el avión), **misión**, **punto** al que va
 («P3 / 10»; «✓ 10/10» con la ruta cumplida), **distancia** al punto, **rumbo**
 actual → deseado y **satélites** (rojo por debajo de 6, ámbar por debajo de 8);
-debajo, la posición del dron. Se muestra u oculta en *Estado_Drone → Datos de
-vuelo*. El panel técnico de antes (ganancias, actuadores, convergencias) está en
-*Estado_Drone → Detalle técnico*.
+debajo, la posición del dron. **Detalle ▾** abre, en el mismo panel, las
+ganancias (P / I), los actuadores, el rumbo de la IMU y las convergencias. Se
+muestra u oculta en *Estado_Drone → Datos de vuelo* y *Detalle técnico*.
+
+En el mapa, el rumbo actual (azul, solo en automático) y el deseado (verde)
+son vectores de 150 px; la línea morada va al punto al que se dirige el dron.
+
+## Pestañas
+
+A la izquierda, en vertical: **Enlace** (dron, enlace y conectar), **Drones**,
+**Mandos**, **Ganancias** y **Objetivo**. En *Mandos*, régimen y misión son
+botones que se encienden; *Usar posición actual del dron como casa* copia la
+última posición recibida a la casa, y **Enviar mandos** lo manda todo. Cuando
+el dron confirma, la «H» del mapa pasa a la casa enviada.
 
 ## Simulador (sin dron)
 

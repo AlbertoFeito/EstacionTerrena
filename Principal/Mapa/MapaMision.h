@@ -115,7 +115,7 @@ private:
     void crearCapas();
     void refrescarRumbos();
     void refrescarAnillos();
-    double largoHastaBorde() const;
+    double metrosEnPantalla(double px) const;
     static QPixmap simboloHome();
     static QString idCapa(CapaBase capa);
 
@@ -126,7 +126,7 @@ private:
     qint64 m_home = -1;
 
     // Rumbos: ids de las tres marcaciones y lo ultimo pedido, para rehacerlas
-    // al cambiar de zoom (su largo depende de la escala).
+    // al cambiar de zoom (el largo de los vectores va en pixeles).
     qint64 m_lineaVehiculo = -1;
     qint64 m_lineaProximo = -1;
     qint64 m_lineaDeseado = -1;

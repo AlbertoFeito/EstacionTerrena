@@ -8,6 +8,7 @@
 #include <QVBoxLayout>
 
 #include "Protocolo/ProyeccionMercator.h"
+#include "Protocolo/Tramas.h"
 
 Widget_Mandos::Widget_Mandos(sMANDOS *MANDOS, QWidget *parent) :
     QWidget(parent),
@@ -33,9 +34,6 @@ Widget_Mandos::~Widget_Mandos()
 
 void Widget_Mandos::on_pB_Enviar_clicked()
 {
-    QByteArray sendMando;
-    sendMando.append ("xyz");
-
     mandos->Regimen = regimen;
     mandos->Comando_Mision = comando;
 
@@ -53,14 +51,32 @@ void Widget_Mandos::on_pB_Enviar_clicked()
 
     mandos->Velocidad_RTH = ui->dsB_Velocidad_RTH->value () / 3.6;
 
-    sendMando.append (reinterpret_cast<const char*>(&mandos),sizeof (sMANDOS));
-
-    emit enviaMandosDron(sendMando);
+    // La trama sale de la estructura (antes se copiaban los bytes del puntero).
+    emit enviaMandosDron(Tramas::mandos (*mandos));
 MyQSetting settings;
     settings.guardarSetting (fileName,"Radio_Acercamiento",ui->dsB_Radio_Acercamiento->value (),"MANDOS");
     settings.guardarSetting (fileName,"Distancia_Encuentro",ui->dsB_Distancia_Encuentro->value (),"MANDOS");
-    settings.guardarSetting (fileName,"Velocidad_RTH",ui->dsB_Velocidad_RTH->value (),"MANDOS");
+    // En m/s, que es como se lee al arrancar (antes se guardaba en km/h y al
+    // leerlo se multiplicaba otra vez por 3,6: crecia en cada arranque).
+    settings.guardarSetting (fileName,"Velocidad_RTH",ui->dsB_Velocidad_RTH->value () / 3.6,"MANDOS");
     settings.guardarSetting (fileName,"Altura_Casa",ui->dsB_Home3->value (),"MANDOS");
+}
+
+// Ultima posicion del dron, para el boton "Usar posicion actual del dron como
+// casa" (que solo se activa cuando hay una).
+void Widget_Mandos::setPosicionDron(const QGeoCoordinate &pos)
+{
+    m_posicionDron = pos;
+    ui->pB_CasaDron->setEnabled (pos.isValid ());
+}
+
+// Pone la ultima posicion del dron en la casa; se le manda con Enviar.
+void Widget_Mandos::on_pB_CasaDron_clicked()
+{
+    if (!m_posicionDron.isValid ())
+        return;
+    ui->dsB_Home1->setValue (m_posicionDron.latitude ());
+    ui->dsB_Home2->setValue (m_posicionDron.longitude ());
 }
 
 void Widget_Mandos::on_rB_M_toggled(bool checked)
@@ -107,20 +123,20 @@ void Widget_Mandos::on_rB_RTL_toggled(bool checked)
 
 
 
+// Aspecto de la pestaña: el regimen y la mision son botones grandes que se
+// encienden con el color del avion (rojo, ambar, verde) o en azul; Enviar va
+// abajo a todo lo ancho. Carga los valores guardados en conf.ini.
 void Widget_Mandos::configuraUI()
 {
-    // Botón enviar
-    ui->pB_Enviar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-
-    // Políticas de tamaño para elementos del formulario
-    QSizePolicy spinPolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-    ui->dsB_Radio_Acercamiento->setSizePolicy(spinPolicy);
-    ui->dsB_Distancia_Encuentro->setSizePolicy(spinPolicy);
-    ui->dsB_Velocidad_RTH->setSizePolicy(spinPolicy);
-
-    ui->dsB_Radio_Acercamiento->setDecimals(2);
-    ui->dsB_Distancia_Encuentro->setDecimals(2);
-    ui->dsB_Velocidad_RTH->setDecimals(2);
+    setStyleSheet (QStringLiteral (
+        "QLabel[rol=\"seccion\"] { color: #9e9e9e; font-size: 10px; font-weight: bold; padding-top: 4px; }"
+        "QPushButton[rol] { min-height: 30px; padding: 0 2px; font-weight: bold; }"
+        "QPushButton[rol=\"manual\"]:checked { background-color: #c62828; color: white; }"
+        "QPushButton[rol=\"estabilizado\"]:checked { background-color: #ffb300; color: black; }"
+        "QPushButton[rol=\"automatico\"]:checked { background-color: #2e7d32; color: white; }"
+        "QPushButton[rol=\"mision\"]:checked { background-color: #1565c0; color: white; }"
+        "QCheckBox#chB_Paracaidas:checked { color: #ff5252; font-weight: bold; }"
+        "QPushButton#pB_Enviar { min-height: 38px; font-size: 14px; font-weight: bold; }"));
 
     m_dsB_Lat = ui->dsB_Home1;
     m_dsB_Lon = ui->dsB_Home2;

@@ -3,6 +3,7 @@
 #include <QFontMetrics>
 #include <QGridLayout>
 #include <QLabel>
+#include <QToolButton>
 
 #include <cmath>
 
@@ -28,6 +29,33 @@ QString rumboTexto(double grados)
     const int g = (int(std::lround(grados)) % 360 + 360) % 360;
     return QStringLiteral("%1°").arg(g, 3, 10, QLatin1Char('0'));
 }
+
+// Numero con dos decimales y coma, o un guion si no se sabe.
+QString numero(double v)
+{
+    if (std::isnan(v))
+        return QStringLiteral("—");
+    return QString::number(v, 'f', 2).replace('.', ',');
+}
+
+// Filas de ganancias: nombre, campo y si lleva I ademas de P.
+struct FilaGanancia { const char *nombre; const char *campo; bool conI; };
+const FilaGanancia kGanancias[] = {
+    {"Cabeceo", "g_cabeceo", true}, {"Banqueo", "g_banqueo", true},
+    {"Velocidad", "g_velocidad", true}, {"Altura", "g_altura", true},
+    {"Curso", "g_curso", false}, {"Rumbo", "g_rumbo", true},
+};
+const char *kActuadoresAla[] = {"Estabilizadores", "Alerones", "Motor", "Rumbo"};
+const char *kActuadoresCuadro[] = {"Motor IF", "Motor DF", "Motor IT", "Motor DT"};
+}
+
+// Todo sin dato.
+PanelVuelo::Detalle::Detalle()
+{
+    for (double &g : ganancias)
+        g = std::numeric_limits<double>::quiet_NaN();
+    for (double &a : actuadores)
+        a = std::numeric_limits<double>::quiet_NaN();
 }
 
 // Monta las tarjetas (titulo pequeño y valor grande) sobre un fondo oscuro
@@ -41,7 +69,12 @@ PanelVuelo::PanelVuelo(QWidget *parent) : QFrame(parent)
         "#PanelVuelo QLabel { background: transparent; }"
         "#PanelVuelo QLabel[rol=\"titulo\"] { color: #9e9e9e; font-size: 10px; font-weight: bold; }"
         "#PanelVuelo QLabel[rol=\"valor\"] { font-size: 18px; font-weight: bold; }"
-        "#PanelVuelo QLabel[rol=\"pie\"] { font-size: 11px; }"));
+        "#PanelVuelo QLabel[rol=\"pie\"] { font-size: 11px; }"
+        "#PanelVuelo QLabel[rol=\"nombre\"] { color: #bdbdbd; font-size: 11px; }"
+        "#PanelVuelo QLabel[rol=\"dato\"] { color: white; font-size: 11px; font-weight: bold; }"
+        "#PanelVuelo QToolButton { color: #9e9e9e; background: transparent; border: none; font-size: 11px; }"
+        "#PanelVuelo QToolButton:hover { color: white; }"
+        "#DetalleVuelo { border-top: 1px solid rgba(255, 255, 255, 40); }"));
 
     auto *rejilla = new QGridLayout(this);
     rejilla->setContentsMargins(12, 6, 12, 6);
@@ -55,27 +88,136 @@ PanelVuelo::PanelVuelo(QWidget *parent) : QFrame(parent)
         QFont negrita = valor->font();
         negrita.setPixelSize(18);
         negrita.setBold(true);
-        valor->setMinimumWidth(QFontMetrics(negrita).horizontalAdvance(QString::fromUtf8(kMasLargos[i])) + 6);
+        // Con la fuente que de verdad le toca (la de la hoja de estilo) y con
+        // margen: con solo la teorica, "Estabilizado" salia cortado.
+        valor->ensurePolished();
+        const QString largo = QString::fromUtf8(kMasLargos[i]);
+        valor->setMinimumWidth(qMax(QFontMetrics(negrita).horizontalAdvance(largo),
+                                    QFontMetrics(valor->font()).horizontalAdvance(largo)) + 12);
         rejilla->addWidget(titulo, 0, i);
         rejilla->addWidget(valor, 1, i);
         m_valores.insert(QString::fromLatin1(kCampos[i]), valor);
     }
     auto *pie = new QLabel(this);
     pie->setProperty("rol", "pie");
-    rejilla->addWidget(pie, 2, 0, 1, 6);
+    rejilla->addWidget(pie, 2, 0, 1, 5);
     m_valores.insert(QStringLiteral("posicion"), pie);
+
+    m_botonDetalle = new QToolButton(this);
+    m_botonDetalle->setCheckable(true);
+    m_botonDetalle->setCursor(Qt::PointingHandCursor);
+    m_botonDetalle->setToolTip(tr("Ganancias, actuadores y convergencias"));
+    rejilla->addWidget(m_botonDetalle, 2, 5, Qt::AlignRight);
+    connect(m_botonDetalle, &QToolButton::toggled, this, [this](bool abierto) {
+        setDetalleVisible(abierto);
+        emit detalleConmutado(abierto);
+    });
+
+    m_detalle = crearDetalle();
+    rejilla->addWidget(m_detalle, 3, 0, 1, 6);
+    setDetalleVisible(false);
     limpiar();
 }
 
-// Pone texto y color a un campo.
+// El detalle tecnico en tres bloques: ganancias (P / I), actuadores y otros
+// (rumbo de la IMU y convergencias). Letra pequena: es para consultar.
+QFrame *PanelVuelo::crearDetalle()
+{
+    auto *marco = new QFrame(this);
+    marco->setObjectName(QStringLiteral("DetalleVuelo"));
+    auto *rejilla = new QGridLayout(marco);
+    rejilla->setContentsMargins(0, 6, 0, 2);
+    rejilla->setHorizontalSpacing(10);
+    rejilla->setVerticalSpacing(1);
+
+    auto titulo = [&](const QString &texto, int columna) {
+        auto *l = new QLabel(texto, marco);
+        l->setProperty("rol", "titulo");
+        rejilla->addWidget(l, 0, columna, 1, 2);
+    };
+    auto fila = [&](const QString &nombre, const QString &campo, int f, int columna) {
+        auto *n = new QLabel(nombre, marco);
+        n->setProperty("rol", "nombre");
+        auto *v = new QLabel(marco);
+        v->setProperty("rol", "dato");
+        v->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        rejilla->addWidget(n, f, columna);
+        rejilla->addWidget(v, f, columna + 1);
+        m_valores.insert(campo, v);
+        return n;
+    };
+
+    titulo(tr("GANANCIAS  P / I"), 0);
+    int f = 1;
+    for (const FilaGanancia &g : kGanancias)
+        fila(QString::fromUtf8(g.nombre), QString::fromLatin1(g.campo), f++, 0);
+
+    titulo(tr("ACTUADORES"), 2);
+    for (int i = 0; i < 4; ++i)
+        m_nombresActuador[i] = fila(QString::fromUtf8(kActuadoresAla[i]),
+                                    QStringLiteral("act%1").arg(i), i + 1, 2);
+
+    titulo(tr("OTROS"), 4);
+    fila(tr("Rumbo IMU"), QStringLiteral("rumboImu"), 1, 4);
+    fila(tr("Conv. banqueo"), QStringLiteral("convBanqueo"), 2, 4);
+    fila(tr("Conv. cabeceo"), QStringLiteral("convCabeceo"), 3, 4);
+    rejilla->setRowStretch(7, 1);
+    return marco;
+}
+
+// Pone texto y color a un campo. Solo si cambian: la hoja de estilo de cada
+// etiqueta cuesta rehacerla y llegan 10 tramas por segundo.
 void PanelVuelo::poner(const QString &campo, const QString &texto, const QColor &color)
 {
     QLabel *l = m_valores.value(campo);
     if (!l)
         return;
-    l->setText(texto);
-    l->setProperty("color", color);
-    l->setStyleSheet(QStringLiteral("color: %1;").arg(color.name()));
+    if (l->text() != texto)
+        l->setText(texto);
+    if (l->property("color").value<QColor>() != color) {
+        l->setProperty("color", color);
+        l->setStyleSheet(QStringLiteral("color: %1;").arg(color.name()));
+    }
+}
+
+// Abre o pliega el detalle; el panel cambia de alto (quien lo coloca lo
+// recoloca al recibir detalleConmutado o tras llamar a esto).
+void PanelVuelo::setDetalleVisible(bool visible)
+{
+    m_detalle->setVisible(visible);
+    {
+        const QSignalBlocker sinSenal(m_botonDetalle);
+        m_botonDetalle->setChecked(visible);
+    }
+    m_botonDetalle->setText(visible ? tr("Detalle ▴") : tr("Detalle ▾"));
+    adjustSize();
+}
+
+// El detalle esta abierto.
+bool PanelVuelo::detalleVisible() const
+{
+    return !m_detalle->isHidden();
+}
+
+// Rellena el detalle: ganancias "P / I", actuadores con su nombre segun el
+// tipo de dron, rumbo de la IMU y convergencias.
+void PanelVuelo::mostrarDetalle(const Detalle &d)
+{
+    int k = 0;
+    for (const FilaGanancia &g : kGanancias) {
+        QString t = numero(d.ganancias[k++]);
+        if (g.conI)
+            t += QStringLiteral(" / ") + numero(d.ganancias[k++]);
+        poner(QString::fromLatin1(g.campo), t, kBlanco);
+    }
+    const char **nombres = d.tipoDron == 0 ? kActuadoresAla : kActuadoresCuadro;
+    for (int i = 0; i < 4; ++i) {
+        m_nombresActuador[i]->setText(QString::fromUtf8(nombres[i]));
+        poner(QStringLiteral("act%1").arg(i), numero(d.actuadores[i]), kBlanco);
+    }
+    poner(QStringLiteral("rumboImu"), rumboTexto(d.rumboImu), kBlanco);
+    poner(QStringLiteral("convBanqueo"), numero(d.convergenciaBanqueo), kBlanco);
+    poner(QStringLiteral("convCabeceo"), numero(d.convergenciaCabeceo), kBlanco);
 }
 
 // Todo a guiones, en gris.
@@ -140,6 +282,12 @@ void PanelVuelo::mostrar(const Datos &d)
         if (m_aviso.isEmpty())
             poner(QStringLiteral("posicion"), m_textoPosicion, kGris);
     }
+}
+
+// Nombre del actuador i.
+QString PanelVuelo::nombreActuador(int i) const
+{
+    return i >= 0 && i < 4 ? m_nombresActuador[i]->text() : QString();
 }
 
 // Texto de un campo.

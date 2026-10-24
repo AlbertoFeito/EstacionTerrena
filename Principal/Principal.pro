@@ -64,7 +64,6 @@ SOURCES += \
     Widgets/Widget_Ganancias_Control.cpp \
     Widgets/Widget_Graficas.cpp \
     Widgets/Widget_Mandos_Cuadroptero.cpp \
-    Widgets/Widget_Parametros.cpp \
     Widgets/Widget_Puntos.cpp \
     Widgets/dronedialog.cpp \
     Widgets/widget_mandos.cpp \
@@ -112,7 +111,6 @@ HEADERS += \
     Widgets/Widget_Ganancias_Control.h \
     Widgets/Widget_Graficas.h \
     Widgets/Widget_Mandos_Cuadroptero.h \
-    Widgets/Widget_Parametros.h \
     Widgets/Widget_Puntos.h \
     Widgets/dronedialog.h \
     Widgets/widget_mandos.h \
@@ -137,7 +135,6 @@ FORMS += \
     Widgets/Widget_Ganancias_Control.ui \
     Widgets/Widget_Graficas.ui \
     Widgets/Widget_Mandos_Cuadroptero.ui \
-    Widgets/Widget_Parametros.ui \
     Widgets/widget_mandos.ui
 
 # Default rules for deployment.

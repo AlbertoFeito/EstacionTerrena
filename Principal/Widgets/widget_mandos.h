@@ -28,6 +28,7 @@ public:
     QDoubleSpinBox *getDsB_Lon() const;
 
     QDoubleSpinBox *getDsB_Lat() const;
+    void setPosicionDron(const QGeoCoordinate &pos);
 public slots:
     void on_AcuseRecibo();
     void on_restoreStyle();
@@ -50,6 +51,8 @@ private slots:
 
     void on_chB_Paracaidas_toggled(bool checked);
 
+    void on_pB_CasaDron_clicked();
+
 private:
     Ui::Widget_Mandos *ui;
     unsigned char regimen = 0;
@@ -65,6 +68,7 @@ private:
     void configuraUI();
 
     QDoubleSpinBox *m_dsB_Lat,*m_dsB_Lon;
+    QGeoCoordinate m_posicionDron;
 
     QTimer m_timer;
     QString m_originalStyle;

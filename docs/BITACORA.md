@@ -261,3 +261,60 @@ vuelo y columnas «Reserva»).
 - Visto con la aplicación entera en una pantalla virtual contra el simulador:
   indicador verde en vuelo, panel con los datos, y al cerrar el simulador, el
   enlace se cierra y luego se avisa.
+
+## 9. La telemetría ya no se atasca al mandar, un solo panel de vuelo y pestaña de Mandos nueva
+
+**El atasco.** Al mandar un régimen (sobre todo Automático) la telemetría
+parecía pararse. Medido con `strace` en la estación contra el simulador: antes
+de mandar, una lectura de 126 bytes (una trama) cada 100 ms; después, las
+lecturas se iban espaciando (0,15 s, 0,25 s… 1,1 s) y cada una traía más tramas
+atrasadas (hasta 1386 bytes): la estación no daba abasto. Con `gdb`, el hilo
+principal estaba siempre dentro de `MapaMision::refrescarRumbos` dibujando
+marcaciones. Dos causas:
+
+- En automático, sin plan, el dron manda `Cumplir_Punto = 0,0`, que en Mercator
+  es lat 0, lon 0: la línea morada «al próximo punto» iba de Cuba al golfo de
+  Guinea, miles de kilómetros de trazo grueso repintados tres veces por trama.
+- Las líneas azul y verde medían todo el ancho de la vista.
+
+Ahora los rumbos actual (azul) y deseado (verde) son **vectores de 150 px en
+pantalla** a cualquier zoom, y la línea morada solo se pinta si el próximo
+punto está a menos de 100 km (si no, no es de esta misión). Medido otra vez:
+después de mandar Automático, todas las lecturas siguen siendo una trama cada
+100 ms. `test_mapamision::rumbosDeLargoFijoEnPantalla` comprueba el largo a dos
+zooms y que con 0,0 no hay línea morada. De paso, `PanelVuelo` solo toca una
+etiqueta si cambia su texto o su color (rehacer su hoja de estilo diez veces
+por segundo no sale gratis).
+
+**Un solo panel de vuelo.** El detalle técnico era otro panel aparte, debajo
+del de vuelo, que no se leía. Ahora va **dentro** del panel de vuelo, plegado:
+«Detalle ▾» lo abre (o *Estado_Drone → Detalle técnico*) con el mismo estilo,
+en tres bloques: ganancias P / I (cabeceo, banqueo, velocidad, altura, curso,
+rumbo), actuadores (estabilizadores, alerones, motor, rumbo; con cuadróptero,
+los cuatro motores y sin ganancias, que no las manda) y otros (rumbo de la IMU
+y convergencias). Lo que ya está arriba (posición, régimen, satélites…) no se
+repite. `Widget_Parametros` se ha borrado. También se arregla «Estabilizado»,
+que salía cortado: el ancho de la columna se mide con la fuente real.
+
+**Pestaña de Mandos.** Las cajas de Régimen y Navegación estaban casi vacías y
+las pestañas no cabían («Ganacias» cortada y con flechas):
+
+- Régimen y misión son **botones grandes** que se encienden con el color del
+  avión (rojo, ámbar, verde) o en azul; navegación y casa, en dos líneas cada
+  una; **«Usar posición actual del dron como casa»** pone en Lat/Lon la última
+  posición recibida (se manda con Enviar); «Enviar mandos» abajo, a lo ancho.
+- Lat y Lon de la casa con 6 decimales (con 4 la casa se mandaba redondeada a
+  unos 11 m) y rango de todo el mundo (antes la longitud solo iba de -100 a -60).
+- Cuando el dron confirma los mandos, la «H» del mapa se mueve a la casa que
+  ha aceptado.
+- Las pestañas van a la izquierda, en vertical y con nombres cortos (Enlace,
+  Drones, Mandos, Ganancias, Objetivo; el nombre largo en el *tooltip*).
+- **V.RTH crecía en cada arranque**: se guardaba en km/h y al leerla se
+  multiplicaba otra vez por 3,6 (72 → 259 → 300, el tope). Ahora se guarda en
+  m/s, como se lee. Si en `conf.ini` ya quedó un valor inflado, hay que
+  corregirlo una vez a mano en la pestaña.
+- La trama que emite la pestaña sale de `Tramas::mandos` (antes copiaba los
+  bytes del puntero a la estructura; la estación no la usaba, pero era basura).
+
+`test_estado` suma el detalle (plegado, botón, formatos, cuadróptero): 65
+pruebas en total.

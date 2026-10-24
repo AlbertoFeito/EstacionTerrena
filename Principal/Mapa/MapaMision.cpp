@@ -23,6 +23,12 @@ const QString kCapaDibujos = QStringLiteral("dibujos");
 const QColor kColorRumboVehiculo(0, 0, 255);
 const QColor kColorRumboProximo(120, 0, 255);
 const QColor kColorRumboDeseado(0, 255, 0);
+// Largo en pantalla de los vectores de rumbo (actual y deseado): fijo, como un
+// vector de rumbo, sea cual sea el zoom.
+const double kLargoRumboPx = 150.0;
+// Mas lejos que esto, el proximo punto que dice el dron no es de esta mision
+// (sin plan llega 0,0, que cae en el golfo de Guinea): no se dibuja la linea.
+const double kMaxProximoM = 100000.0;
 const QColor kColorLineaRuta(255, 150, 10);
 const QColor kColorPunto(Qt::red);
 const QColor kColorCumplido(Qt::green);
@@ -216,17 +222,20 @@ void MapaMision::ponerRumbos(double rumboVehiculoDeg, double rumboDeseadoDeg,
     refrescarRumbos();
 }
 
-// Metros que mide en el mapa el ancho de la vista: el largo de las lineas de
-// rumbo, que asi llegan al borde como en la libreria antigua.
-double MapaMision::largoHastaBorde() const
+// Metros que miden \a px pixeles de pantalla a la escala actual.
+double MapaMision::metrosEnPantalla(double px) const
 {
-    return m_mapa->metersPerPixel() * m_mapa->width();
+    return m_mapa->metersPerPixel() * px;
 }
 
 // Pone, actualiza o quita cada linea de rumbo segun el modo. Se llama con cada
-// trama y al cambiar de zoom (el largo depende de la escala). El rotulo de cada
-// linea se queda donde lo haya arrastrado el operador: si se rehiciera con el
-// desplazamiento a cero en cada trama, no se podria mover.
+// trama y al cambiar de zoom (el largo en metros depende de la escala). Los
+// rumbos actual y deseado son vectores cortos de largo fijo en pantalla; antes
+// cruzaban toda la vista y, con la linea al proximo punto, se repintaban miles
+// de kilometros de trazo en cada trama: la estacion no daba abasto y la
+// telemetria se iba retrasando. El rotulo de cada linea se queda donde lo haya
+// arrastrado el operador: si se rehiciera con el desplazamiento a cero en cada
+// trama, no se podria mover.
 void MapaMision::refrescarRumbos()
 {
     if (!m_hayRumbos || m_vehiculo < 0)
@@ -248,7 +257,7 @@ void MapaMision::refrescarRumbos()
         id = m_mapa->addBearingLine(linea);
     };
 
-    const double largo = largoHastaBorde();
+    const double largo = metrosEnPantalla(kLargoRumboPx);
 
     BearingLine vehiculo;
     vehiculo.fromTarget = m_vehiculo;
@@ -262,7 +271,10 @@ void MapaMision::refrescarRumbos()
     proximo.fromTarget = m_vehiculo;
     proximo.to = m_proximo;
     proximo.color = kColorRumboProximo;
-    poner(m_lineaProximo, m_automatico && m_proximo.isValid(), proximo);
+    const auto vehiculoActual = m_mapa->target(m_vehiculo);
+    const bool proximoValido = m_proximo.isValid() && vehiculoActual
+        && vehiculoActual->position.distanceTo(m_proximo) < kMaxProximoM;
+    poner(m_lineaProximo, m_automatico && proximoValido, proximo);
 
     BearingLine deseado;
     deseado.fromTarget = m_vehiculo;

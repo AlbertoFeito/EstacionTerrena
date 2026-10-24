@@ -7,7 +7,10 @@
 #include "Protocolo/MonitorEnlace.h"
 #include "Widgets/PanelVuelo.h"
 
+#include <QToolButton>
 #include <QtTest>
+
+#include <algorithm>
 
 class TestEstado : public QObject
 {
@@ -24,6 +27,8 @@ private slots:
     void coloresDeAlerta();
     void rutaCumplida();
     void avisoDeEnlacePerdido();
+    void detallePlegadoYConDatos();
+    void detalleDeCuadroptero();
 };
 
 // Sin enlace abierto: gris, "Sin enlace", y las tramas no cuentan.
@@ -188,6 +193,57 @@ void TestEstado::avisoDeEnlacePerdido()
     QVERIFY(p.valor(QStringLiteral("posicion")).startsWith(QStringLiteral("⚠")));
     p.setAviso(QString());
     QCOMPARE(p.valor(QStringLiteral("posicion")), QStringLiteral("Dron: 23.10000, -82.10000"));
+}
+
+// El detalle tecnico nace plegado; su boton lo abre (y avisa) y los datos
+// llegan aunque este plegado: ganancias "P / I" con coma, actuadores, rumbo
+// de la IMU y convergencias.
+void TestEstado::detallePlegadoYConDatos()
+{
+    PanelVuelo p;
+    QVERIFY(!p.detalleVisible());
+    QCOMPARE(p.valor(QStringLiteral("g_cabeceo")), QStringLiteral("—"));
+
+    PanelVuelo::Detalle d;
+    const double g[11] = {0.5, 0.1, 1.25, 0.2, 2, 0, 3, 0.3, 0.75, 4, 0.4};
+    std::copy(g, g + 11, d.ganancias);
+    const double a[4] = {12.5, -3, 70, 0};
+    std::copy(a, a + 4, d.actuadores);
+    d.rumboImu = 94.6;
+    d.convergenciaBanqueo = 0.1;
+    d.convergenciaCabeceo = 0.25;
+    p.mostrarDetalle(d);
+    QCOMPARE(p.valor(QStringLiteral("g_cabeceo")), QStringLiteral("0,50 / 0,10"));
+    QCOMPARE(p.valor(QStringLiteral("g_curso")), QStringLiteral("0,75"));
+    QCOMPARE(p.valor(QStringLiteral("g_rumbo")), QStringLiteral("4,00 / 0,40"));
+    QCOMPARE(p.valor(QStringLiteral("act1")), QStringLiteral("-3,00"));
+    QCOMPARE(p.nombreActuador(0), QStringLiteral("Estabilizadores"));
+    QCOMPARE(p.valor(QStringLiteral("rumboImu")), QStringLiteral("095°"));
+    QCOMPARE(p.valor(QStringLiteral("convCabeceo")), QStringLiteral("0,25"));
+
+    QSignalSpy conmutado(&p, &PanelVuelo::detalleConmutado);
+    p.setDetalleVisible(true);   // por programa: no avisa
+    QVERIFY(p.detalleVisible());
+    QCOMPARE(conmutado.count(), 0);
+    auto *boton = p.findChild<QToolButton *>();
+    QVERIFY(boton);
+    boton->click();              // el operador lo pliega: avisa
+    QVERIFY(!p.detalleVisible());
+    QCOMPARE(conmutado.count(), 1);
+    QCOMPARE(conmutado.first().first().toBool(), false);
+}
+
+// Cuadroptero: los actuadores son los cuatro motores y no hay ganancias.
+void TestEstado::detalleDeCuadroptero()
+{
+    PanelVuelo p;
+    PanelVuelo::Detalle d;
+    d.tipoDron = 1;
+    d.actuadores[3] = 55;
+    p.mostrarDetalle(d);
+    QCOMPARE(p.nombreActuador(3), QStringLiteral("Motor DT"));
+    QCOMPARE(p.valor(QStringLiteral("act3")), QStringLiteral("55,00"));
+    QCOMPARE(p.valor(QStringLiteral("g_altura")), QStringLiteral("— / —"));
 }
 
 QTEST_MAIN(TestEstado)

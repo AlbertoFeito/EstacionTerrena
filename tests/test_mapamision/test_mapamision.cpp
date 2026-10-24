@@ -180,6 +180,7 @@ private slots:
     void radioDeAcercamientoEnMetrosMercator();
     void puntoCumplidoEnVerde();
     void vehiculoConTrazaYRumbos();
+    void rumbosDeLargoFijoEnPantalla();
     void rotulosArrastradosSeQuedan();
     void limpiarVueloDejaLaRuta();
     void arrastrarUnPuntoAvisa();
@@ -337,6 +338,33 @@ void TestMapaMision::vehiculoConTrazaYRumbos()
     m_mision->ponerRumbos(50.0, 60.0, QGeoCoordinate(23.12, -82.36), false);
     QCOMPARE(mapa->rangeMarks().size(), 1);
     QCOMPARE(mapa->bearingLine(mapa->rangeMarks().first())->bearingDeg, 60.0);
+}
+
+// Los rumbos actual y deseado miden 150 px en pantalla a cualquier zoom; la
+// linea al proximo punto no se pinta si el dron no tiene punto (llega 0,0).
+void TestMapaMision::rumbosDeLargoFijoEnPantalla()
+{
+    auto *mapa = m_mision->mapa();
+    m_mision->actualizarVehiculo(kHabana, 90.0, Qt::red, QPixmap(), QString());
+    for (int zoom : {12, 16}) {
+        mapa->setZoom(zoom);
+        m_mision->ponerRumbos(90.0, 95.0, QGeoCoordinate(23.12, -82.36), true);
+        int cortas = 0;
+        for (qint64 id : mapa->rangeMarks()) {
+            const auto l = mapa->bearingLine(id);
+            if (l->to.isValid())
+                continue;
+            ++cortas;
+            QVERIFY(qAbs(l->lengthMeters / mapa->metersPerPixel() - 150.0) < 1.0);
+        }
+        QCOMPARE(cortas, 2);
+    }
+
+    // Sin plan el dron manda Cumplir_Punto = 0,0: lat 0, lon 0.
+    m_mision->ponerRumbos(90.0, 95.0, QGeoCoordinate(0.0, 0.0), true);
+    QCOMPARE(mapa->rangeMarks().size(), 2);
+    for (qint64 id : mapa->rangeMarks())
+        QVERIFY(!mapa->bearingLine(id)->to.isValid());
 }
 
 // Los rotulos que el operador arrastra (el del dron y el de la linea al proximo
