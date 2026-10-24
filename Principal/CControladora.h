@@ -120,6 +120,17 @@ private:
     QString dirPaqueteMapa() const;
     void crearMapa();
     void pintarRutaEnMapa(bool visible);
+
+    // Acuses del dron: el plan y los mandos se dan por recibidos solo cuando
+    // el dron contesta; si no contesta a tiempo se avisa, y si rechaza el plan
+    // se reenvia como mucho kMaxReintentosPlan veces.
+    void enviarMandos();
+    void crearEsperasDeAcuse();
+    QTimer *m_esperaAcusePlan = nullptr;
+    QTimer *m_esperaAcuseMandos = nullptr;
+    int m_reintentosPlan = 0;
+    static constexpr int kMaxReintentosPlan = 3;
+    static constexpr int kEsperaAcuseMs = 3000;
     void limpiarVueloEnMapa();
 
     qfi_EADI *indicador;

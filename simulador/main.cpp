@@ -10,6 +10,7 @@
 //   simulador_dron                       ala fija, dando vueltas a casa
 //   simulador_dron --tipo cuadro         cuadroptero
 //   simulador_dron --regimen 2           automatico: sigue el plan en cuanto llega
+//   simulador_dron --regimen 2 --mision 2   ... y lo repite una y otra vez
 //   simulador_dron --serie COM6          tambien por puerto serie
 //   simulador_dron --casa 22.98,-82.46 --velocidad 70 --hz 20
 //
@@ -74,9 +75,11 @@ int main(int argc, char *argv[])
     const QCommandLineOption oAlt("altura", "Altura en m (120).", "m", "120");
     const QCommandLineOption oRegimen("regimen", "Régimen inicial: 0 manual, 1 semi, 2 automático (0).",
                                       "0|1|2", "0");
+    const QCommandLineOption oMision("mision", "Misión inicial: 0 puntos, 1 circular, 2 repetir, 3 RTL (0).",
+                                     "0..3", "0");
     const QCommandLineOption oOrbita("radio-orbita", "Radio de las vueltas a casa, en m (300).", "m", "300");
     p.addOptions({oTipo, oTcp, oSinTcp, oUdp, oUdpDestino, oSinUdp, oSerie, oHz, oCasa, oVel, oAlt,
-                  oRegimen, oOrbita});
+                  oRegimen, oMision, oOrbita});
     p.process(app);
 
     SimuladorDron::Opciones op;
@@ -94,6 +97,7 @@ int main(int argc, char *argv[])
     op.altura = p.value(oAlt).toDouble();
     op.regimen = qBound(0, p.value(oRegimen).toInt(), 2);
     op.radioOrbita = p.value(oOrbita).toDouble();
+    op.mision = qBound(0, p.value(oMision).toInt(), 3);
 
     EnlacesSimulador enlaces;
     QString error;
@@ -146,12 +150,13 @@ int main(int argc, char *argv[])
     QTimer estado;
     QObject::connect(&estado, &QTimer::timeout, [&]() {
         const QGeoCoordinate pos = dron.posicion();
-        QString donde = dron.regimen() == 2 && !dron.plan().isEmpty()
-            ? QString("hacia el punto %1/%2").arg(dron.puntoActual() + 1).arg(dron.plan().size())
-            : QString("vueltas a casa");
-        escribir(QString("%1, %2  rumbo %3°  régimen %4  %5  (TCP: %6 estación/es)")
+        QString donde = SimuladorDron::nombreFase(dron.fase());
+        if (dron.fase() == SimuladorDron::Fase::Ruta)
+            donde += QString(", hacia el punto %1/%2").arg(dron.puntoActual() + 1).arg(dron.plan().size());
+        escribir(QString("%1, %2  rumbo %3°  %4 km/h  %5 m  régimen %6  %7  (TCP: %8)")
                      .arg(pos.latitude(), 0, 'f', 5).arg(pos.longitude(), 0, 'f', 5)
-                     .arg(dron.rumbo(), 0, 'f', 0).arg(dron.regimen()).arg(donde)
+                     .arg(dron.rumbo(), 0, 'f', 0).arg(dron.velocidad() * 3.6, 0, 'f', 0)
+                     .arg(dron.altura(), 0, 'f', 0).arg(dron.regimen()).arg(donde)
                      .arg(enlaces.clientesTcp()));
     });
     estado.start(2000);

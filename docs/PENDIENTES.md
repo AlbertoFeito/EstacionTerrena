@@ -8,6 +8,14 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 Cuando se haya probado el cambio a libmapa (§1) con el dron y el mapa real:
 borrar la carpeta `LibMapaStatic/` (ya no se compila).
 
+## Preguntas para quien programa el autopiloto
+
+- Qué hace al terminar la misión **Puntos** (el simulador da vueltas sobre el
+  último punto) y en **Circular** (vueltas sobre el punto al que iba, de 300 m).
+- Qué significa **Distancia de encuentro** (DistEnc): el simulador no la usa.
+- Si hay una trama en la que el dron devuelve el plan (`newPlanificacionReceived`
+  existe en la estación, pero nada la emite).
+
 ## Mapa
 
 - **Overlays del paquete** (capas fijas y mapa híbrido): hoy se esconden (§3).
@@ -40,9 +48,6 @@ borrar la carpeta `LibMapaStatic/` (ya no se compila).
    - Rutas que dependen del directorio de trabajo (`currentPath().cdUp()`).
    - `usbdeviceswatcher` en Linux nunca arranca su bucle de udev.
 3. ~~Protocolo en un módulo aparte con tests~~: hecho en §4 (`Protocolo/Tramas`).
-   Queda: `newPlanificacionReceived` (el dron devolviendo el plan) nunca se
-   emite, porque el protocolo no tiene esa trama; preguntar a quien programa el
-   autopiloto si existe.
 4. **Partir las clases grandes**: `CControladora` (UI, menús, protocolo,
    gráficas y BD en una) y `Widget_Puntos` (unas 3.900 líneas). Los índices de
    parámetros, a un `enum`.

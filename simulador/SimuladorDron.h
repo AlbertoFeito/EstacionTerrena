@@ -20,11 +20,22 @@
  * No sabe de puertos ni de red: saca bytes por bytesSalida() y recibe bytes
  * por recibir(). Las vias (TCP, UDP, serie) las pone el programa.
  *
- * Como vuela (cinematica sencilla, no un autopiloto):
- * - regimen 2 (automatico) con plan: va de punto en punto del plan; un punto se
- *   da por cumplido dentro del radio de acercamiento, en metros Mercator, como
- *   el autopiloto. Tras el ultimo vuelve al primero.
- * - regimen 0 / 1, o sin plan: da vueltas alrededor de casa.
+ * Obedece los mandos como lo entiende la pantalla de Mandos de la estacion
+ * (cinematica sencilla, no un autopiloto):
+ * - Regimen Manual (0) o Estabilizado (1): sin mando de radio que lo guie, da
+ *   vueltas alrededor de casa.
+ * - Regimen Automatico (2), segun la Mision:
+ *   - Puntos (0): recorre el plan una vez; al cumplir el ultimo punto da
+ *     vueltas sobre el (mision cumplida).
+ *   - Circular (1): da vueltas alrededor del punto al que iba.
+ *   - Repetir mision (2): recorre el plan una y otra vez.
+ *   - RTL (3): vuelve a casa a la velocidad V.RTH y a la altura de casa, y da
+ *     vueltas sobre ella.
+ *   Un punto se da por cumplido dentro del radio de acercamiento (RPunto), en
+ *   metros Mercator como el autopiloto. Cada punto trae su altura y velocidad.
+ * - Paracaidas: se para y baja hasta el suelo.
+ * - Ganancias: devuelve en la telemetria las que llegan marcadas con
+ *   "Actualizar"; las demas siguen como estaban.
  * Gira con un ritmo maximo, sube y baja hacia la altura pedida y alabea y
  * cabecea en proporcion, para que el indicador se mueva.
  */
@@ -34,6 +45,16 @@ class SimuladorDron : public QObject
 public:
     enum class Tipo { AlaFija, Cuadroptero };
 
+    //! Que esta haciendo ahora.
+    enum class Fase {
+        VueltasCasa,      //!< Manual / Estabilizado, o automatico sin plan.
+        Ruta,             //!< Siguiendo el plan.
+        Circular,         //!< Vueltas alrededor del punto al que iba.
+        MisionCumplida,   //!< Plan recorrido (mision Puntos): vueltas sobre el ultimo.
+        Regreso,          //!< RTL: volviendo a casa (y luego vueltas sobre ella).
+        Paracaidas        //!< Bajando con el paracaidas.
+    };
+
     struct Opciones {
         Tipo tipo = Tipo::AlaFija;
         double hz = 10.0;                                   //!< Tramas por segundo.
@@ -41,7 +62,8 @@ public:
         double velocidad = 15.0;                            //!< m/s.
         double altura = 120.0;                              //!< m.
         double radioOrbita = 300.0;                         //!< m, sin plan.
-        int regimen = 0;                                    //!< 0 manual, 1 semi, 2 auto.
+        int regimen = 0;                                    //!< 0 manual, 1 estabilizado, 2 auto.
+        int mision = 0;                                     //!< 0 puntos, 1 circular, 2 repetir, 3 RTL.
     };
 
     //! Un punto del plan tal como llega en "uvw" (metros Mercator, norte primero).
@@ -71,6 +93,11 @@ public:
     int puntoActual() const { return m_indice; }
     QGeoCoordinate casa() const { return m_casa; }
     double radioAcercamiento() const { return m_radio; }
+    Fase fase() const { return m_fase; }
+    double altura() const { return m_altura; }
+    double velocidad() const { return m_velocidad; }
+    //! Nombre de la fase para la consola.
+    static QString nombreFase(Fase f);
 
 public slots:
     //! Bytes de la estacion (mandos o plan), en trozos cualesquiera.
@@ -86,6 +113,9 @@ private:
     void alRecibirMandos(const sMANDOS &m, bool sumaCorrecta);
     void alRecibirPlan(const sPUNTOXYZ *puntos, bool sumaCorrecta);
     QByteArray trama() const;
+    void cambiarFase(Fase f);
+    double rumboOrbita(const QGeoCoordinate &centro) const;
+    double distanciaMercator(const QGeoCoordinate &a, double norte, double este) const;
     static double normalizar(double grados);
 
     Opciones m_op;
@@ -105,10 +135,16 @@ private:
     double m_distanciaPunto = 0.0;
     int m_regimen = 0;
     int m_comando = 0;
+    bool m_paracaidas = false;
     double m_radio = 20.0;      // metros Mercator (como Radio_Acercamiento)
+    double m_velocidadRtl = 0;  // m/s (V.RTH)
+    double m_alturaCasa = 0;    // m (Home[2]); 0 = la de siempre
     QVector<Punto> m_plan;
     int m_indice = 0;
-    sMANDOS m_mandos;           // ultimos mandos (las ganancias se devuelven)
+    bool m_cumplida = false;    // mision Puntos terminada
+    Fase m_fase = Fase::VueltasCasa;
+    Punto m_objetivo;           // a donde va (o alrededor de que da vueltas)
+    sMANDOS m_ganancias;        // ganancias en uso (las que se devuelven)
 };
 
 #endif // SIMULADORDRON_H

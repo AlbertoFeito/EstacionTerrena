@@ -168,3 +168,38 @@ siempre; lo que se ha mejorado es cómo se leen.
 - Comprobado además con la aplicación entera en una pantalla virtual: con el
   simulador abierto, *Enlace* TCP y **Conectar**, el indicador se mueve y el dron
   vuela en el mapa con su traza y su rumbo.
+
+## 5. Planificar una ruta, mandarla al simulador y que obedezca los mandos
+
+Con el simulador ya conectado, el siguiente paso era el circuito completo:
+planificar la ruta en la estación, mandarla, y que el simulador la cumpla y
+obedezca la pantalla de Mandos.
+
+**En la estación (lo que fallaba al probarlo):**
+- *Enviar* en la ventana de rutas decía «✓ Ruta enviada exitosamente» y ponía
+  el botón en verde AL MOMENTO, aunque no hubiera enlace (entonces no se
+  mandaba nada). Ahora, sin enlace, avisa y no envía; y el verde llega con el
+  acuse del dron (`uvw1`), que ya estaba conectado a ese botón.
+- Se esperan los acuses con un tope de 3 s: plan sin confirmar → aviso; mandos
+  sin confirmar → aviso en la barra de estado. Confirmados, se dice en la barra.
+- Si el dron rechaza el plan (`uvw0`) se reenvía, pero como mucho 3 veces
+  (antes, sin límite).
+- Con el plan confirmado se repinta la ruta y vuelve a contarse desde el
+  principio qué puntos están cumplidos.
+- Los mandos de las pantallas de Mandos y de Ganancias salen por una sola
+  función (`enviarMandos`), en vez de dos copias.
+
+**En el simulador (obedece los mandos como los presenta la pantalla de
+Mandos):** régimen (Manual y Estabilizado dan vueltas a casa, porque no hay
+mando de radio; Automático sigue la misión), misión (Puntos: una vez y vueltas
+sobre el último; Circular: vueltas sobre el punto al que iba; Repetir; RTL: a
+casa a V.RTH y a la altura de casa), RPunto, casa y paracaídas (baja a 5 m/s).
+Las ganancias se devuelven solo si llegan marcadas con «Actualizar». Cada punto
+del plan trae su altura y su velocidad. `--mision` fija la misión inicial.
+
+Lo que hace al terminar la misión Puntos (vueltas sobre el último punto) y en
+Circular es una suposición razonable: hay que confirmar con quien programa el
+autopiloto qué hace el de verdad (anotado en pendientes).
+
+**Test nuevo `test_simulador`** (9 casos, sin red): cada misión, manual,
+paracaídas, ganancias, acuses y el punto a cumplir en la telemetría.

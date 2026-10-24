@@ -230,6 +230,12 @@ void CControladora::Conectado(bool conectado)
     primeraCoordenada = conectado;
     m_wConexion->chB_Guardar ()->setChecked (false);
     m_Conectado = conectado;
+    if (m_wPuntos)
+        m_wPuntos->setEnlaceDisponible (conectado);
+    if (!conectado && m_esperaAcusePlan) {
+        m_esperaAcusePlan->stop ();
+        m_esperaAcuseMandos->stop ();
+    }
     if(m_wConexion->cBDrones ()->currentIndex () != -1)
     {
         m_wConexion->cBDrones ()->setEnabled (!conectado);
@@ -588,20 +594,9 @@ void CControladora::conecciones()
 
     connect (m_wConexion,&Widget_Conexion::conectado, this,&CControladora::Conectado );
 
-    connect (m_wMandos,&Widget_Mandos::enviaMandosDron, [this](){
-
-        auto radioAcercamiento = mandos.Radio_Acercamiento;
-        m_wConexion->sL_EnviaMandosDron (Tramas::mandos (mandos));
-
-        m_mapa->ponerRadioAcercamiento (radioAcercamiento);
-    });
-
-    connect (m_wGanancias,&Widget_Ganancias_Control::enviaMandosDron, [this](){
-        auto radioAcercamiento = mandos.Radio_Acercamiento;
-        m_wConexion->sL_EnviaMandosDron (Tramas::mandos (mandos));
-        m_mapa->ponerRadioAcercamiento (radioAcercamiento);
-
-    });
+    crearEsperasDeAcuse();
+    connect (m_wMandos,&Widget_Mandos::enviaMandosDron, this, &CControladora::enviarMandos);
+    connect (m_wGanancias,&Widget_Ganancias_Control::enviaMandosDron, this, &CControladora::enviarMandos);
 
     // Clic derecho en el mapa
     connect(m_mapa, &MapaMision::clicDerecho,
@@ -613,8 +608,20 @@ void CControladora::conecciones()
         }
     });
 
+    // El dron rechazo el plan (acuse "uvw" negativo): se reenvia unas pocas veces.
     connect(m_wConexion->serialManager (),&SerialManager::siVolverEnviar,[this](){
-        onEnviaPlan ();
+        m_esperaAcusePlan->stop ();
+        if (++m_reintentosPlan <= kMaxReintentosPlan) {
+            mPrincipal->statusBar ()->showMessage (
+                tr("El dron rechazó el plan: reenviando (%1 de %2)")
+                    .arg (m_reintentosPlan).arg (kMaxReintentosPlan), 5000);
+            onEnviaPlan ();
+        } else {
+            m_reintentosPlan = 0;
+            QMessageBox::warning (mPrincipal, tr("Plan de vuelo"),
+                                  tr("El dron ha rechazado el plan %1 veces. Revisa el enlace "
+                                     "y vuelve a enviar la ruta.").arg (kMaxReintentosPlan));
+        }
     });
 
     connect(m_wConexion->serialManager (),&SerialManager::newTramaConstanteReceived,this,&CControladora::onNewTramaConstanteReceived );
@@ -738,10 +745,10 @@ void CControladora::conecciones()
         }
     });
 
-    // Envío de la ruta completa (objeto E_Punto)
-    connect(m_wPuntos, &Widget_Puntos::sI_Ruta2, [this](QList<E_Punto> listaPuntos) {
-        // Ya no usamos m_ListPuntos, se pasa directamente
+    // Envío de la ruta completa (objeto E_Punto): un plan nuevo, sin reintentos aún.
+    connect(m_wPuntos, &Widget_Puntos::sI_Ruta2, [this](QList<E_Punto>) {
         if (m_Conectado) {
+            m_reintentosPlan = 0;
             onEnviaPlan();   // onEnviaPlan() tomará los puntos del modelo
         }
     });
@@ -1068,6 +1075,7 @@ void CControladora::onEnviaPlan()
     }
 
     m_wConexion->serialManager()->serieWrite(Tramas::plan(puntosEnviar));
+    m_esperaAcusePlan->start();
 }
 
 void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
@@ -1620,4 +1628,54 @@ void CControladora::pintarRutaEnMapa(bool visible)
 void CControladora::limpiarVueloEnMapa()
 {
     m_mapa->limpiarVuelo();
+}
+
+// Manda los mandos de la pantalla de Mandos o de Ganancias (la misma
+// estructura) y espera su acuse. El radio de acercamiento se ve ya en el mapa.
+void CControladora::enviarMandos()
+{
+    m_wConexion->sL_EnviaMandosDron (Tramas::mandos (mandos));
+    m_mapa->ponerRadioAcercamiento (mandos.Radio_Acercamiento);
+    if (m_Conectado)
+        m_esperaAcuseMandos->start ();
+}
+
+// Esperas de los acuses del plan y de los mandos: el acuse para la espera y lo
+// dice en la barra de estado; si no llega a tiempo, se avisa. Con el plan
+// confirmado se repinta la ruta (sin puntos cumplidos) y se empieza de nuevo a
+// contar los cumplidos.
+void CControladora::crearEsperasDeAcuse()
+{
+    m_esperaAcusePlan = new QTimer(this);
+    m_esperaAcusePlan->setSingleShot (true);
+    m_esperaAcusePlan->setInterval (kEsperaAcuseMs);
+    connect (m_esperaAcusePlan, &QTimer::timeout, this, [this]() {
+        m_reintentosPlan = 0;
+        LogHandler::getInstance ().appendLogMessage ("Plan: el dron no contesto");
+        QMessageBox::warning (mPrincipal, tr("Plan de vuelo"),
+                              tr("El dron no ha confirmado el plan en %1 s. Revisa el enlace "
+                                 "y vuelve a enviar la ruta.").arg (kEsperaAcuseMs / 1000));
+    });
+
+    m_esperaAcuseMandos = new QTimer(this);
+    m_esperaAcuseMandos->setSingleShot (true);
+    m_esperaAcuseMandos->setInterval (kEsperaAcuseMs);
+    connect (m_esperaAcuseMandos, &QTimer::timeout, this, [this]() {
+        LogHandler::getInstance ().appendLogMessage ("Mandos: el dron no contesto");
+        mPrincipal->statusBar ()->showMessage (tr("⚠ El dron no ha confirmado los mandos"), 8000);
+    });
+
+    SerialManager *enlace = m_wConexion->serialManager ();
+    connect (enlace, &SerialManager::si_AcuseReciboUVW, this, [this]() {
+        m_esperaAcusePlan->stop ();
+        m_reintentosPlan = 0;
+        indexAnterior = -1;
+        if (m_wPuntos && m_wPuntos->isRouteVisible ())
+            pintarRutaEnMapa (true);
+        mPrincipal->statusBar ()->showMessage (tr("✓ El dron ha confirmado el plan"), 5000);
+    });
+    connect (enlace, &SerialManager::si_AcuseReciboXYZ, this, [this]() {
+        m_esperaAcuseMandos->stop ();
+        mPrincipal->statusBar ()->showMessage (tr("✓ El dron ha confirmado los mandos"), 5000);
+    });
 }

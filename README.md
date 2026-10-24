@@ -77,6 +77,37 @@ En la estación: *Selecciona Drone* uno del mismo tipo que el simulado (ala fija
 o cuadróptero), *Enlace* TCP o UDP y **Conectar**. Para mandar el plan, la ruta
 de 10 puntos en *Rutas*; para que la siga, *Mandos* en régimen automático.
 
+### Probar una misión con el simulador
+
+1. `simulador_dron` y, en la estación, **Conectar** (ala fija, TCP). La primera
+   posición que llega fija la casa (la «H»).
+2. *Rutas → Configuración de Rutas* → **Nueva**: elegir el dron y el nombre de
+   la ruta; después, clic derecho en el mapa en el punto inicial (se generan
+   los 10 puntos, que se pueden arrastrar o editar en la tabla) y **Enviar**. Cuando el dron confirma, el botón se pone verde y
+   la barra de estado dice «✓ El dron ha confirmado el plan». Sin respuesta en
+   3 s, aviso; si lo rechaza, se reenvía hasta 3 veces.
+3. *Mandos*: **Automático**, la misión y **Enviar** (verde y «✓ El dron ha
+   confirmado los mandos»). El dron sigue la ruta: líneas de rumbo, puntos
+   cumplidos en verde.
+
+Lo que hace el simulador con cada mando:
+
+| Mando | Qué hace |
+|---|---|
+| Régimen Manual / Estabilizado | Vueltas alrededor de casa (no hay mando de radio) |
+| Automático + misión **Puntos** | Recorre la ruta una vez; al acabar, vueltas sobre el último punto |
+| Automático + **Circular** | Vueltas alrededor del punto al que iba |
+| Automático + **Repetir misión** | Recorre la ruta una y otra vez |
+| Automático + **RTL** | Vuelve a casa a V.RTH y a la altura de casa, y da vueltas sobre ella |
+| RPunto | Radio en el que da un punto por cumplido (metros Mercator, como el autopiloto) |
+| Casa (lat, lon, alt) y V.RTH | Destino, altura y velocidad del RTL |
+| Paracaídas | Se para y baja a 5 m/s hasta el suelo |
+| Ganancias (pestaña Ganancias) | Devuelve en la telemetría solo las marcadas para actualizar |
+
+Cada punto de la ruta trae su altura y su velocidad, y el simulador las usa.
+La consola del simulador cuenta cada cosa (plan recibido, punto cumplido,
+cambio de fase...).
+
 Por puerto serie sin cable hace falta un par de puertos virtuales:
 [com0com](https://com0com.sourceforge.net/) en Windows (p. ej. COM5↔COM6: el
 simulador en COM6 y la estación en COM5) o `socat` en Linux.
