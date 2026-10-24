@@ -4,6 +4,7 @@
 #include <QObject>
 #include "Mapa/MapaMision.h"
 #include "Protocolo/ProyeccionMercator.h"
+#include "Protocolo/Tramas.h"
 #include "Ci_Principal.h"
 #include "qfi/qfi_EADI.h"
 #include <QPixmap>
@@ -164,7 +165,7 @@ private:
     void guardaDatosDron();
 
     // Puntos de ruta a enviar
-    sPUNTOXYZ puntosEnviar[10];
+    sPUNTOXYZ puntosEnviar[Tramas::kPuntosPlan];
 
     //       AlturaWorker alturaWorker;
     std::unique_ptr<AlturaWorker> alturaWorkerPTR;

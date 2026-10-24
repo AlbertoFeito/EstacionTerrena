@@ -591,34 +591,14 @@ void CControladora::conecciones()
     connect (m_wMandos,&Widget_Mandos::enviaMandosDron, [this](){
 
         auto radioAcercamiento = mandos.Radio_Acercamiento;
-        QByteArray sendMando;
-        sendMando.append ("xyz");
-
-        sendMando.append (reinterpret_cast<const char*>(&mandos),sizeof (sMANDOS));
-        quint16 checksum = 0;
-        for (char byte : sendMando) {
-            checksum += static_cast<quint8>(byte);
-        }
-        sendMando.append (static_cast<char>(checksum & 0xFF));
-        sendMando.append (static_cast<char>(checksum >>8));
-        m_wConexion->sL_EnviaMandosDron (sendMando);
+        m_wConexion->sL_EnviaMandosDron (Tramas::mandos (mandos));
 
         m_mapa->ponerRadioAcercamiento (radioAcercamiento);
     });
 
     connect (m_wGanancias,&Widget_Ganancias_Control::enviaMandosDron, [this](){
         auto radioAcercamiento = mandos.Radio_Acercamiento;
-        QByteArray sendMando;
-        sendMando.append ("xyz");
-
-        sendMando.append (reinterpret_cast<const char*>(&mandos),sizeof (sMANDOS));
-        quint16 checksum = 0;
-        for (char byte : sendMando) {
-            checksum += static_cast<quint8>(byte);
-        }
-        sendMando.append (static_cast<char>(checksum & 0xFF));
-        sendMando.append (static_cast<char>(checksum >>8));
-        m_wConexion->sL_EnviaMandosDron (sendMando);
+        m_wConexion->sL_EnviaMandosDron (Tramas::mandos (mandos));
         m_mapa->ponerRadioAcercamiento (radioAcercamiento);
 
     });
@@ -1071,13 +1051,11 @@ void CControladora::onEnviaPlan()
         return;
 
     const QList<E_Punto> &puntos = m_wPuntos->getModelo()->obtenerLista();
-    if (puntos.size() != 10) {
+    if (puntos.size() != Tramas::kPuntosPlan) {
         return;
     }
 
     listPuntoF = sL_cambiaProyeccion();   // convierte usando el modelo actualizado
-    QByteArray data;
-    data.append("uvw");
 
     for (int i = 0; i < puntos.size(); ++i) {
         sPUNTOXYZ punto;
@@ -1089,11 +1067,7 @@ void CControladora::onEnviaPlan()
         puntosEnviar[i] = punto;
     }
 
-    data.append(reinterpret_cast<char*>(puntosEnviar), 10 * sizeof(sPUNTOXYZ));
-    quint16 checkSum = m_wMandos->calculateChecksum(data);
-    data.append(static_cast<char>(checkSum & 0xFF));
-    data.append(static_cast<char>(checkSum >> 8));
-    m_wConexion->serialManager()->serieWrite(data);
+    m_wConexion->serialManager()->serieWrite(Tramas::plan(puntosEnviar));
 }
 
 void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)

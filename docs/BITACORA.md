@@ -124,3 +124,47 @@ ponía encima el **mapa híbrido** (las teselas vectoriales de calles que
   que `MapaMision` lo quita y esconde la capa fija.
 - Los polígonos que dibuja el operador ya no se guardan (antes iban a
   `Recursos/data/dibujos.db`); anotado en pendientes.
+
+## 4. Enlace por serie, TCP o UDP y simulador del dron
+
+Sin dron para probar, hacía falta un simulador, y poder hablar con él (o con un
+puente de radio) por red además de por el puerto serie. El protocolo **no
+cambia**: lo define quien programa el autopiloto, así que los bytes son los de
+siempre; lo que se ha mejorado es cómo se leen.
+
+- **`Protocolo/Tramas`** (solo Qt Core): arma y lee las tramas de los dos lados
+  (telemetría `abc`, acuses `xyz`/`uvw`; mandos y plan con su suma de 16 bits).
+  Los `static_assert` fijan el tamaño de cada estructura (32, 91, 126, 79 y 29
+  bytes): si alguien toca una, no compila en vez de mandar bytes corridos.
+- **La lectura (máquina de estados) mejorada**, con el mismo significado:
+  - Se decodifica en cuanto llegan bytes, todas las tramas que haya. Antes un
+    temporizador de 500 ms daba un paso por vez y, con una trama a medias, se
+    volvía a llamar sin parar (CPU al 100 % hasta que llegaba el resto).
+  - No se consume la cabecera hasta tener la trama entera: si llega basura, se
+    resincroniza en la siguiente cabecera sin perder la buena.
+  - En modo cuadróptero, un `xyz`/`uvw` suelto dejaba la lectura atascada para
+    siempre (encontraba esa cabecera una y otra vez sin quitarla); ahora en ese
+    modo solo se busca `abc`.
+  - La basura acumulada sin ninguna trama se recorta (no crece sin límite).
+- **`SerialManager`** sigue siendo el enlace con el dron y con las mismas
+  señales, pero ahora abre puerto serie, TCP (cliente, con tope de 5 s para
+  conectar) o UDP (puerto local; remoto fijo o el último que habló). En
+  `CControladora`, los mandos y el plan se arman con `Tramas` en vez de las dos
+  copias a mano (un test comprueba que salen los mismos bytes).
+- **`Widget_Conexion`**: selector de enlace con los campos de cada uno,
+  guardados en `conf.ini` (`[ENLACE]`).
+- **`simulador/` (`simulador_dron`)**: dron de mentira, de consola, con las
+  mismas tramas (comparte `Tramas` y `ProyeccionMercator` con la estación).
+  Ala fija o cuadróptero; da vueltas a casa, o en régimen automático sigue el
+  plan recibido (cumple cada punto dentro del radio de acercamiento, en metros
+  Mercator) y devuelve en `Cumplir_Punto` el punto tal como llegó, para que la
+  estación pinte los cumplidos. Aplica los mandos (régimen, radio, casa) y
+  devuelve las ganancias. Por TCP (servidor), UDP y serie a la vez.
+- **Tests**: `test_tramas` (15 casos; cada trama armada campo a campo con
+  `QDataStream` sin usar las estructuras, a trozos, con basura...) y
+  `test_enlace` (la estación contra el simulador por TCP, UDP y, con `socat`,
+  por un par de puertos serie virtuales; y la posición del cuadróptero
+  reconstruida como en `CControladora`).
+- Comprobado además con la aplicación entera en una pantalla virtual: con el
+  simulador abierto, *Enlace* TCP y **Conectar**, el indicador se mueve y el dron
+  vuela en el mapa con su traza y su rumbo.

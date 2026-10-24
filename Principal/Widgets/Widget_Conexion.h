@@ -44,6 +44,20 @@ public slots:
     void handleConnectionChange(bool connected);
     void handlePortDisconnected(const QString &port);
 private:
+    void crearSelectorEnlace();
+    void guardarEnlace();
+    void habilitarCampos(bool habilitar);
+
+    // Selector de enlace: Serie (puerto), TCP (host:puerto) o UDP (puerto
+    // local y, opcional, host:puerto remoto). Se recuerda en conf.ini [ENLACE].
+    QComboBox *m_cBEnlace = nullptr;
+    QStackedWidget *m_paginas = nullptr;
+    QLineEdit *m_leTcpHost = nullptr;
+    QSpinBox *m_sbTcpPuerto = nullptr;
+    QSpinBox *m_sbUdpLocal = nullptr;
+    QLineEdit *m_leUdpHost = nullptr;
+    QSpinBox *m_sbUdpPuerto = nullptr;
+
     Ui::Widget_Conexion *ui;
 
     int TimerID;

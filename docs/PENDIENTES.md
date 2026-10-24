@@ -39,9 +39,10 @@ borrar la carpeta `LibMapaStatic/` (ya no se compila).
      `CControladora` rehace la trama, pero sobra.
    - Rutas que dependen del directorio de trabajo (`currentPath().cdUp()`).
    - `usbdeviceswatcher` en Linux nunca arranca su bucle de udev.
-3. **Protocolo serie en un módulo aparte** (solo Qt Core), con tests de las
-   tramas `abc`/`xyz`/`uvw` y su suma de comprobación. El empaquetado de los
-   mandos está copiado dos veces en `CControladora`.
+3. ~~Protocolo en un módulo aparte con tests~~: hecho en §4 (`Protocolo/Tramas`).
+   Queda: `newPlanificacionReceived` (el dron devolviendo el plan) nunca se
+   emite, porque el protocolo no tiene esa trama; preguntar a quien programa el
+   autopiloto si existe.
 4. **Partir las clases grandes**: `CControladora` (UI, menús, protocolo,
    gráficas y BD en una) y `Widget_Puntos` (unas 3.900 líneas). Los índices de
    parámetros, a un `enum`.

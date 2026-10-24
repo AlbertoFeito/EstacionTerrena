@@ -46,6 +46,41 @@ Del paquete solo se muestran las capas base (Satelital y OSM): ni mapa híbrido
 ni capas fijas, de momento. Si el paquete no trae elevación, se usa la carpeta
 de `.hgt` de siempre (`C:/CubaAlt`).
 
+## Enlace con el dron: serie, TCP o UDP
+
+En la pestaña *Configuración*, **Enlace** elige por dónde llega el mismo
+protocolo de siempre (el dron no cambia nada):
+
+- **Serie**: el puerto, a 115200 8N1, como siempre.
+- **TCP**: la estación se conecta como cliente a `host:puerto` (el simulador o
+  un puente de radio hacen de servidor). Por defecto `127.0.0.1:5760`.
+- **UDP**: escucha en un puerto (14551) y manda a `host:puerto` (14550). Con el
+  host vacío contesta a quien le mande la telemetría.
+
+Lo elegido se guarda en `conf.ini`, sección `[ENLACE]`.
+
+## Simulador (sin dron)
+
+`simulador_dron` (se compila con el resto, queda junto al ejecutable) es un dron
+de mentira que habla el mismo protocolo: manda la telemetría de ala fija o de
+cuadróptero y contesta a los mandos y al plan con su acuse. Sin opciones abre a
+la vez TCP (servidor en 5760) y UDP (escucha en 14550, manda a
+127.0.0.1:14551), justo lo que la estación trae por defecto.
+
+    simulador_dron                     ala fija dando vueltas a casa
+    simulador_dron --tipo cuadro       cuadróptero
+    simulador_dron --regimen 2         sigue el plan en cuanto llega
+    simulador_dron --serie COM6        también por puerto serie
+    simulador_dron --help              todas las opciones
+
+En la estación: *Selecciona Drone* uno del mismo tipo que el simulado (ala fija
+o cuadróptero), *Enlace* TCP o UDP y **Conectar**. Para mandar el plan, la ruta
+de 10 puntos en *Rutas*; para que la siga, *Mandos* en régimen automático.
+
+Por puerto serie sin cable hace falta un par de puertos virtuales:
+[com0com](https://com0com.sourceforge.net/) en Windows (p. ej. COM5↔COM6: el
+simulador en COM6 y la estación en COM5) o `socat` en Linux.
+
 ## Documentación
 
 - `docs/BITACORA.md`: qué se ha hecho y por qué.

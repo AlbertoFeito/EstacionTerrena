@@ -6,6 +6,7 @@ CONFIG += ordered \
 SUBDIRS += \
     usbdeviceswatcher \
     Principal \
+    simulador \
     tests
 QT += widgets
 

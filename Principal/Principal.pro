@@ -50,6 +50,7 @@ SOURCES += \
     Reporte/layoutcol.cpp \
     Reporte/qecsreport.cpp \
     Protocolo/ProyeccionMercator.cpp \
+    Protocolo/Tramas.cpp \
     Reporte/sectionclass.cpp \
     SerialPortComboBox/DeviceHotplug.cpp \
     SerialPortComboBox/SerialManager.cpp \
@@ -94,6 +95,7 @@ HEADERS += \
     Reporte/layoutcol.h \
     Reporte/qecsreport.h \
     Protocolo/ProyeccionMercator.h \
+    Protocolo/Tramas.h \
     Reporte/sectionclass.h \
     SerialPortComboBox/DeviceHotplug.h \
     SerialPortComboBox/SerialManager.h \
