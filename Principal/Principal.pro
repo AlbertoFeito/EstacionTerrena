@@ -51,9 +51,11 @@ SOURCES += \
     Database/AsynqQueryModel.cpp \
     Database/ConnectionManager.cpp \
     LocationValidator.cpp \
+    Mapa/MapaMision.cpp \
     MyQSettings/myqsetting.cpp \
     Reporte/layoutcol.cpp \
     Reporte/qecsreport.cpp \
+    Protocolo/ProyeccionMercator.cpp \
     Reporte/sectionclass.cpp \
     SerialPortComboBox/DeviceHotplug.cpp \
     SerialPortComboBox/SerialManager.cpp \
@@ -73,7 +75,6 @@ SOURCES += \
 #    cSerialPort/cserialport.cpp \
     graficar/XxwTracer.cpp \
     graficar/customplot.cpp \
-    graficar/qcustomplot.cpp \
     header/ColumnHeaderLengthAdapter.cpp \
     header/flexibleheaderview.cpp \
     logger/LogHandler.cpp \
@@ -94,9 +95,11 @@ HEADERS += \
     Estructuras/Estructuras.h \
     Estructuras/Utils.h \
     LocationValidator.h \
+    Mapa/MapaMision.h \
     MyQSettings/myqsetting.h \
     Reporte/layoutcol.h \
     Reporte/qecsreport.h \
+    Protocolo/ProyeccionMercator.h \
     Reporte/sectionclass.h \
     SerialPortComboBox/DeviceHotplug.h \
     SerialPortComboBox/SerialManager.h \
@@ -116,7 +119,6 @@ HEADERS += \
 #    cSerialPort/cserialport.h \
     graficar/XxwTracer.h \
     graficar/customplot.h \
-    graficar/qcustomplot.h \
     header/ColumnHeaderLengthAdapter.h \
     header/flexibleheaderview.h \
     autopiloto/CoordGPSaPosicion.h \
@@ -149,13 +151,16 @@ else:LIBS += -L$$DESTDIR -lUsbDevicesWatcher
 INCLUDEPATH += $$PWD/../usbdeviceswatcher
 DEPENDPATH += $$PWD/../usbdeviceswatcher
 
-win32: LIBS += -L$$DESTDIR -lLibMapaStatic
-else: LIBS += -L$$DESTDIR -lLibMapaStatic
-
-INCLUDEPATH += $$PWD/../LibMapaStatic
-DEPENDPATH += $$PWD/../LibMapaStatic
-
-# (WidgetSIG - integrar cuando te avise)
+# libmapa INSTALADA (docs/DESPLIEGUE.md de LibMapaStatic). Por defecto la del Qt
+# del kit: C:/libmapa/qt5 o C:/libmapa/qt6. Otra:  qmake LIBMAPA_PREFIX=D:/otra/carpeta
+# Trae QCustomPlot 2.1.1 compilada dentro: aqui solo se usa su cabecera
+# (graficar/qcustomplot.h, la misma version); compilarla otra vez duplicaria simbolos.
+isEmpty(LIBMAPA_PREFIX): LIBMAPA_PREFIX = C:/libmapa/qt$${QT_MAJOR_VERSION}
+!exists($$LIBMAPA_PREFIX/libmapa.pri) {
+    error("No encuentro libmapa en $${LIBMAPA_PREFIX}. Instalala con este mismo Qt\
+ o indica la carpeta:  qmake LIBMAPA_PREFIX=<carpeta>")
+}
+include($$LIBMAPA_PREFIX/libmapa.pri)
 
 
 include (qfi/qfi.pri)
@@ -166,16 +171,5 @@ RESOURCES += \
     ../build/Recursos/estilosnuevos/light/lightstyle.qrc \
     ../build/Recursos/res.qrc
 
-
-#win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../LibMapaStatic/release/ -lLibMapaStatic
-#else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../LibMapaStatic/debug/ -lLibMapaStatic
-
-#INCLUDEPATH += $$PWD/../LibMapaStatic
-#DEPENDPATH += $$PWD/../LibMapaStatic
-
-#win32-g++:CONFIG(release, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../build/release/libLibMapaStatic.a
-#else:win32-g++:CONFIG(debug, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../build/debug/libLibMapaStatic.a
-#else:win32:!win32-g++:CONFIG(release, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../build/release/LibMapaStatic.lib
-#else:win32:!win32-g++:CONFIG(debug, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../build/debug/LibMapaStatic.lib
 
 DISTFILES +=

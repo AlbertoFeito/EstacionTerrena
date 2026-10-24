@@ -4,7 +4,6 @@
 #include <QWidget>
 #include <QDebug>
 #include <QGeoCoordinate>
-#include <cprojection.h>
 #include <QDoubleSpinBox>
 #include <QTimer>
 #include "Estructuras/Estructuras.h"
@@ -19,7 +18,7 @@ class Widget_Mandos : public QWidget
     Q_OBJECT
 
 public:
-    explicit Widget_Mandos(CProjection *projection, sMANDOS *MANDOS, QWidget *parent = nullptr);
+    explicit Widget_Mandos(sMANDOS *MANDOS, QWidget *parent = nullptr);
     ~Widget_Mandos();
 
     quint16 calculateChecksum(const QByteArray &data);
@@ -65,7 +64,6 @@ private:
 
     void configuraUI();
 
-    CProjection *m_projection;
     QDoubleSpinBox *m_dsB_Lat,*m_dsB_Lon;
 
     QTimer m_timer;

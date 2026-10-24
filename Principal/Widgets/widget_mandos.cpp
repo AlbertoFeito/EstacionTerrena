@@ -7,11 +7,12 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
-Widget_Mandos::Widget_Mandos(CProjection *projection, sMANDOS *MANDOS, QWidget *parent) :
+#include "Protocolo/ProyeccionMercator.h"
+
+Widget_Mandos::Widget_Mandos(sMANDOS *MANDOS, QWidget *parent) :
     QWidget(parent),
     ui(new Ui::Widget_Mandos),
-    mandos(MANDOS),
-    m_projection(projection)
+    mandos(MANDOS)
 
 {
     ui->setupUi(this);
@@ -45,7 +46,7 @@ void Widget_Mandos::on_pB_Enviar_clicked()
 
     double lat = ui->dsB_Home1->value ();
     double lon = ui->dsB_Home2->value ();
-    auto p = m_projection->forward(QGeoCoordinate(lat,lon));
+    auto p = ProyeccionMercator::aMetros(QGeoCoordinate(lat,lon));
     mandos->Home[0] = p.y ();
     mandos->Home[1] = p.x ();
     mandos->Home[2] = ui->dsB_Home3->value ();

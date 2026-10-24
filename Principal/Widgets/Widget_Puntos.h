@@ -797,8 +797,9 @@ public slots:
     /**
      * @brief Maneja el movimiento de un punto en el mapa, actualizando coordenadas y altitud.
      * @param index Índice del punto movido.
+     * @param nuevaPos Posición donde lo ha soltado el operador.
      */
-    void onPointMoved(int index);
+    void onPointMoved(int index, const QGeoCoordinate &nuevaPos);
 
     /**
      * @brief Inicia el modo de selección del punto inicial (P1) haciendo clic derecho en el mapa.

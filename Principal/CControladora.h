@@ -2,7 +2,8 @@
 #define CCONTROLADORA_H
 
 #include <QObject>
-#include "LibMapaStatic.h"
+#include "Mapa/MapaMision.h"
+#include "Protocolo/ProyeccionMercator.h"
 #include "Ci_Principal.h"
 #include "qfi/qfi_EADI.h"
 #include <QPixmap>
@@ -17,7 +18,6 @@
 #include <stdio.h>
 #include "autopiloto/CoordGPSaPosicion.h"
 #include "autopiloto/rtwtypes.h"
-#include "cgooglemercator.h"
 
 #include <QTime>
 
@@ -74,7 +74,6 @@ private slots:
 private:
     Ci_Principal *mPrincipal;
     QDir RecursosDir;
-    CGoogleMercator proj;
     QMenu *mMenu;
     QAction *aCerrar;
 
@@ -113,7 +112,12 @@ private:
     void createActions();
     void createToolBar();
 
-    LibMapaStatic *libMapa;
+    MapaMision *m_mapa = nullptr;
+    QLabel *m_lPosicionRaton = nullptr;
+    QString dirPaqueteMapa() const;
+    void crearMapa();
+    void pintarRutaEnMapa(bool visible);
+    void limpiarVueloEnMapa();
 
     qfi_EADI *indicador;
     QTabWidget *tabOpciones;

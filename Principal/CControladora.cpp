@@ -4,6 +4,10 @@
 #include <QDir>
 #include <QScrollBar>
 #include <logger/LogHandler.h>
+#include <libmapa/MapWidget.h>   // solo para usar MapaMision::mapa() como QWidget
+#include <QMessageBox>
+#include <QStatusBar>
+#include "MyQSettings/myqsetting.h"
 
 CControladora::CControladora(QObject *parent) :
     QObject(parent),
@@ -37,16 +41,7 @@ tabOpciones = new QTabWidget(mPrincipal);
 
 RecursosDir.setPath (QDir::currentPath ());
     RecursosDir.cdUp ();
-    //    QVBoxLayout *layMapaDatos = new QVBoxLayout();
-    libMapa = new LibMapaStatic(RecursosDir.path (),mPrincipal);
-    libMapa->mostrarCapaImgSatSeleccionada (true);
-    libMapa->getTb_zMas ()->setVisible (false);
-    libMapa->getTb_zMenos ()->setVisible (false);
-    libMapa->getTb_zoomArea ()->setVisible (false);
-    libMapa->getTb_trazaRuta ()->setVisible (false);
-    libMapa->getTb_nuevoPunto ()->setVisible (false);
-    libMapa->getTb_nuevoPoligono ()->setVisible (false);
-    libMapa->getTb_medirDistancia ()->setVisible (false);
+    crearMapa();
     initTabOpciones();
     preparaDataBase();
     m_wConexion->cBDrones ()->setCurrentIndex (0);
@@ -57,11 +52,11 @@ RecursosDir.setPath (QDir::currentPath ());
                              "KPCab","KICab","KPBan","KIBan","KPVel","KIVel",
                              "KPAlt","KIAlt","KCurso","KPRumbo","KIPRumbo"});
 
-    m_wGraficas = new Widget_Graficas(libMapa->getOMapa ());
+    m_wGraficas = new Widget_Graficas(m_mapa->mapa ());
     m_wGraficas->raise();
     m_wGraficas->setVisible (false);
 
-    m_wParametros = new Widget_Parametros(libMapa->getOMapa ());
+    m_wParametros = new Widget_Parametros(m_mapa->mapa ());
     m_wParametros->raise();
     loadInitialData ();
 
@@ -77,7 +72,7 @@ RecursosDir.setPath (QDir::currentPath ());
     gridLayout->addWidget (tabOpciones,2,0);
 
     gridLayout->addWidget (vLine,0,1,3,1);
-    gridLayout->addWidget (libMapa,0,2,3,1);
+    gridLayout->addWidget (m_mapa->mapa (),0,2,3,1);
 
     gridLayout->setHorizontalSpacing (3);
     gridLayout->setVerticalSpacing (3);
@@ -139,7 +134,7 @@ QWidget *w2 = new QWidget();
 
     QWidget *w3 = new QWidget();
     QGridLayout *LayOutMandos = new QGridLayout;
-    m_wMandos = new Widget_Mandos(libMapa->getOMapa ()->getProjection (),&mandos);
+    m_wMandos = new Widget_Mandos(&mandos);
     m_wMandosCuadroptero = new Widget_Mandos_Cuadroptero();
     LayOutMandos->addWidget (m_wMandos);
     LayOutMandos->addWidget (m_wMandosCuadroptero);
@@ -147,7 +142,7 @@ QWidget *w2 = new QWidget();
 
 QWidget *w4 = new QWidget();
     QGridLayout *LayOutGanancias = new QGridLayout;
-    m_wGanancias = new Widget_Ganancias_Control(libMapa->getOMapa ()->getProjection (),&mandos);
+    m_wGanancias = new Widget_Ganancias_Control(&mandos);
     LayOutGanancias->addWidget (m_wGanancias);
     w4->setLayout (LayOutGanancias);
 
@@ -271,21 +266,7 @@ void CControladora::Conectado(bool conectado)
             indicador->setAltitude (0);
             indicador->redraw ();
 
-            //            libMapa->getOMapa ()->eliminarPunto ("PuntoNuevo");
-            libMapa->getOMapa ()->borrarElementosPorNombre ("PuntoNuevo");
-
-            //            if(libMapa->getOMapa ()->getPuntoItem ().text == NULL)
-            //                return;
-            if(libMapa->getOMapa ()->getPuntoItem ().text != NULL)
-            {
-                libMapa->getOMapa ()->getPuntoItem ().text->setVisible (false);
-                libMapa->getOMapa ()->getPuntoItem ().ellipse->setVisible (false);
-                libMapa->getOMapa ()->getPuntoItem ().ellipse2->setVisible (false);
-            }
-            libMapa->getOMapa ()->getLineaRumboDestino ()->setVisible (false);
-            libMapa->getOMapa ()->getLineaRumboVehiculo ()->setVisible (false);
-            libMapa->getOMapa ()->getLineaRumboCalculado ()->setVisible (false);
-            libMapa->getOMapa ()->layer (sMapaZOOM)->replot ();
+            limpiarVueloEnMapa();
 
 
 
@@ -344,7 +325,7 @@ void CControladora::createActions()
     aSatelital->setChecked (true);
     connect (aSatelital,&QAction::triggered,[this]()
     {
-        libMapa->mostrarCapaImgSatSeleccionada(true);
+        m_mapa->ponerCapaBase(MapaMision::CapaBase::Satelital);
     });
 
     aOSM = new QAction(tr("&OSM"),mPrincipal);
@@ -354,7 +335,7 @@ void CControladora::createActions()
     aOSM->setChecked (false);
     connect (aOSM,&QAction::triggered,[this]()
     {
-        libMapa->mostrarCapaImgOSMSeleccionada (true);
+        m_mapa->ponerCapaBase(MapaMision::CapaBase::OSM);
     });
 
     aG_Capas= new QActionGroup(mPrincipal);
@@ -621,7 +602,7 @@ void CControladora::conecciones()
         sendMando.append (static_cast<char>(checksum >>8));
         m_wConexion->sL_EnviaMandosDron (sendMando);
 
-        libMapa->getOMapa()->setRadioAcercamiento (radioAcercamiento);
+        m_mapa->ponerRadioAcercamiento (radioAcercamiento);
     });
 
     connect (m_wGanancias,&Widget_Ganancias_Control::enviaMandosDron, [this](){
@@ -637,13 +618,13 @@ void CControladora::conecciones()
         sendMando.append (static_cast<char>(checksum & 0xFF));
         sendMando.append (static_cast<char>(checksum >>8));
         m_wConexion->sL_EnviaMandosDron (sendMando);
-        libMapa->getOMapa()->setRadioAcercamiento (radioAcercamiento);
+        m_mapa->ponerRadioAcercamiento (radioAcercamiento);
 
     });
 
     // Clic derecho en el mapa
-    connect(libMapa->getOMapa(), &CMapaPlot::sig_devuelveWidgetClickDerechoParaDisenoExterno,
-            [this](QGeoCoordinate puntoG) {
+    connect(m_mapa, &MapaMision::clicDerecho,
+            [this](const QGeoCoordinate &puntoG) {
         if (m_esperandoPuntoInicial) {
             if (m_wPuntos) {
                 m_wPuntos->agregarPuntoInicialYGenerarResto(puntoG);
@@ -671,18 +652,28 @@ void CControladora::conecciones()
         logHandler.setVisible (visible);
     });
 
-    connect(libMapa->getOMapa (), &CMapaPlot::sig_enviaPosActual,[this](QGeoCoordinate coord)
+    // Posicion del raton y cota del terreno en la barra de estado (antes iban
+    // al log en cada movimiento del raton).
+    connect(m_mapa, &MapaMision::posicionRaton,[this](const QGeoCoordinate &coord)
     {
         auto alt = alturaWorkerPTR->obtenerAltura (coord.latitude (),coord.longitude ());
-        LogHandler& logHandler = LogHandler::getInstance();
-        logHandler.appendLogMessage("Altura: "+ QString::number (alt));
+        m_lPosicionRaton->setText (QString("Lat: %1  Lon: %2  Alt: %3 m")
+                                   .arg (coord.latitude (),0,'f',6)
+                                   .arg (coord.longitude (),0,'f',6)
+                                   .arg (alt));
+    });
 
+    connect(m_mapa, &MapaMision::medidaTerminada,[this](double rumbo, double distancia)
+    {
+        mPrincipal->statusBar ()->showMessage (QString("Azimut: %1°  Distancia: %2 m")
+                                               .arg (rumbo,0,'f',1)
+                                               .arg (distancia,0,'f',1));
     });
 
     connect(alturaWorkerPTR.get (), &AlturaWorker::alturaActualizada, [](qint16 altura) {
     });
 
-    connect(libMapa->getOMapa(), &CMapaPlot::pointMoved,
+    connect(m_mapa, &MapaMision::puntoRutaMovido,
             m_wPuntos, &Widget_Puntos::onPointMoved);
 
     connect(mPrincipal,&Ci_Principal::resize,[this](){
@@ -704,38 +695,38 @@ void CControladora::conecciones()
     });
 
     ////acciones mapa en barra de herramientas
-    connect (aDistancia,&QAction::triggered,[this]()
+    connect (aDistancia,&QAction::triggered,[this](bool checked)
     {
-        libMapa->accionarMedirDistancia ();
+        m_mapa->medirDistancia (checked);
+        aLupa->setChecked (false);
     });
 
-    connect (aLupa,&QAction::triggered,[this]()
+    connect (aLupa,&QAction::triggered,[this](bool checked)
     {
-        libMapa->getOMapa ()->AccionarZoomArea ();
+        m_mapa->zoomArea (checked);
         aDistancia->setChecked (false);
     });
 
-    connect (libMapa->getOMapa (),&CMapaPlot::sig_finZoomArea ,[this]()
+    connect (m_mapa,&MapaMision::zoomAreaTerminado ,[this]()
     {
         aLupa->setChecked (false);
     });
 
     connect (aLupaMas,&QAction::triggered,[this]()
     {
-        libMapa->getOMapa ()->AccionarZoomMas ();
-        aDistancia->setChecked (false);
+        m_mapa->zoomMas ();
     });
 
     connect (aLupaMen,&QAction::triggered,[this]()
     {
-        libMapa->getOMapa ()->AccionarZoomMenos ();
-        aDistancia->setChecked (false);
+        m_mapa->zoomMenos ();
     });
 
     connect (aPoligono,&QAction::triggered,[this]()
     {
-        libMapa->getOMapa ()->AccionarCrearPoligono ();
+        m_mapa->dibujarPoligono ();
         aDistancia->setChecked (false);
+        aLupa->setChecked (false);
     });
 
     // Acuse de recibo del plan de vuelo
@@ -744,17 +735,7 @@ void CControladora::conecciones()
 
     // Pintar ruta en el mapa
     connect(m_wPuntos, &Widget_Puntos::sI_pintaRuta, [this](bool visible) {
-        QList<EPuntoRuta> listPunto;
-        QStringList nombrePuntos;
-        for (const auto &punto : m_wPuntos->getModelo()->obtenerLista()) {
-            EPuntoRuta puntoRuta;
-            puntoRuta.pos = punto.pos;
-            puntoRuta.radio = punto.radio;
-            puntoRuta.descripcion = punto.nombre;
-            listPunto.append(puntoRuta);
-            nombrePuntos.append(punto.nombre);
-        }
-        libMapa->getOMapa()->pinta_PuntoRuta(listPunto, nombrePuntos, visible);
+        pintarRutaEnMapa(visible);
     });
 
     // Envío de la ruta (coordenadas simples)
@@ -875,18 +856,12 @@ void CControladora::recibirDatos(QByteArray byteArray)
     if (lat != 0)
     {
         QString descripcion = QGeoCoordinate(lat,lon).toString();
-        libMapa->getOMapa ()->nuevoPunto (TipoPunto::VehiculoTerrestre,
-                                          QGeoCoordinate(lat,lon),Actualizado,
-                                          "PuntoNuevo",
-                                          colorTraza,
-                                          simbolo,
-                                          descripcion,
-                                          true,
-                                          aux.at(7).toFloat(),
-                                          aux.at(6).toFloat(),
-                                          aux.at(9).toFloat());
-
-        libMapa->getOMapa ()->getListVehiculos ().last ()->setCantPuntosTrayecAVisualizar (TODAS);
+        // El rumbo es el mismo campo que usaba la libreria antigua (aux 6).
+        m_mapa->actualizarVehiculo (QGeoCoordinate(lat,lon),
+                                    aux.at(6).toFloat(),
+                                    colorTraza,
+                                    simbolo,
+                                    descripcion);
     }
 }
 
@@ -895,7 +870,9 @@ QList<QPointF> CControladora::sL_cambiaProyeccion()
     QList<QPointF> listPunto;
     for (auto punto: m_wPuntos->getModelo ()->obtenerLista ())
     {
-        QPointF pointf = libMapa->getOMapa()->getProjection()->forward(punto.pos);
+        // Norte primero y truncado a metros enteros (QPoint), como espera el
+        // autopiloto y como luego se compara con Cumplir_Punto.
+        QPointF pointf = ProyeccionMercator::aMetros(punto.pos);
         listPunto.append(QPoint (pointf.y (),pointf.x ()));
     }
     return listPunto;
@@ -903,7 +880,7 @@ QList<QPointF> CControladora::sL_cambiaProyeccion()
 
 QPointF CControladora::sL_cambiaProyeccionPunto(QGeoCoordinate pos)
 {
-    QPointF pointf = libMapa->getOMapa()->getProjection()->forward(pos);
+    QPointF pointf = ProyeccionMercator::aMetros(pos);
     return pointf;
 }
 
@@ -926,7 +903,7 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
             {
                 m_wMandos->getDsB_Lat ()->setValue (lat);
                 m_wMandos->getDsB_Lon ()->setValue (lon);
-                libMapa->getOMapa ()->pintaElipseHome(QGeoCoordinate(lat,lon));
+                m_mapa->ponerHome(QGeoCoordinate(lat,lon));
                 primeraCoordenada = false;
                 logHandler.appendLogMessage("TramaConstante(a,b,c):"
                                             "Home: --- Lat " + QString::number (lat) +
@@ -1007,24 +984,18 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
             if (geoPos.latitude() != 0)
             {
 
-                libMapa->getOMapa ()->nuevoPunto (TipoPunto::VehiculoTerrestre,
-                                                  geoPos,Actualizado,
-                                                  "PuntoNuevo",
-                                                  colorTraza,
-                                                  simbolo.scaled (40,40),
-                                                  descripcion,
-                                                  true,
-                                                  m_wConexion->serialManager ()->getS28 ().Realimentacion_Velocidad *3.6,
-                                                  m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
-                                                  m_wConexion->serialManager ()->getS28 ().Realimentacion_Altura);
-
-                libMapa->getOMapa ()->getListVehiculos ().last ()->setCantPuntosTrayecAVisualizar (TODAS);
+                m_mapa->actualizarVehiculo (geoPos,
+                                            m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
+                                            colorTraza,
+                                            simbolo.scaled (40,40),
+                                            descripcion);
 
                 auto x = m_wConexion->serialManager ()->getS34 ().Cumplir_Punto[0];
                 auto y = m_wConexion->serialManager ()->getS34 ().Cumplir_Punto[1];
                 auto z = m_wConexion->serialManager ()->getS34 ().Cumplir_Punto[2];
 
-                auto puntoProxGeo = libMapa->getOMapa ()->getProjection ()->inverse (QPointF(y,x));
+                // Cumplir_Punto llega con el norte primero: x = norte, y = este.
+                auto puntoProxGeo = ProyeccionMercator::aGeo (QPointF(y,x));
                 rumboProxPunto = geoPos.azimuthTo (puntoProxGeo);
 
                 auto cursoDeseado = m_wConexion->serialManager ()->getS34 ().Curso_Deseado;
@@ -1033,12 +1004,10 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
                 bool automatico = false;
                 automatico = m_wConexion->serialManager ()->getS34().Realimentacion_Regimen == 2 ? true : false;
 
-                libMapa->getOMapa ()->pintaRumbosVehiculo (geoPos,
-                                                           m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
-                                                           cursoDeseado,
-                                                           puntoProxGeo,
-                                                           QColor(0,0,255),QColor(120,0,255),QColor(0,255,0),
-                                                           automatico);
+                m_mapa->ponerRumbos (m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
+                                     cursoDeseado,
+                                     puntoProxGeo,
+                                     automatico);
                 if(automatico)
                 {
                     //actualizar color del proximo punto
@@ -1050,7 +1019,7 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
                             if(!listPuntoF.isEmpty())
                                 for(int i = 0;i < index; i++)
                                 {
-                                    libMapa->getOMapa ()->rellenaProximoPunto (i);
+                                    m_mapa->marcarPuntoCumplido (i);
                                     indexAnterior = index;
                                 }
                         }
@@ -1125,7 +1094,10 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
     indicador->setAltitude (s_cuadropteros.Realimentacion_Altura);
     indicador->redraw ();
 
-    auto latlon = libMapa->getOMapa()->getProjection()->inverse (s_cuadropteros.Realimentacion_Latitud,s_cuadropteros.Realimentacion_Longitud);
+    // inverse(lat, lon) de la libreria antigua: el norte va en la latitud y el
+    // este en la longitud de la trama.
+    auto latlon = ProyeccionMercator::aGeo (QPointF(s_cuadropteros.Realimentacion_Longitud,
+                                                    s_cuadropteros.Realimentacion_Latitud));
     logHandler.appendLogMessage("onNewCuadropteros: "
                                 "Lat: " + QString::number (latlon.latitude()) +
                                 "  Lon: " + QString::number (latlon.longitude()));
@@ -1142,7 +1114,7 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
         {
             m_wMandos->getDsB_Lat ()->setValue (geoPos.latitude());
             m_wMandos->getDsB_Lon ()->setValue (geoPos.longitude());
-            libMapa->getOMapa ()->pintaElipseHome(geoPos);
+            m_mapa->ponerHome(geoPos);
             primeraCoordenada = false;
             //            qDebug()<<"Busca primera coordenada: "<<primeraCoordenada;
             logHandler.appendLogMessage("onNewCuadropteros: "
@@ -1201,24 +1173,17 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
         //
         if (geoPos.latitude() != 0)
         {
-            libMapa->getOMapa ()->nuevoPunto (TipoPunto::VehiculoTerrestre,
-                                              geoPos,Actualizado,
-                                              "PuntoNuevo",
-                                              colorTraza,
-                                              simbolo.scaled (40,40),
-                                              descripcion,
-                                              true,
-                                              s_cuadropteros.Realimentacion_Velocidad *3.6,
-                                              s_cuadropteros.Realimentacion_Curso,
-                                              s_cuadropteros.Realimentacion_Altura);
-
-            libMapa->getOMapa ()->getListVehiculos ().last ()->setCantPuntosTrayecAVisualizar (TODAS);
+            m_mapa->actualizarVehiculo (geoPos,
+                                        s_cuadropteros.Realimentacion_Curso,
+                                        colorTraza,
+                                        simbolo.scaled (40,40),
+                                        descripcion);
 
             auto x = s_cuadropteros.Cumplir_Punto[0];
             auto y = s_cuadropteros.Cumplir_Punto[1];
             auto z = s_cuadropteros.Cumplir_Punto[2];
 
-            auto puntoProxGeo = libMapa->getOMapa ()->getProjection ()->inverse (QPointF(y,x));
+            auto puntoProxGeo = ProyeccionMercator::aGeo (QPointF(y,x));
             rumboProxPunto = geoPos.azimuthTo (puntoProxGeo);
 
             auto cursoDeseado = /*qRadiansToDegrees*/(s_cuadropteros.Curso_Deseado);
@@ -1226,13 +1191,11 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
 
             bool automatico = false;
             automatico = s_cuadropteros.Realimentacion_Regimen == 2 ? true : false;
-            libMapa->getOMapa ()->pintaRumbosVehiculo (geoPos,
-                                                       cursoDeseado,
-                                                       s_cuadropteros.Realimentacion_Curso,
-
-                                                       puntoProxGeo,
-                                                       QColor(0,0,255),QColor(120,0,255),QColor(0,255,0),
-                                                       automatico);
+            // Mismo orden que pasaba la libreria antigua al cuadroptero.
+            m_mapa->ponerRumbos (cursoDeseado,
+                                 s_cuadropteros.Realimentacion_Curso,
+                                 puntoProxGeo,
+                                 automatico);
             if(automatico)
             {
                 //actualizar color del proximo punto
@@ -1244,7 +1207,7 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
                         if(!listPuntoF.isEmpty())
                             for(int i = 0;i < index; i++)
                             {
-                                libMapa->getOMapa ()->rellenaProximoPunto (i);
+                                m_mapa->marcarPuntoCumplido (i);
                                 indexAnterior = index;
                             }
                     }
@@ -1280,17 +1243,7 @@ void CControladora::on_EliminarPunto(QString s)
     indicador->setAltitude (0);
     indicador->redraw ();
 
-    libMapa->getOMapa ()->borrarElementosPorNombre ("PuntoNuevo");
-
-    if(libMapa->getOMapa ()->getPuntoItem ().text == NULL)
-        return;
-    libMapa->getOMapa ()->getPuntoItem ().text->setVisible (false);
-    libMapa->getOMapa ()->getPuntoItem ().ellipse->setVisible (false);
-    libMapa->getOMapa ()->getPuntoItem ().ellipse2->setVisible (false);
-    libMapa->getOMapa ()->getLineaRumboDestino ()->setVisible (false);
-    libMapa->getOMapa ()->getLineaRumboVehiculo ()->setVisible (false);
-    libMapa->getOMapa ()->getLineaRumboCalculado ()->setVisible (false);
-    libMapa->getOMapa ()->layer (sMapaZOOM)->replot ();
+    limpiarVueloEnMapa();
 }
 
 void CControladora::on_DetenerCO()
@@ -1517,9 +1470,9 @@ void CControladora::guardaDatosDron()
 
 void CControladora::updateOverlayPosition()
 {   
-    if(m_wParametros && libMapa->getOMapa ()) {
-        // Calcular posición relativa al área visible
-        QRect visibleRect = libMapa->getOMapa ()->geometry();
+    if(m_wParametros && m_mapa) {
+        // Calcular posición relativa al área visible (los overlays son hijos del mapa)
+        QRect visibleRect = m_mapa->mapa ()->rect();
         int xPos = (visibleRect.right() - m_wParametros->width())/2;
         int yPos = visibleRect.top();
 
@@ -1530,14 +1483,14 @@ void CControladora::updateOverlayPosition()
 
         m_wParametros->move(xPos, yPos);
     }
-    if(m_wGraficas && libMapa->getOMapa ()) {
-        m_wGraficas->setFixedWidth (libMapa->getOMapa ()->width () * 0.95);
+    if(m_wGraficas && m_mapa) {
+        m_wGraficas->setFixedWidth (m_mapa->mapa ()->width () * 0.95);
         // Calcular posición relativa al área visible
 
 
         // Ajustar altura si sobrepasa el área
         QPoint newPos;
-        newPos.setX ((libMapa->getOMapa ()->width ()- m_wGraficas->width ())/2);
+        newPos.setX ((m_mapa->mapa ()->width ()- m_wGraficas->width ())/2);
         newPos.setY (10);
 
         m_wGraficas->move(newPos);
@@ -1546,12 +1499,12 @@ void CControladora::updateOverlayPosition()
 
 void CControladora::updateRutaPosition()
 {
-    if(!m_wPuntos || !libMapa->getOMapa() || !m_wPuntos->isVisible()) {
+    if(!m_wPuntos || !m_mapa || !m_wPuntos->isVisible()) {
         return;
     }
 
     //Usar el widget del mapa como referencia de pantalla
-    QWidget *mapWidget = libMapa->getOMapa();
+    QWidget *mapWidget = m_mapa->mapa();
 
     // 1. Obtener esquina inferior derecha del mapa en coordenadas GLOBALES
     QPoint mapBottomRightGlobal = mapWidget->mapToGlobal(
@@ -1620,4 +1573,58 @@ void CControladora::updateStatus(double lat, double lon, bool isValid) {
             .arg(isValid ? "Valida" : "Invalida");
     LogHandler& logHandler = LogHandler::getInstance();
     logHandler.appendLogMessage (status);
+}
+
+// Carpeta del paquete de datos del mapa (la que tiene mapa.json). Se puede
+// fijar en conf.ini, seccion [MAPA], clave paquete; si no, es la de siempre:
+// <carpeta de trabajo>/../Recursos (D:/QtPro/Recursos en el PC de desarrollo).
+QString CControladora::dirPaqueteMapa() const
+{
+    MyQSetting settings;
+    const QString fichero = QDir::currentPath() + "/conf.ini";
+    const QString defecto = RecursosDir.path() + "/Recursos";
+    return settings.cargarSetting(fichero, "paquete", "MAPA", defecto).toString();
+}
+
+// Crea el mapa (libmapa) sobre el paquete de datos, le da al worker de alturas
+// de donde leer la cota y pone en la barra de estado la posicion del raton.
+// Los poligonos que dibuje el operador se guardan junto a la base de drones.
+void CControladora::crearMapa()
+{
+    const QString paquete = dirPaqueteMapa();
+    const QString dirDatos = RecursosDir.path() + "/Recursos/data";
+    QDir().mkpath(dirDatos);
+
+    m_mapa = new MapaMision(paquete, dirDatos + "/dibujos.db", mPrincipal);
+    alturaWorkerPTR->setMapa(m_mapa);
+
+    m_lPosicionRaton = new QLabel(mPrincipal);
+    mPrincipal->statusBar()->addPermanentWidget(m_lPosicionRaton);
+
+    LogHandler& logHandler = LogHandler::getInstance();
+    if (!m_mapa->listo()) {
+        logHandler.appendLogMessage("Mapa: no se pudo abrir " + paquete + ": " + m_mapa->error());
+        QMessageBox::warning(mPrincipal, tr("Mapa"),
+                             tr("No se pudo abrir el paquete de mapas en %1:\n%2\n\n"
+                                "Indica su carpeta en conf.ini, sección [MAPA], clave paquete.")
+                             .arg(QDir::toNativeSeparators(paquete), m_mapa->error()));
+        return;
+    }
+    for (const QString &aviso : m_mapa->avisos())
+        logHandler.appendLogMessage("Mapa: " + aviso);
+}
+
+// Pinta (u oculta) en el mapa la ruta del modelo de Widget_Puntos.
+void CControladora::pintarRutaEnMapa(bool visible)
+{
+    QVector<PuntoRutaMapa> puntos;
+    for (const auto &punto : m_wPuntos->getModelo()->obtenerLista())
+        puntos.append({punto.pos, punto.nombre});
+    m_mapa->pintarRuta(puntos, visible);
+}
+
+// Al desconectar o limpiar el control de objetivo: fuera el dron, sus rumbos y la casa.
+void CControladora::limpiarVueloEnMapa()
+{
+    m_mapa->limpiarVuelo();
 }

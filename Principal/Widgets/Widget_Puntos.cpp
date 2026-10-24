@@ -4,7 +4,6 @@
 
 #include "Widget_Puntos.h"
 #include "dronedialog.h"
-#include "cmapaplot.h"  // necesario para onPointMoved
 
 #include <QFileDialog>
 #include <QMessageBox>
@@ -2904,19 +2903,13 @@ void Widget_Puntos::onAnalisisActualizado(const QVariantMap &analisis)
  * ...
  *
  * \startuml
- * participant "CMapaPlot (mapa)" as Map
+ * participant "MapaMision (mapa)" as Map
  * participant "Widget_Puntos" as Widget
  * participant "MiModelo" as Model
  * participant "AlturaWorker" as AltWorker
  *
- * Map -> Widget: onPointMoved(index)
+ * Map -> Widget: onPointMoved(index, nuevaPos)
  * activate Widget
- *
- * Widget -> Map: currentPoints()
- * Map --> Widget: pointsMetros
- *
- * Widget -> Map: getProjection()->inverse()
- * Map --> Widget: nuevaPos (QGeoCoordinate)
  *
  * Widget -> Model: setData(idxLat, nuevaPos.latitude())
  * Widget -> Model: setData(idxLon, nuevaPos.longitude())
@@ -2935,27 +2928,12 @@ void Widget_Puntos::onAnalisisActualizado(const QVariantMap &analisis)
  * deactivate Widget
  * \enduml
  */
-void Widget_Puntos::onPointMoved(int index)
+void Widget_Puntos::onPointMoved(int index, const QGeoCoordinate &nuevaPos)
 {
     if (!modelo || !modelo->isDroneConfigured() || modelo->rowCount() == 0)
         return;
-    if (index < 0 || index >= modelo->rowCount())
+    if (index < 0 || index >= modelo->rowCount() || !nuevaPos.isValid())
         return;
-
-    CMapaPlot *mapa = qobject_cast<CMapaPlot*>(sender());
-    if (!mapa) {
-        return;
-    }
-    if (!mapa->getProjection()) {
-        return;
-    }
-
-    QVector<QPointF> pointsMetros = mapa->currentPoints();
-    if (index >= pointsMetros.size()) {
-        return;
-    }
-
-    QGeoCoordinate nuevaPos = mapa->getProjection()->inverse(pointsMetros[index]);
 
     QModelIndex idxLat = modelo->index(index, 3);
     QModelIndex idxLon = modelo->index(index, 4);
