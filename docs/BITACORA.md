@@ -318,3 +318,28 @@ las pestañas no cabían («Ganacias» cortada y con flechas):
 
 `test_estado` suma el detalle (plegado, botón, formatos, cuadróptero): 65
 pruebas en total.
+
+## 10. La ruta solo se cumple en automático, y la pestaña de Mandos lo deja claro
+
+Aviso del usuario: el dron no debe ir a la ruta hasta estar en automático;
+primero se le manda la ruta (la guarda) y solo la cumple en automático.
+
+Comprobado contra el simulador recién arrancado (en manual) mandándole un plan
+por TCP: lo guarda («se sigue en régimen automático») y sigue dando vueltas a
+casa; la estación tampoco manda nada más junto con el plan. El fallo estaba en
+lo que se veía: el simulador, como el autopiloto, **recuerda su régimen**
+entre sesiones de la estación, y la pestaña de Mandos siempre arrancaba
+diciendo «Manual». Si el dron se había quedado en automático de una prueba
+anterior, la ruta nueva se cumplía al llegar aunque la pestaña dijera «Manual».
+
+- La pestaña de Mandos enseña arriba **en qué está el dron** según su
+  telemetría («Dron: Automático · Puntos»), en ámbar si no coincide con lo
+  elegido abajo: lo elegido no le llega hasta pulsar «Enviar mandos».
+- Con la **primera trama de cada conexión**, la pestaña adopta el régimen y la
+  misión del dron, así nunca empieza mostrando otra cosa.
+- `test_simulador::laRutaSoloSeSigueEnAutomatico`: plan, manual y
+  estabilizado (vueltas a casa, sin acercarse a la ruta ni punto a cumplir) y
+  luego automático (va al primer punto).
+- `test_mandos` (nuevo, 4 casos): adopta el estado del dron, avisa si no
+  coincide, la trama sale con lo elegido y V.RTH no crece al arrancar. 70
+  pruebas en total.

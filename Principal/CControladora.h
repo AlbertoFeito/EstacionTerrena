@@ -151,6 +151,7 @@ private:
     Widget_Ganancias_Control *m_wGanancias;
 
     PanelVuelo::Detalle m_detalle;   // detalle tecnico de la ultima trama
+    bool m_estadoDronAdoptado = false;   // la pestaña de Mandos ya tomo el regimen del dron
 
     bool m_ControlObjetivo = false;
     bool m_Conectado = false;

@@ -264,6 +264,10 @@ void CControladora::Conectado(bool conectado)
         m_panelVuelo->limpiar ();
         m_puntoActual = -1;
     }
+    // La pestaña de Mandos adopta lo que diga la primera trama de este enlace.
+    m_estadoDronAdoptado = false;
+    if (!conectado && m_wMandos)
+        m_wMandos->olvidarEstadoDron ();
     if (m_lEnlace)
         refrescarIndicadorEnlace ();
     if (m_wPuntos)
@@ -1739,7 +1743,8 @@ void CControladora::marcarCumplidos(const QPointF &cumplir, const QGeoCoordinate
 }
 
 // Pone en el panel de vuelo los datos de una trama (ala fija o cuadroptero).
-// El punto al que va solo tiene sentido en automatico.
+// El punto al que va solo tiene sentido en automatico. La pestaña de Mandos
+// muestra tambien en que regimen y mision esta el dron.
 void CControladora::actualizarPanel(int regimen, int mision, double distancia, double rumbo,
                                     double rumboDeseado, int satelites)
 {
@@ -1755,6 +1760,8 @@ void CControladora::actualizarPanel(int regimen, int mision, double distancia, d
     d.satelites = satelites;
     d.posicion = geoPos;
     m_panelVuelo->mostrar (d);
+    m_wMandos->setEstadoDron (regimen, mision, !m_estadoDronAdoptado);
+    m_estadoDronAdoptado = true;
 }
 
 // Indicador del enlace en la barra de estado: cuenta las tramas de telemetria

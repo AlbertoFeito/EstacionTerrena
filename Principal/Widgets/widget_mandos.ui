@@ -30,14 +30,31 @@
     <number>6</number>
    </property>
    <item>
-    <widget class="QLabel" name="lTituloRegimen">
-     <property name="text">
-      <string>RÉGIMEN</string>
-     </property>
-     <property name="rol" stdset="0">
-      <string>seccion</string>
-     </property>
-    </widget>
+    <layout class="QHBoxLayout" name="lCabeceraRegimen">
+     <item>
+      <widget class="QLabel" name="lTituloRegimen">
+       <property name="text">
+        <string>RÉGIMEN</string>
+       </property>
+       <property name="rol" stdset="0">
+        <string>seccion</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="lEstadoDron">
+       <property name="text">
+        <string>Dron: sin datos</string>
+       </property>
+       <property name="toolTip">
+        <string>Régimen y misión en los que está el dron ahora (lo que dice su telemetría)</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignRight|Qt::AlignVCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
    </item>
    <item>
     <layout class="QHBoxLayout" name="lRegimen">

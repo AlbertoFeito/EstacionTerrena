@@ -82,6 +82,7 @@ private slots:
     void circularSobreElPunto();
     void rtlVuelveACasaAVelocidadYAltura();
     void manualDaVueltasACasa();
+    void laRutaSoloSeSigueEnAutomatico();
     void paracaidasBajaAlSuelo();
     void gananciasSoloLasMarcadas();
 };
@@ -264,6 +265,32 @@ void TestSimulador::manualDaVueltasACasa()
     QVERIFY(dron.posicion().distanceTo(dron.casa()) < 450.0);
     const sTRAMA2 t2 = t2De(dron.avanzar(0.1));
     QCOMPARE(t2.Cumplir_Punto[0], 0.0f);   // sin punto a cumplir
+}
+
+// Primero la ruta y luego el regimen: con el plan en memoria, en manual y en
+// estabilizado sigue dando vueltas a casa sin acercarse a la ruta; solo al
+// pasar a automatico va al primer punto.
+void TestSimulador::laRutaSoloSeSigueEnAutomatico()
+{
+    SimuladorDron dron(SimuladorDron::Opciones{});
+    dron.recibir(tramaPlan());
+    QCOMPARE(dron.plan().size(), kRuta.size());
+    const QGeoCoordinate primero = dron.plan().first().pos;
+    const double lejosAlEmpezar = dron.posicion().distanceTo(primero);
+
+    for (int regimen : {0, 1}) {
+        dron.recibir(Tramas::mandos(mandos(regimen, 0)));
+        avanzarHasta(dron, 120.0, [] { return false; });
+        QCOMPARE(dron.fase(), SimuladorDron::Fase::VueltasCasa);
+        QVERIFY(dron.posicion().distanceTo(dron.casa()) < 450.0);
+        QVERIFY(dron.posicion().distanceTo(primero) > lejosAlEmpezar - 450.0);
+        QCOMPARE(t2De(dron.avanzar(0.1)).Cumplir_Punto[0], 0.0f);
+    }
+
+    dron.recibir(Tramas::mandos(mandos(2, 0)));
+    dron.avanzar(0.1);
+    QCOMPARE(dron.fase(), SimuladorDron::Fase::Ruta);
+    QVERIFY(avanzarHasta(dron, 600.0, [&] { return dron.puntoActual() >= 1; }));
 }
 
 // Paracaidas: se para y baja hasta el suelo.

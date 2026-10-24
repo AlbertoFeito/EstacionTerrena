@@ -70,6 +70,56 @@ void Widget_Mandos::setPosicionDron(const QGeoCoordinate &pos)
     ui->pB_CasaDron->setEnabled (pos.isValid ());
 }
 
+// Lo que dice la telemetria: regimen y mision en los que esta el dron. Se ve
+// siempre arriba ("Dron: Automático · Puntos") y, si no coincide con lo elegido
+// en la pestaña, en ambar: el dron sigue en lo suyo hasta que se pulse Enviar.
+// Con \a adoptar (la primera trama tras conectar) la pestaña pasa a mostrar lo
+// del dron: si el simulador o el autopiloto se quedaron en automatico de antes,
+// la pestaña no puede decir "Manual" mientras el dron sigue la ruta.
+void Widget_Mandos::setEstadoDron(int regimen, int mision, bool adoptar)
+{
+    static const char *regimenes[] = {"Manual", "Estabilizado", "Automático"};
+    static const char *misiones[] = {"Puntos", "Circular", "Repetir misión", "RTL"};
+    if (regimen < 0 || regimen > 2 || mision < 0 || mision > 3)
+        return;
+    if (adoptar) {
+        QAbstractButton *botonesRegimen[] = {ui->rB_M, ui->rB_SA, ui->rB_A};
+        QAbstractButton *botonesMision[] = {ui->rB_Defoult, ui->rB_Circular,
+                                            ui->rB_Repetir_Mision, ui->rB_RTL};
+        botonesRegimen[regimen]->setChecked (true);
+        botonesMision[mision]->setChecked (true);
+    }
+    const bool distinto = regimen != this->regimen || mision != comando;
+    if (regimen == m_regimenDron && mision == m_misionDron
+        && ui->lEstadoDron->property ("distinto").toBool () == distinto)
+        return;   // nada que cambiar (llegan 10 tramas por segundo)
+    m_regimenDron = regimen;
+    m_misionDron = mision;
+    ui->lEstadoDron->setText (tr("Dron: %1 · %2").arg (QString::fromUtf8 (regimenes[regimen]),
+                                                      QString::fromUtf8 (misiones[mision])));
+    ui->lEstadoDron->setProperty ("distinto", distinto);
+    ui->lEstadoDron->setStyleSheet (distinto ? QStringLiteral ("color: #ffb300; font-weight: bold;")
+                                             : QStringLiteral ("color: #9e9e9e;"));
+    ui->lEstadoDron->setToolTip (distinto
+        ? tr("El dron sigue en esto: lo elegido abajo no le llega hasta pulsar «Enviar mandos»")
+        : tr("Régimen y misión en los que está el dron ahora (lo que dice su telemetría)"));
+}
+
+// Al desconectar: ya no se sabe en que esta el dron.
+void Widget_Mandos::olvidarEstadoDron()
+{
+    m_regimenDron = m_misionDron = -1;
+    ui->lEstadoDron->setText (tr("Dron: sin datos"));
+    ui->lEstadoDron->setProperty ("distinto", false);
+    ui->lEstadoDron->setStyleSheet (QStringLiteral ("color: #9e9e9e;"));
+}
+
+// Texto del estado del dron (para pruebas).
+QString Widget_Mandos::textoEstadoDron() const
+{
+    return ui->lEstadoDron->text ();
+}
+
 // Pone la ultima posicion del dron en la casa; se le manda con Enviar.
 void Widget_Mandos::on_pB_CasaDron_clicked()
 {

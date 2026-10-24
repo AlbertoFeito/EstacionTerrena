@@ -29,6 +29,11 @@ public:
 
     QDoubleSpinBox *getDsB_Lat() const;
     void setPosicionDron(const QGeoCoordinate &pos);
+    void setEstadoDron(int regimen, int mision, bool adoptar);
+    void olvidarEstadoDron();
+    QString textoEstadoDron() const;
+    int regimenElegido() const { return regimen; }
+    int misionElegida() const { return comando; }
 public slots:
     void on_AcuseRecibo();
     void on_restoreStyle();
@@ -69,6 +74,8 @@ private:
 
     QDoubleSpinBox *m_dsB_Lat,*m_dsB_Lon;
     QGeoCoordinate m_posicionDron;
+    int m_regimenDron = -1;
+    int m_misionDron = -1;
 
     QTimer m_timer;
     QString m_originalStyle;
