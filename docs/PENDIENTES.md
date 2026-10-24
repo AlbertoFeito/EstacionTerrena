@@ -10,8 +10,9 @@ borrar la carpeta `LibMapaStatic/` (ya no se compila).
 
 ## Preguntas para quien programa el autopiloto
 
-- Qué hace al terminar la misión **Puntos** (el simulador da vueltas sobre el
-  último punto) y en **Circular** (vueltas sobre el punto al que iba, de 300 m).
+- Qué hace en **Circular** (el simulador da vueltas de 300 m sobre el punto al
+  que iba). Al terminar la misión **Puntos** vuelve a casa y da vueltas (lo
+  decidió el usuario, §6); confirmar que el autopiloto hace lo mismo.
 - Qué significa **Distancia de encuentro** (DistEnc): el simulador no la usa.
 - Si hay una trama en la que el dron devuelve el plan (`newPlanificacionReceived`
   existe en la estación, pero nada la emite).

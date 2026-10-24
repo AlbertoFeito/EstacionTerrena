@@ -25,8 +25,8 @@
  * - Regimen Manual (0) o Estabilizado (1): sin mando de radio que lo guie, da
  *   vueltas alrededor de casa.
  * - Regimen Automatico (2), segun la Mision:
- *   - Puntos (0): recorre el plan una vez; al cumplir el ultimo punto da
- *     vueltas sobre el (mision cumplida).
+ *   - Puntos (0): recorre el plan una vez; al cumplir el ultimo punto vuelve
+ *     a casa y da vueltas sobre ella (mision cumplida), como con RTL.
  *   - Circular (1): da vueltas alrededor del punto al que iba.
  *   - Repetir mision (2): recorre el plan una y otra vez.
  *   - RTL (3): vuelve a casa a la velocidad V.RTH y a la altura de casa, y da
@@ -50,7 +50,7 @@ public:
         VueltasCasa,      //!< Manual / Estabilizado, o automatico sin plan.
         Ruta,             //!< Siguiendo el plan.
         Circular,         //!< Vueltas alrededor del punto al que iba.
-        MisionCumplida,   //!< Plan recorrido (mision Puntos): vueltas sobre el ultimo.
+        MisionCumplida,   //!< Plan recorrido (mision Puntos): vuelve a casa y da vueltas.
         Regreso,          //!< RTL: volviendo a casa (y luego vueltas sobre ella).
         Paracaidas        //!< Bajando con el paracaidas.
     };

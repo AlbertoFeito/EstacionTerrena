@@ -240,7 +240,6 @@ void CControladora::Conectado(bool conectado)
     {
         m_wConexion->cBDrones ()->setEnabled (!conectado);
         m_wConexion->chB_Guardar ()->setEnabled (conectado);
-        indexAnterior = 0;
         if(conectado)
         {
 
@@ -1010,22 +1009,7 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
                                      puntoProxGeo,
                                      automatico);
                 if(automatico)
-                {
-                    //actualizar color del proximo punto
-                    int  index = listPuntoF.lastIndexOf(QPointF(x,y));
-                    if(index > 0 )
-                    {
-                        if( index != indexAnterior)
-                        {
-                            if(!listPuntoF.isEmpty())
-                                for(int i = 0;i < index; i++)
-                                {
-                                    m_mapa->marcarPuntoCumplido (i);
-                                    indexAnterior = index;
-                                }
-                        }
-                    }
-                }
+                    marcarCumplidos (QPointF(x,y), geoPos);
 
                 logHandler.appendLogMessage("TramaConstante(a,b,c):"
                                             "Objetivo con rumbo representados");
@@ -1193,22 +1177,7 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
                                  puntoProxGeo,
                                  automatico);
             if(automatico)
-            {
-                //actualizar color del proximo punto
-                int  index = listPuntoF.lastIndexOf(QPointF(x,y));
-                if(index > 0 )
-                {
-                    if( index != indexAnterior)
-                    {
-                        if(!listPuntoF.isEmpty())
-                            for(int i = 0;i < index; i++)
-                            {
-                                m_mapa->marcarPuntoCumplido (i);
-                                indexAnterior = index;
-                            }
-                    }
-                }
-            }
+                marcarCumplidos (QPointF(x,y), geoPos);
 
             logHandler.appendLogMessage("Objetivo con rumbo representados");
 
@@ -1622,6 +1591,10 @@ void CControladora::pintarRutaEnMapa(bool visible)
     for (const auto &punto : m_wPuntos->getModelo()->obtenerLista())
         puntos.append({punto.pos, punto.nombre});
     m_mapa->pintarRuta(puntos, visible);
+    // Repintar no borra lo ya cumplido.
+    for (int i = 0; i < puntos.size(); ++i)
+        if (m_cumplidos.cumplido (i))
+            m_mapa->marcarPuntoCumplido (i);
 }
 
 // Al desconectar o limpiar el control de objetivo: fuera el dron, sus rumbos y la casa.
@@ -1669,7 +1642,7 @@ void CControladora::crearEsperasDeAcuse()
     connect (enlace, &SerialManager::si_AcuseReciboUVW, this, [this]() {
         m_esperaAcusePlan->stop ();
         m_reintentosPlan = 0;
-        indexAnterior = -1;
+        m_cumplidos.setPlan (listPuntoF);
         if (m_wPuntos && m_wPuntos->isRouteVisible ())
             pintarRutaEnMapa (true);
         mPrincipal->statusBar ()->showMessage (tr("✓ El dron ha confirmado el plan"), 5000);
@@ -1678,4 +1651,17 @@ void CControladora::crearEsperasDeAcuse()
         m_esperaAcuseMandos->stop ();
         mPrincipal->statusBar ()->showMessage (tr("✓ El dron ha confirmado los mandos"), 5000);
     });
+}
+
+// Pinta de verde los puntos del plan que el dron ya ha cumplido: los
+// anteriores al que va (\a cumplir, Cumplir_Punto: norte, este) y el propio
+// punto en cuanto el dron entra en su radio de acercamiento (asi se marca
+// tambien el ultimo).
+void CControladora::marcarCumplidos(const QPointF &cumplir, const QGeoCoordinate &posDron)
+{
+    const QPointF m = ProyeccionMercator::aMetros (posDron);
+    const auto nuevos = m_cumplidos.actualizar (cumplir, QPointF(m.y (), m.x ()),
+                                                mandos.Radio_Acercamiento);
+    for (int i : nuevos)
+        m_mapa->marcarPuntoCumplido (i);
 }

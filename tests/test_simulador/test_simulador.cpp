@@ -5,6 +5,7 @@
 // acuses y que la telemetria devuelve el punto a cumplir tal como llego.
 
 #include "Protocolo/ProyeccionMercator.h"
+#include "Protocolo/SeguimientoCumplidos.h"
 #include "Protocolo/Tramas.h"
 #include "SimuladorDron.h"
 
@@ -75,6 +76,7 @@ class TestSimulador : public QObject
 private slots:
     void acusesDelPlanYLosMandos();
     void misionPuntosRecorreLaRutaUnaVez();
+    void laEstacionMarcaTodosLosPuntos();
     void telemetriaDevuelveElPuntoACumplir();
     void repetirMisionVuelveAlPrimero();
     void circularSobreElPunto();
@@ -109,8 +111,8 @@ void TestSimulador::acusesDelPlanYLosMandos()
     QCOMPARE(dron.radioAcercamiento(), 30.0);
 }
 
-// Mision Puntos: los tres puntos en orden y, al cumplir el ultimo, vueltas
-// sobre el (mision cumplida), a la altura y velocidad que trae el plan.
+// Mision Puntos: los tres puntos en orden, a la altura y velocidad del plan, y,
+// al cumplir el ultimo, vuelta a casa y vueltas sobre ella (mision cumplida).
 void TestSimulador::misionPuntosRecorreLaRutaUnaVez()
 {
     SimuladorDron dron(SimuladorDron::Opciones{});
@@ -126,12 +128,46 @@ void TestSimulador::misionPuntosRecorreLaRutaUnaVez()
     QCOMPARE(cumplidos, QStringList({"Punto 1 de 3 cumplido", "Punto 2 de 3 cumplido",
                                      "Punto 3 de 3 cumplido"}));
     QCOMPARE(dron.puntoActual(), 2);
-
-    avanzarHasta(dron, 120.0, [] { return false; });
-    QCOMPARE(dron.fase(), SimuladorDron::Fase::MisionCumplida);
-    QVERIFY(dron.posicion().distanceTo(kRuta.last()) < 450.0);   // vueltas de 300 m
-    QVERIFY(qAbs(dron.altura() - 150.0) < 5.0);
+    QVERIFY(qAbs(dron.altura() - 150.0) < 5.0);      // la del plan
     QVERIFY(qAbs(dron.velocidad() - 20.0) < 0.5);
+
+    avanzarHasta(dron, 240.0, [] { return false; });
+    QCOMPARE(dron.fase(), SimuladorDron::Fase::MisionCumplida);
+    QVERIFY(dron.posicion().distanceTo(dron.casa()) < 450.0);   // vueltas de 300 m sobre casa
+    QVERIFY(qAbs(dron.altura() - 120.0) < 5.0);      // sin altura de casa: la de siempre
+    const sTRAMA2 t2 = t2De(dron.avanzar(0.1));
+    const QPointF c = ProyeccionMercator::aMetros(dron.casa());
+    QVERIFY(qAbs(t2.Cumplir_Punto[0] - c.y()) < 1.0);   // ya no va a ningun punto del plan
+}
+
+// Lo que hace la estacion con cada trama (SeguimientoCumplidos, como en
+// CControladora) marca los TRES puntos, tambien el ultimo, que antes se
+// quedaba sin marcar porque tras el no hay "siguiente".
+void TestSimulador::laEstacionMarcaTodosLosPuntos()
+{
+    SimuladorDron dron(SimuladorDron::Opciones{});
+    dron.recibir(tramaPlan());
+    dron.recibir(Tramas::mandos(mandos(2, 0)));
+    QList<QPointF> plan;
+    for (const QGeoCoordinate &p : kRuta) {
+        const QPointF m = ProyeccionMercator::aMetros(p);
+        plan.append(QPoint(int(m.y()), int(m.x())));
+    }
+    SeguimientoCumplidos cumplidos;
+    cumplidos.setPlan(plan);
+
+    QVector<int> orden;
+    for (int i = 0; i < 6000 && cumplidos.cuantos() < plan.size(); ++i) {
+        const QByteArray trama = dron.avanzar(0.1);
+        sTRAMA1 t1;
+        std::memcpy(&t1, trama.constData() + 3, sizeof(sTRAMA1));
+        const sTRAMA2 t2 = t2De(trama);
+        const QPointF m = ProyeccionMercator::aMetros(
+            QGeoCoordinate(t1.Realimentacion_Latitud, t1.Realimentacion_Longitud));
+        orden += cumplidos.actualizar(QPointF(t2.Cumplir_Punto[0], t2.Cumplir_Punto[1]),
+                                      QPointF(m.y(), m.x()), 30.0);
+    }
+    QCOMPARE(orden, QVector<int>({0, 1, 2}));
 }
 
 // En automatico la telemetria trae el punto a cumplir tal como llego en el

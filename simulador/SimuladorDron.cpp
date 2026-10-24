@@ -79,7 +79,7 @@ QString SimuladorDron::nombreFase(Fase f)
     case Fase::VueltasCasa:    return tr("vueltas a casa");
     case Fase::Ruta:           return tr("siguiendo la ruta");
     case Fase::Circular:       return tr("circular sobre el punto");
-    case Fase::MisionCumplida: return tr("misión cumplida (vueltas sobre el último punto)");
+    case Fase::MisionCumplida: return tr("misión cumplida: vuelve a casa y da vueltas sobre ella");
     case Fase::Regreso:        return tr("RTL: volviendo a casa");
     case Fase::Paracaidas:     return tr("paracaídas");
     }
@@ -184,15 +184,16 @@ QByteArray SimuladorDron::avanzar(double dt)
     }
 
     case Fase::Circular:
-    case Fase::MisionCumplida:
         m_objetivo = m_plan.at(m_indice);
         delPunto(m_objetivo);
         deseado = rumboOrbita(m_objetivo.pos);
         m_distanciaPunto = m_objetivo.pos.distanceTo(m_pos);
         break;
 
+    case Fase::MisionCumplida:
     case Fase::Regreso: {
         // A casa a V.RTH y a la altura de casa; ya alli, vueltas sobre ella.
+        // Igual al terminar la mision Puntos que con RTL.
         const QPointF c = ProyeccionMercator::aMetros(m_casa);
         m_objetivo = Punto();
         m_objetivo.pos = m_casa;

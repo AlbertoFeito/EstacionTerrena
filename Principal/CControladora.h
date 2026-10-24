@@ -5,6 +5,7 @@
 #include "Mapa/MapaMision.h"
 #include "Protocolo/ProyeccionMercator.h"
 #include "Protocolo/Tramas.h"
+#include "Protocolo/SeguimientoCumplidos.h"
 #include "Ci_Principal.h"
 #include "qfi/qfi_EADI.h"
 #include <QPixmap>
@@ -170,7 +171,8 @@ private:
 
     QList<E_Punto> m_ListPuntos{};
     QList<QPointF> listPuntoF{};
-    int indexAnterior = -1;
+    SeguimientoCumplidos m_cumplidos;      // que puntos del plan ha cumplido el dron
+    void marcarCumplidos(const QPointF &cumplir, const QGeoCoordinate &posDron);
 
     // QObject interface
     void guardaDatosDron();

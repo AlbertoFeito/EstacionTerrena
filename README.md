@@ -95,7 +95,7 @@ Lo que hace el simulador con cada mando:
 | Mando | Qué hace |
 |---|---|
 | Régimen Manual / Estabilizado | Vueltas alrededor de casa (no hay mando de radio) |
-| Automático + misión **Puntos** | Recorre la ruta una vez; al acabar, vueltas sobre el último punto |
+| Automático + misión **Puntos** | Recorre la ruta una vez; al acabar, vuelve a casa y da vueltas sobre ella |
 | Automático + **Circular** | Vueltas alrededor del punto al que iba |
 | Automático + **Repetir misión** | Recorre la ruta una y otra vez |
 | Automático + **RTL** | Vuelve a casa a V.RTH y a la altura de casa, y da vueltas sobre ella |

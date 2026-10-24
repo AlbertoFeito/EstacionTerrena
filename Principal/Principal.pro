@@ -95,6 +95,7 @@ HEADERS += \
     Reporte/layoutcol.h \
     Reporte/qecsreport.h \
     Protocolo/ProyeccionMercator.h \
+    Protocolo/SeguimientoCumplidos.h \
     Protocolo/Tramas.h \
     Reporte/sectionclass.h \
     SerialPortComboBox/DeviceHotplug.h \

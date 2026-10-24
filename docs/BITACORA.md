@@ -203,3 +203,23 @@ autopiloto qué hace el de verdad (anotado en pendientes).
 
 **Test nuevo `test_simulador`** (9 casos, sin red): cada misión, manual,
 paracaídas, ganancias, acuses y el punto a cumplir en la telemetría.
+
+## 6. El último punto cumplido y el final de la misión
+
+Probando la ruta con el simulador, **el último punto nunca se ponía verde**. La
+estación marcaba como cumplidos los puntos ANTERIORES al que el dron dice que
+va a cumplir (`Cumplir_Punto`); tras el último no hay "siguiente", así que ese
+no se marcaba nunca, hiciera lo que hiciera el dron después.
+
+- `Protocolo/SeguimientoCumplidos` (solo Qt Core) lleva la cuenta: la regla de
+  siempre y, además, el punto al que va queda cumplido en cuanto el dron entra
+  en su radio de acercamiento (RPunto, con 5 m de margen por la precisión).
+  No depende de lo que mande el autopiloto al terminar. Sustituye los dos
+  bloques repetidos de `CControladora`; el plan se le da al confirmarlo el dron
+  y, si la ruta se repinta, los cumplidos se vuelven a pintar.
+- El simulador, al terminar la misión Puntos, **vuelve a casa y da vueltas
+  sobre ella** (como pidió el usuario), igual que con RTL: a V.RTH y a la altura
+  de casa.
+- `test_simulador`: `laEstacionMarcaTodosLosPuntos` aplica la lógica de la
+  estación a las tramas del simulador y exige los tres puntos; sin la regla del
+  radio salen dos (comprobado), que es el fallo que se vio.
