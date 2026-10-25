@@ -8,12 +8,6 @@ greaterThan(QT_MAJOR_VERSION, 5) {
     QT += svg
 }
 
-# Para QTextCodec compatibility
-greaterThan(QT_MAJOR_VERSION, 5) {
-    # Qt 6 - necesita core5compat
-    QT += core5compat
-    CONFIG += c++17
-}
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -51,13 +45,17 @@ SOURCES += \
     Database/AsynqQueryModel.cpp \
     Database/ConnectionManager.cpp \
     LocationValidator.cpp \
+    Mapa/MapaMision.cpp \
     MyQSettings/myqsetting.cpp \
     Reporte/layoutcol.cpp \
     Reporte/qecsreport.cpp \
+    Protocolo/ProyeccionMercator.cpp \
+    Protocolo/Tramas.cpp \
     Reporte/sectionclass.cpp \
     SerialPortComboBox/DeviceHotplug.cpp \
     SerialPortComboBox/SerialManager.cpp \
     SerialPortComboBox/SerialPortComboBox.cpp \
+    Widgets/PanelVuelo.cpp \
     Widgets/PerfilAltitudWidget.cpp \
     Widgets/Widget_Conexion.cpp \
     Widgets/Widget_ControlObjetivo.cpp \
@@ -66,14 +64,12 @@ SOURCES += \
     Widgets/Widget_Ganancias_Control.cpp \
     Widgets/Widget_Graficas.cpp \
     Widgets/Widget_Mandos_Cuadroptero.cpp \
-    Widgets/Widget_Parametros.cpp \
     Widgets/Widget_Puntos.cpp \
     Widgets/dronedialog.cpp \
     Widgets/widget_mandos.cpp \
 #    cSerialPort/cserialport.cpp \
     graficar/XxwTracer.cpp \
     graficar/customplot.cpp \
-    graficar/qcustomplot.cpp \
     header/ColumnHeaderLengthAdapter.cpp \
     header/flexibleheaderview.cpp \
     logger/LogHandler.cpp \
@@ -94,13 +90,19 @@ HEADERS += \
     Estructuras/Estructuras.h \
     Estructuras/Utils.h \
     LocationValidator.h \
+    Mapa/MapaMision.h \
     MyQSettings/myqsetting.h \
     Reporte/layoutcol.h \
     Reporte/qecsreport.h \
+    Protocolo/ProyeccionMercator.h \
+    Protocolo/SeguimientoCumplidos.h \
+    Protocolo/MonitorEnlace.h \
+    Protocolo/Tramas.h \
     Reporte/sectionclass.h \
     SerialPortComboBox/DeviceHotplug.h \
     SerialPortComboBox/SerialManager.h \
     SerialPortComboBox/SerialPortComboBox.h \
+    Widgets/PanelVuelo.h \
     Widgets/PerfilAltitudWidget.h \
     Widgets/Widget_Conexion.h \
     Widgets/Widget_ControlObjetivo.h \
@@ -109,14 +111,12 @@ HEADERS += \
     Widgets/Widget_Ganancias_Control.h \
     Widgets/Widget_Graficas.h \
     Widgets/Widget_Mandos_Cuadroptero.h \
-    Widgets/Widget_Parametros.h \
     Widgets/Widget_Puntos.h \
     Widgets/dronedialog.h \
     Widgets/widget_mandos.h \
 #    cSerialPort/cserialport.h \
     graficar/XxwTracer.h \
     graficar/customplot.h \
-    graficar/qcustomplot.h \
     header/ColumnHeaderLengthAdapter.h \
     header/flexibleheaderview.h \
     autopiloto/CoordGPSaPosicion.h \
@@ -135,7 +135,6 @@ FORMS += \
     Widgets/Widget_Ganancias_Control.ui \
     Widgets/Widget_Graficas.ui \
     Widgets/Widget_Mandos_Cuadroptero.ui \
-    Widgets/Widget_Parametros.ui \
     Widgets/widget_mandos.ui
 
 # Default rules for deployment.
@@ -149,13 +148,16 @@ else:LIBS += -L$$DESTDIR -lUsbDevicesWatcher
 INCLUDEPATH += $$PWD/../usbdeviceswatcher
 DEPENDPATH += $$PWD/../usbdeviceswatcher
 
-win32: LIBS += -L$$DESTDIR -lLibMapaStatic
-else: LIBS += -L$$DESTDIR -lLibMapaStatic
-
-INCLUDEPATH += $$PWD/../LibMapaStatic
-DEPENDPATH += $$PWD/../LibMapaStatic
-
-# (WidgetSIG - integrar cuando te avise)
+# libmapa INSTALADA (docs/DESPLIEGUE.md de LibMapaStatic). Por defecto la del Qt
+# del kit: C:/libmapa/qt5 o C:/libmapa/qt6. Otra:  qmake LIBMAPA_PREFIX=D:/otra/carpeta
+# Trae QCustomPlot 2.1.1 compilada dentro: aqui solo se usa su cabecera
+# (graficar/qcustomplot.h, la misma version); compilarla otra vez duplicaria simbolos.
+isEmpty(LIBMAPA_PREFIX): LIBMAPA_PREFIX = C:/libmapa/qt$${QT_MAJOR_VERSION}
+!exists($$LIBMAPA_PREFIX/libmapa.pri) {
+    error("No encuentro libmapa en $${LIBMAPA_PREFIX}. Instalala con este mismo Qt\
+ o indica la carpeta:  qmake LIBMAPA_PREFIX=<carpeta>")
+}
+include($$LIBMAPA_PREFIX/libmapa.pri)
 
 
 include (qfi/qfi.pri)
@@ -168,16 +170,5 @@ RESOURCES += \
     ../build/Recursos/estilosnuevos/light/lightstyle.qrc \
     ../build/Recursos/res.qrc
 
-
-#win32:CONFIG(release, debug|release): LIBS += -L$$OUT_PWD/../LibMapaStatic/release/ -lLibMapaStatic
-#else:win32:CONFIG(debug, debug|release): LIBS += -L$$OUT_PWD/../LibMapaStatic/debug/ -lLibMapaStatic
-
-#INCLUDEPATH += $$PWD/../LibMapaStatic
-#DEPENDPATH += $$PWD/../LibMapaStatic
-
-#win32-g++:CONFIG(release, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../build/release/libLibMapaStatic.a
-#else:win32-g++:CONFIG(debug, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../build/debug/libLibMapaStatic.a
-#else:win32:!win32-g++:CONFIG(release, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../build/release/LibMapaStatic.lib
-#else:win32:!win32-g++:CONFIG(debug, debug|release): PRE_TARGETDEPS += $$OUT_PWD/../build/debug/LibMapaStatic.lib
 
 DISTFILES +=

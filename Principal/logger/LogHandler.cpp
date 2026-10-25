@@ -12,11 +12,6 @@
 #include <QTimer>
 #include <QTextStream>
 #include <iostream>
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-#include <QtCore5Compat/QTextCodec>
-#else
-#include <QTextCodec>
-#endif
 
 /************************************************************************************************************
  *                                                                                                          *
@@ -199,12 +194,10 @@ void LogHandlerPrivate::messageHandler(QtMsgType type, const QMessageLogContext 
         break;
     }
 
-    // 输出到标准输出: Windows 下 std::cout 使用 GB2312，而 msg 使用 UTF-8，但是程序的 Local 也还是使用 UTF-8
-#if defined(Q_OS_WIN)
-    QByteArray localMsg = QTextCodec::codecForName("GB2312")->fromUnicode(msg); // msg.toLocal8Bit();
-#else
+    // Salida estandar en la codificacion local del sistema (en Windows, la de la
+    // consola en espanol). Antes se forzaba GB2312 (la del autor original del
+    // logger), que estropeaba tildes y enes y obligaba a usar core5compat en Qt 6.
     QByteArray localMsg = msg.toLocal8Bit();
-#endif
 
     std::cout << std::string(localMsg) << std::endl;
 

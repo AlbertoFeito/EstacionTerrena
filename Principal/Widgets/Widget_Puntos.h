@@ -703,6 +703,12 @@ public:
     bool isRouteVisible() const;
 
     /**
+     * @brief Dice si hay enlace con el dron; sin enlace, "Enviar" avisa en vez de enviar.
+     * @param disponible true mientras la estación está conectada.
+     */
+    void setEnlaceDisponible(bool disponible);
+
+    /**
      * @brief Establece la visibilidad de la ruta en el mapa.
      * @param visible true para mostrar, false para ocultar.
      */
@@ -797,8 +803,9 @@ public slots:
     /**
      * @brief Maneja el movimiento de un punto en el mapa, actualizando coordenadas y altitud.
      * @param index Índice del punto movido.
+     * @param nuevaPos Posición donde lo ha soltado el operador.
      */
-    void onPointMoved(int index);
+    void onPointMoved(int index, const QGeoCoordinate &nuevaPos);
 
     /**
      * @brief Inicia el modo de selección del punto inicial (P1) haciendo clic derecho en el mapa.
@@ -840,6 +847,7 @@ private:
     QSqlDatabase *mdb;                         ///< Conexión a la base de datos.
     MiModelo *modelo;                           ///< Modelo de datos de la tabla.
     QTimer m_timer;                             ///< Temporizador para el acuse de recibo.
+    bool m_enlaceDisponible = false;            ///< Hay enlace con el dron (lo pone CControladora).
     QString m_originalStyle;                     ///< Estilo original del botón enviar.
     bool m_modoSeleccionPuntoInicial;            ///< Indica si estamos en modo selección de P1.
     AlturaWorker *m_alturaWorker;                ///< Worker de alturas.

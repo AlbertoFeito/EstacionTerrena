@@ -7,6 +7,7 @@
 #include <QSerialPortInfo>
 #include <QDebug>
 #include <QThread>
+#include "MyQSettings/myqsetting.h"
 
 
 Widget_Conexion::Widget_Conexion(QWidget *parent) :
@@ -24,7 +25,9 @@ Widget_Conexion::Widget_Conexion(QWidget *parent) :
     // Configurar hotplug
     m_hotplug = new DeviceHotplug(this);
     QVector<QUuid> uuids;
+#ifdef Q_OS_WIN
     uuids << GUID_DEVINTERFACE_COMPORT;
+#endif
     m_hotplug->init(uuids);
     m_serialManager = new SerialManager(this);
     connect(m_serialManager, &SerialManager::connectionChanged, this, &Widget_Conexion::handleConnectionChange);
@@ -38,10 +41,91 @@ Widget_Conexion::Widget_Conexion(QWidget *parent) :
     });
 
 
-    QFormLayout *forLayOutSerie = new QFormLayout(ui->groupBox);
-    forLayOutSerie->addRow (ui->label,comboPuertos);
+    crearSelectorEnlace();
+}
 
-    ui->groupBox->setLayout (forLayOutSerie);
+// Monta en el recuadro de conexion el selector de enlace y, debajo, los campos
+// de cada uno (en paginas) y el boton Conectar. Lo ultimo usado sale de
+// conf.ini, seccion [ENLACE].
+void Widget_Conexion::crearSelectorEnlace()
+{
+    MyQSetting settings;
+    const QString fichero = QDir::currentPath() + "/conf.ini";
+    auto valor = [&](const QString &clave, const QVariant &defecto) {
+        return settings.cargarSetting(fichero, clave, "ENLACE", defecto);
+    };
+    auto puerto = [](int valor) {
+        auto *sb = new QSpinBox;
+        sb->setRange(1, 65535);
+        sb->setValue(valor);
+        return sb;
+    };
+
+    m_cBEnlace = new QComboBox;
+    m_cBEnlace->addItems({tr("Serie"), tr("TCP"), tr("UDP")});
+
+    // Serie: el combo de puertos de siempre.
+    auto *pSerie = new QWidget;
+    auto *fSerie = new QFormLayout(pSerie);
+    fSerie->setContentsMargins(0, 0, 0, 0);
+    fSerie->addRow(ui->label, comboPuertos);
+
+    // TCP: la estacion se conecta a host:puerto (el simulador o el puente).
+    auto *pTcp = new QWidget;
+    auto *fTcp = new QFormLayout(pTcp);
+    fTcp->setContentsMargins(0, 0, 0, 0);
+    m_leTcpHost = new QLineEdit(valor("tcp_host", "127.0.0.1").toString());
+    m_sbTcpPuerto = puerto(valor("tcp_puerto", 5760).toInt());
+    fTcp->addRow(tr("Host"), m_leTcpHost);
+    fTcp->addRow(tr("Puerto"), m_sbTcpPuerto);
+
+    // UDP: escucha en un puerto; el remoto es opcional (si no, contesta a
+    // quien le hable).
+    auto *pUdp = new QWidget;
+    auto *fUdp = new QFormLayout(pUdp);
+    fUdp->setContentsMargins(0, 0, 0, 0);
+    m_sbUdpLocal = puerto(valor("udp_local", 14551).toInt());
+    m_leUdpHost = new QLineEdit(valor("udp_host", "127.0.0.1").toString());
+    m_leUdpHost->setPlaceholderText(tr("vacío = quien envíe"));
+    m_sbUdpPuerto = puerto(valor("udp_puerto", 14550).toInt());
+    fUdp->addRow(tr("Escuchar en"), m_sbUdpLocal);
+    fUdp->addRow(tr("Enviar a"), m_leUdpHost);
+    fUdp->addRow(tr("Puerto"), m_sbUdpPuerto);
+
+    m_paginas = new QStackedWidget;
+    m_paginas->addWidget(pSerie);
+    m_paginas->addWidget(pTcp);
+    m_paginas->addWidget(pUdp);
+    connect(m_cBEnlace, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            m_paginas, &QStackedWidget::setCurrentIndex);
+    m_cBEnlace->setCurrentIndex(qBound(0, valor("tipo", 0).toInt(), 2));
+    m_paginas->setCurrentIndex(m_cBEnlace->currentIndex());
+
+    auto *forLayOut = new QFormLayout(ui->groupBox);
+    forLayOut->addRow(tr("Enlace"), m_cBEnlace);
+    forLayOut->addRow(m_paginas);
+    forLayOut->addRow(ui->pB_Conectar);
+    ui->groupBox->setLayout(forLayOut);
+}
+
+// Recuerda en conf.ini el enlace elegido y sus datos.
+void Widget_Conexion::guardarEnlace()
+{
+    MyQSetting settings;
+    const QString fichero = QDir::currentPath() + "/conf.ini";
+    settings.guardarSetting(fichero, "tipo", m_cBEnlace->currentIndex(), "ENLACE");
+    settings.guardarSetting(fichero, "tcp_host", m_leTcpHost->text(), "ENLACE");
+    settings.guardarSetting(fichero, "tcp_puerto", m_sbTcpPuerto->value(), "ENLACE");
+    settings.guardarSetting(fichero, "udp_local", m_sbUdpLocal->value(), "ENLACE");
+    settings.guardarSetting(fichero, "udp_host", m_leUdpHost->text(), "ENLACE");
+    settings.guardarSetting(fichero, "udp_puerto", m_sbUdpPuerto->value(), "ENLACE");
+}
+
+// Con enlace abierto no se cambia de enlace ni de datos.
+void Widget_Conexion::habilitarCampos(bool habilitar)
+{
+    m_cBEnlace->setEnabled(habilitar);
+    m_paginas->setEnabled(habilitar);
 }
 
 Widget_Conexion::~Widget_Conexion()
@@ -53,12 +137,34 @@ void Widget_Conexion::on_pB_Conectar_clicked()
 {
     if(m_serialManager->isConnected()) {
         m_serialManager->desconectar ();
-    } else {
-        QString port = comboPuertos->currentText();
-        if(!port.isEmpty()) {
-            m_serialManager->conectar (port);
-        }
+        return;
     }
+    guardarEnlace();
+    bool empezo = false;
+    switch (m_cBEnlace->currentIndex()) {
+    case 0: {
+        const QString port = comboPuertos->currentText();
+        if(!port.isEmpty())
+            empezo = m_serialManager->conectar (port);
+        break;
+    }
+    case 1:
+        empezo = m_serialManager->conectarTcp (m_leTcpHost->text().trimmed(),
+                                               quint16(m_sbTcpPuerto->value()));
+        if (empezo) {
+            // Conectando: hasta que conteste no se tocan los campos.
+            habilitarCampos(false);
+            ui->pB_Conectar->setText(tr("Conectando..."));
+        }
+        break;
+    case 2:
+        empezo = m_serialManager->conectarUdp (quint16(m_sbUdpLocal->value()),
+                                               m_leUdpHost->text(),
+                                               quint16(m_sbUdpPuerto->value()));
+        break;
+    }
+    if (!empezo)
+        ui->pB_Conectar->setChecked(false);
 }
 
 void Widget_Conexion::openSerialPort()
@@ -101,7 +207,9 @@ quint16 Widget_Conexion::calculateChecksum(const QByteArray &data) {
 void Widget_Conexion::handleConnectionChange(bool connected)
 {    
     ui->pB_Conectar->setText(connected ? tr("Desconectar") : tr("Conectar"));
+    ui->pB_Conectar->setChecked(connected);
     comboPuertos->setEnabled(!connected);
+    habilitarCampos(!connected);
     emit conectado(connected);
 }
 
@@ -113,7 +221,9 @@ void Widget_Conexion::handlePortDisconnected(const QString &port)
                              tr("El puerto %1 fue desconectado físicamente").arg(port));
         emit conectado(false);
         ui->pB_Conectar->setText("Conectar");
+        ui->pB_Conectar->setChecked(false);
         comboPuertos->setEnabled(true);
+        habilitarCampos(true);
     }
 }
 

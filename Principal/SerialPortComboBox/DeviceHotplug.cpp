@@ -2,7 +2,6 @@
 #include <QMetaObject>
 #include <QHash>
 #include <QDebug>
-
 #ifdef Q_OS_WIN
 #include <Dbt.h>
 #pragma comment(lib, "user32.lib")
@@ -163,16 +162,15 @@ void DeviceHotplugPrivate::destroyMessageWindow()
     }
     ::UnregisterClassW(reinterpret_cast<const wchar_t *>(windowClassName().utf16()), ::GetModuleHandleW(nullptr));
 }
-
 #else
-// Implementación vacía para plataformas sin soporte (Linux, macOS)
+// Fuera de Windows no hay aviso de conexion de dispositivos: la clase compila
+// y no avisa de nada (la lista de puertos se refresca a mano).
 class DeviceHotplugPrivate
 {
 public:
-    bool createMessageWindow(const QVector<QUuid> &) { return true; }
+    DeviceHotplug *ptr = nullptr;
+    bool createMessageWindow(const QVector<QUuid> &) { return false; }
     void destroyMessageWindow() {}
-
-    DeviceHotplug *ptr{nullptr};
 };
 #endif
 

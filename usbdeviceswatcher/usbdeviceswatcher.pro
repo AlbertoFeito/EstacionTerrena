@@ -17,6 +17,8 @@ MOC_DIR = $$DESTDIR/.moc/$$TARGET
 RCC_DIR = $$DESTDIR/.qrc/$$TARGET
 UI_DIR = $$DESTDIR/.ui/$$TARGET
 
+linux: LIBS += -ludev
+
 SOURCES += \
     usbdeviceswatcher.cpp
 
@@ -24,8 +26,6 @@ HEADERS += \
     usbdeviceswatcher_global.h \
     usbdeviceswatcher.h \
     usbdeviceswatcher_p.h
-
-linux: LIBS += -ludev
 
 # Default rules for deployment.
 unix:target.path = /usr/lib

@@ -98,7 +98,7 @@ Widget_ControlObjetivo::Widget_ControlObjetivo(QWidget *parent) :
 
     });
     auto layoutV = new QVBoxLayout(wDatos);
-    auto layoutH = new QHBoxLayout(wDatos);
+    auto layoutH = new QHBoxLayout;   // sin padre: entra en layoutV con addLayout
 
     layoutH->addStretch ();
     layoutH->addWidget (pB_Imprimir);

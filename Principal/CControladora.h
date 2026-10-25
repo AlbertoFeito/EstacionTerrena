@@ -2,7 +2,13 @@
 #define CCONTROLADORA_H
 
 #include <QObject>
-#include "LibMapaStatic.h"
+#include "Mapa/MapaMision.h"
+#include "Protocolo/ProyeccionMercator.h"
+#include "Protocolo/Tramas.h"
+#include "Protocolo/SeguimientoCumplidos.h"
+#include "Protocolo/MonitorEnlace.h"
+#include "Widgets/PanelVuelo.h"
+#include <QElapsedTimer>
 #include "Ci_Principal.h"
 #include "qfi/qfi_EADI.h"
 #include <QPixmap>
@@ -17,7 +23,6 @@
 #include <stdio.h>
 #include "autopiloto/CoordGPSaPosicion.h"
 #include "autopiloto/rtwtypes.h"
-#include "cgooglemercator.h"
 
 #include <QTime>
 
@@ -30,7 +35,6 @@
 #include "Widgets/Widget_Estado_Cuadroptero.h"
 
 #include <Widgets/Widget_Ganancias_Control.h>
-#include <Widgets/Widget_Parametros.h>
 
 #include "Estructuras/Estructuras.h"
 
@@ -74,7 +78,6 @@ private slots:
 private:
     Ci_Principal *mPrincipal;
     QDir RecursosDir;
-    CGoogleMercator proj;
     QMenu *mMenu;
     QAction *aCerrar;
 
@@ -113,7 +116,25 @@ private:
     void createActions();
     void createToolBar();
 
-    LibMapaStatic *libMapa;
+    MapaMision *m_mapa = nullptr;
+    QLabel *m_lPosicionRaton = nullptr;
+    QTimer *m_timerCota = nullptr;       // la cota se pide al parar el raton
+    QGeoCoordinate m_posRaton;
+    QString dirPaqueteMapa() const;
+    void crearMapa();
+    void pintarRutaEnMapa(bool visible);
+
+    // Acuses del dron: el plan y los mandos se dan por recibidos solo cuando
+    // el dron contesta; si no contesta a tiempo se avisa, y si rechaza el plan
+    // se reenvia como mucho kMaxReintentosPlan veces.
+    void enviarMandos();
+    void crearEsperasDeAcuse();
+    QTimer *m_esperaAcusePlan = nullptr;
+    QTimer *m_esperaAcuseMandos = nullptr;
+    int m_reintentosPlan = 0;
+    static constexpr int kMaxReintentosPlan = 3;
+    static constexpr int kEsperaAcuseMs = 3000;
+    void limpiarVueloEnMapa();
 
     qfi_EADI *indicador;
     QTabWidget *tabOpciones;
@@ -129,7 +150,8 @@ private:
     Widget_Puntos *m_wPuntos;
     Widget_Ganancias_Control *m_wGanancias;
 
-    Widget_Parametros *m_wParametros;
+    PanelVuelo::Detalle m_detalle;   // detalle tecnico de la ultima trama
+    bool m_estadoDronAdoptado = false;   // la pestaña de Mandos ya tomo el regimen del dron
 
     bool m_ControlObjetivo = false;
     bool m_Conectado = false;
@@ -152,13 +174,29 @@ private:
 
     QList<E_Punto> m_ListPuntos{};
     QList<QPointF> listPuntoF{};
-    int indexAnterior = -1;
+    SeguimientoCumplidos m_cumplidos;      // que puntos del plan ha cumplido el dron
+    void marcarCumplidos(const QPointF &cumplir, const QGeoCoordinate &posDron);
+    int m_puntoActual = -1;                // punto del plan al que va el dron
+
+    // Panel de vuelo (sobre el mapa) y estado del enlace (barra de estado).
+    PanelVuelo *m_panelVuelo = nullptr;
+    QAction *aDetalleTecnico = nullptr;
+    void actualizarPanel(int regimen, int mision, double distancia, double rumbo,
+                         double rumboDeseado, int satelites);
+    MonitorEnlace m_monitor;
+    QElapsedTimer m_reloj;
+    QLabel *m_lEnlace = nullptr;
+    QTimer *m_timerEnlace = nullptr;
+    MonitorEnlace::Estado m_estadoEnlace = MonitorEnlace::Estado::Desconectado;
+    qint64 m_ultimoPitido = 0;
+    void crearIndicadorEnlace();
+    void refrescarIndicadorEnlace();
 
     // QObject interface
     void guardaDatosDron();
 
     // Puntos de ruta a enviar
-    sPUNTOXYZ puntosEnviar[10];
+    sPUNTOXYZ puntosEnviar[Tramas::kPuntosPlan];
 
     //       AlturaWorker alturaWorker;
     std::unique_ptr<AlturaWorker> alturaWorkerPTR;

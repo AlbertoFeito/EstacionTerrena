@@ -3,7 +3,6 @@
 
 #include <QTimer>
 #include <QWidget>
-#include <cprojection.h>
 #include <QDebug>
 #include <Estructuras/Estructuras.h>
 #include <MyQSettings/myqsetting.h>
@@ -17,7 +16,7 @@ class Widget_Ganancias_Control : public QWidget
     Q_OBJECT
 
 public:
-    explicit Widget_Ganancias_Control(CProjection *projection, sMANDOS *MANDOS,QWidget *parent = nullptr);
+    explicit Widget_Ganancias_Control(sMANDOS *MANDOS,QWidget *parent = nullptr);
     ~Widget_Ganancias_Control();
 
 signals:
@@ -31,7 +30,6 @@ public slots:
 private:
     Ui::Widget_Ganancias_Control *ui;
 
-    CProjection *m_projection;
     sMANDOS *mandos;
     QString Modo;
     unsigned char regimen;

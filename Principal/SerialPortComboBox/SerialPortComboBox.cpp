@@ -27,8 +27,11 @@ SerialPortComboBox::SerialPortComboBox(QWidget *parent)
     , m_hotplug(new DeviceHotplug(this))
 {
     // Configurar DeviceHotplug para monitorear puertos serie
+    // (solo Windows: en otros sistemas DeviceHotplug no avisa)
     QVector<QUuid> uuids;
+#ifdef Q_OS_WIN
     uuids << GUID_DEVINTERFACE_COMPORT;
+#endif
     m_hotplug->init(uuids);
 
     // Conectar señales de hotplug a un timer de refresco

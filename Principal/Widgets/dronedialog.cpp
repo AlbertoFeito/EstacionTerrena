@@ -8,9 +8,9 @@
 #include <QMessageBox>
 #include <QApplication>
 #include <QStyle>
+#include <QRegularExpression>
 #include <QListWidgetItem>
 #include <QHeaderView>
-#include <QRegularExpression>
 
 DroneDialog::DroneDialog(Mode mode, QWidget *parent)
     : QDialog(parent), currentMode(mode), originalMode(mode),
