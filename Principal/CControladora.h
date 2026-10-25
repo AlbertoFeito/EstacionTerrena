@@ -194,6 +194,7 @@ private:
     MonitorEnlace m_monitor;
     QElapsedTimer m_reloj;
     QLabel *m_lEnlace = nullptr;
+    QLabel *m_lTiempoConexion = nullptr;   //!< "Conectado 00:12:34" en la barra de estado
     QTimer *m_timerEnlace = nullptr;
     MonitorEnlace::Estado m_estadoEnlace = MonitorEnlace::Estado::Desconectado;
     qint64 m_ultimoPitido = 0;

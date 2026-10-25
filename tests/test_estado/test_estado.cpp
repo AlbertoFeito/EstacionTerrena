@@ -21,6 +21,7 @@ private slots:
     void bienLentoPerdidoYRecuperado();
     void tramasPorSegundo();
     void desconectarOlvidaLoAnterior();
+    void tiempoDeConexion();
 
     void panelVacioAlEmpezar();
     void panelConDatos();
@@ -94,6 +95,27 @@ void TestEstado::desconectarOlvidaLoAnterior()
     QCOMPARE(m.estado(500), MonitorEnlace::Estado::Esperando);
     QVERIFY(!m.hayTramas());
     QCOMPARE(m.descripcion(), QStringLiteral("COM6"));
+}
+
+// Tiempo de conexion: cuenta mientras dura, al cerrar queda lo que duro y al
+// volver a conectar empieza de cero.
+void TestEstado::tiempoDeConexion()
+{
+    MonitorEnlace m;
+    QCOMPARE(m.textoTiempo(0), QString());
+    QCOMPARE(m.duracionUltima(), qint64(-1));
+    m.setConectado(true, QStringLiteral("COM5"), 1000);
+    QCOMPARE(m.msConectado(1000 + 754000), qint64(754000));
+    QCOMPARE(m.textoTiempo(1000 + 754000), QStringLiteral("Conectado 00:12:34"));
+    m.setConectado(false, QString(), 1000 + 3723000);
+    QCOMPARE(m.msConectado(5000000), qint64(-1));
+    QCOMPARE(m.duracionUltima(), qint64(3723000));
+    QCOMPARE(m.textoTiempo(9000000), QStringLiteral("Última conexión 01:02:03"));
+    m.setConectado(false, QString(), 9000000);   // cerrar dos veces no la cambia
+    QCOMPARE(m.duracionUltima(), qint64(3723000));
+    m.setConectado(true, QStringLiteral("COM6"), 9000000);
+    QCOMPARE(m.textoTiempo(9000999), QStringLiteral("Conectado 00:00:00"));
+    QCOMPARE(MonitorEnlace::formatoDuracion(-5), QStringLiteral("00:00:00"));
 }
 
 // Recien creado: todo a guiones y en gris.

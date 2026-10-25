@@ -641,3 +641,24 @@ De paso, Ganancias mandaba "xyz" seguido de los 8 bytes **del puntero** a
 la estructura, y sin suma: el autopiloto no podía aceptar esa trama. Ahora
 sale de `Tramas::mandos`, igual que la de la pestaña Mandos. El protocolo
 es el mismo; lo que se corrige es que antes no se cumplía.
+
+## 19. Ventana maximizada de verdad y tiempo de conexión
+
+**Maximizada.** La ventana ya se abría con `showMaximized()`, pero en el PC
+no salía maximizada. Medido: la ventana pedía **799 px de alto como
+mínimo**, porque la pestaña más alta de la izquierda (Mandos, Ganancias…)
+iba debajo del horizonte artificial, que mide 300 px fijos. En una pantalla
+de 768 px, o en una de 1080 con la escala de Windows al 125–150 %, no cabe;
+Windows no puede maximizar una ventana más alta que la pantalla y la deja
+como está. Ahora cada pestaña va dentro de un `QScrollArea` (con barra
+vertical si no cabe y sin horizontal, porque el ancho es fijo) y el mínimo
+baja a 515 px. Las pestañas se siguen reconociendo por el widget que
+contienen (`isAncestorOf`), así que el desplazable no las confunde.
+
+**Tiempo de conexión.** En la barra de estado, junto al indicador del
+enlace, se muestra «Conectado 00:12:34» mientras el enlace está abierto y,
+al cerrarlo, «Última conexión 00:12:34». Además se anota en la ventana del
+log y en `log.txt`: «Enlace cerrado (tcp 127.0.0.1:5760) tras 00:12:34
+conectado». Lo calcula `MonitorEnlace` (`msConectado`, `duracionUltima`,
+`textoTiempo`), que recibe la hora como parámetro, así que `test_estado`
+lo prueba sin esperar (caso `tiempoDeConexion`).

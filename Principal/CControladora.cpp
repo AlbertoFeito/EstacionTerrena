@@ -9,6 +9,7 @@
 #include <QMenuBar>
 #include <QCoreApplication>
 #include <QDir>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <logger/LogHandler.h>
 #include <libmapa/MapWidget.h>   // solo para usar MapaMision::mapa() como QWidget
@@ -182,8 +183,16 @@ QWidget *w4 = new QWidget();
         {w4, "Ganancias", "Ganancias del control"},
         {w2, "Objetivo", "Control de objetivo"},
     };
+    // Cada pagina, con barra de desplazamiento si no cabe: sin ella la pagina
+    // mas alta obligaba a la ventana a medir 800 px de alto y, en una pantalla
+    // de 768 (o con la escala de Windows al 125-150 %), no se podia maximizar.
     for (const auto &p : pestanas) {
-        const int i = tabOpciones->addTab (p.pagina, tr(p.nombre));
+        auto *desplazable = new QScrollArea;
+        desplazable->setWidget (p.pagina);
+        desplazable->setWidgetResizable (true);
+        desplazable->setFrameShape (QFrame::NoFrame);
+        desplazable->setHorizontalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
+        const int i = tabOpciones->addTab (desplazable, tr(p.nombre));
         tabOpciones->setTabToolTip (i, tr(p.ayuda));
     }
 
@@ -211,8 +220,18 @@ void CControladora::Conectado(bool conectado)
     m_posicionValida = -1;   // en cada conexion se vuelve a decir si la posicion es valida
     m_wConexion->chB_Guardar ()->setChecked (false);
     m_Conectado = conectado;
+    const QString descripcionEnlace = m_monitor.descripcion ();
+    const bool estabaConectado = m_monitor.msConectado (0) != -1;
     m_monitor.setConectado (conectado, m_wConexion->serialManager ()->currentPort (),
                             m_reloj.isValid () ? m_reloj.elapsed () : 0);
+    // Cuanto duro el enlace queda en la ventana del log, en log.txt y en la
+    // barra de estado.
+    if (!conectado && estabaConectado) {
+        const QString nota = "Enlace cerrado (" + descripcionEnlace + ") tras "
+            + MonitorEnlace::formatoDuracion (m_monitor.duracionUltima ()) + " conectado";
+        LogHandler::getInstance ().appendLogMessage (nota);
+        qInfo ().noquote () << nota;
+    }
     if (!conectado && m_panelVuelo) {
         m_panelVuelo->limpiar ();
         m_puntoActual = -1;
@@ -1673,6 +1692,11 @@ void CControladora::crearIndicadorEnlace()
     m_lEnlace = new QLabel(mPrincipal);
     m_lEnlace->setMinimumWidth (330);
     mPrincipal->statusBar ()->insertPermanentWidget (0, m_lEnlace);
+    // Al lado, cuanto lleva abierto el enlace (y, al cerrarlo, cuanto duro).
+    m_lTiempoConexion = new QLabel(mPrincipal);
+    m_lTiempoConexion->setToolTip (tr("Tiempo que lleva abierto el enlace con el dron"));
+    m_lTiempoConexion->setStyleSheet (QStringLiteral("QLabel { padding: 1px 8px; font-weight: bold; }"));
+    mPrincipal->statusBar ()->insertPermanentWidget (1, m_lTiempoConexion);
 
     SerialManager *enlace = m_wConexion->serialManager ();
     connect (enlace, &SerialManager::newTramaConstanteReceived, this,
@@ -1703,6 +1727,7 @@ void CControladora::refrescarIndicadorEnlace()
     case MonitorEnlace::Estado::Perdido: fondo = QStringLiteral("#c62828"); break;
     }
     m_lEnlace->setText (m_monitor.texto (ahora));
+    m_lTiempoConexion->setText (m_monitor.textoTiempo (ahora));
     m_lEnlace->setStyleSheet (QStringLiteral("QLabel { background: %1; color: %2; padding: 1px 8px;"
                                              " border-radius: 3px; font-weight: bold; }")
                                   .arg (fondo, letra));
