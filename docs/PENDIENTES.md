@@ -40,7 +40,5 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 4. **Partir las clases grandes**: `CControladora` (UI, menús, protocolo,
    gráficas y BD en una) y `Widget_Puntos` (unas 3.900 líneas). Los índices de
    parámetros, a un `enum`.
-5. **Código muerto** (no está en el `.pro`): `Indicador/`, `cSerialPort/`,
-   `graficar/qtableviewprinter`, `qcheckboxcombo` y `myqbuttongroup`.
-   `Reporte/` se compila pero no parece usarse: confirmarlo antes de quitarlo.
+5. ~~Código muerto~~: quitado en §17 (`Reporte/` se queda: lo usa «Imprimir»).
 6. ~~Rendimiento~~: los `appendLogMessage` de cada trama, quitados en §13.

@@ -37,7 +37,6 @@ private:
     QTimer m_timer;
     QString m_originalStyle;
 
-    quint16 calculateChecksum(const QByteArray &data);
 
 
     QString fileName;

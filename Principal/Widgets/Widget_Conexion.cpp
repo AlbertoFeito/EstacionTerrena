@@ -197,13 +197,6 @@ void Widget_Conexion::sL_EnviaMandosDron(QByteArray arr)
 {
     m_serialManager->serieWrite (arr);
 }
-quint16 Widget_Conexion::calculateChecksum(const QByteArray &data) {
-    quint16 checksum = 0;
-    for (char byte : data) {
-        checksum += static_cast<quint8>(byte);
-    }
-    return checksum;
-}
 
 void Widget_Conexion::handleConnectionChange(bool connected)
 {    

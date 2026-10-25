@@ -67,7 +67,6 @@ SOURCES += \
     Widgets/Widget_Puntos.cpp \
     Widgets/dronedialog.cpp \
     Widgets/widget_mandos.cpp \
-#    cSerialPort/cserialport.cpp \
     graficar/XxwTracer.cpp \
     graficar/customplot.cpp \
     header/ColumnHeaderLengthAdapter.cpp \
@@ -88,7 +87,6 @@ HEADERS += \
     Ci_Principal.h \
     Estructuras/E_Punto.h \
     Estructuras/Estructuras.h \
-    Estructuras/Utils.h \
     LocationValidator.h \
     Mapa/MapaMision.h \
     MyQSettings/myqsetting.h \
@@ -115,7 +113,6 @@ HEADERS += \
     Widgets/Widget_Puntos.h \
     Widgets/dronedialog.h \
     Widgets/widget_mandos.h \
-#    cSerialPort/cserialport.h \
     graficar/XxwTracer.h \
     graficar/customplot.h \
     header/ColumnHeaderLengthAdapter.h \

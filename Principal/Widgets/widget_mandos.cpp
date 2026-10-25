@@ -222,16 +222,6 @@ QDoubleSpinBox *Widget_Mandos::getDsB_Lon() const
 }
 
 
-quint16 Widget_Mandos::calculateChecksum(const QByteArray &data) {
-    quint16 checksum = 0;
-    for (char byte : data) {
-        checksum += static_cast<quint8>(byte);
-    }
-    return checksum;
-}
-
-
-
 void Widget_Mandos::on_chB_Paracaidas_toggled(bool checked)
 {
     paracaidas = checked ? 1 : 0;

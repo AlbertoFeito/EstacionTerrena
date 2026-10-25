@@ -589,3 +589,25 @@ no se pinta nada, las tramas se acumulan y luego salen todas de golpe.
   hilo de la interfaz. 83 pruebas en total.
 - Visto con la app grabando: todas las esperas al disco (`fsync`) las hace el
   hilo «GrabadorVuelo» y el de la interfaz lee la telemetría trama a trama.
+
+## 17. Fuera el código muerto
+
+Punto 5 de la fase de mejora. Se buscó lo que no se compila y lo que, aun
+compilándose, no usa nadie:
+
+- **Sin compilar**: `Indicador/` (instrumentos antiguos con sus 61 imágenes; el
+  que se usa es `qfi/`), `cSerialPort/` (comentado en el `.pro`; el enlace lo
+  lleva `SerialManager`) y, en `graficar/`, `qtableviewprinter`,
+  `qcheckboxcombo` y `myqbuttongroup`.
+- **Compilado sin uso**:
+  - de `qfi/` solo se usa el EADI (el horizonte artificial con velocidad,
+    altura y rumbo); fuera los otros siete instrumentos (EHSI, AI, HI, VSI,
+    ASI, ALT y TC) y sus imágenes, que iban metidas en el ejecutable;
+  - `Estructuras/Utils.h` (una suma de comprobación que ya está en
+    `Protocolo/Tramas` y que nadie incluía);
+  - tres copias de `calculateChecksum` (Conexión, Ganancias y Mandos) que
+    nadie llamaba, y `Widget_Graficas::Map`, que dejó de usarse en §13.
+- `Reporte/` se queda: lo usa el botón «Imprimir» de los datos de un vuelo.
+
+El ejecutable pasa de 5,8 a 5,5 MB. Compilado desde cero y pasan las 83
+pruebas; el EADI se ve igual con datos en vivo.

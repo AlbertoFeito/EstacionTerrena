@@ -45,7 +45,6 @@ private:
     Ui::Ci_Principal *ui;
     QWidget *m_wMapa;
 
-    //    WidgetPFD *m_indicadorPFD;
 
     bool m_Conectado = false;
     int TimerId;

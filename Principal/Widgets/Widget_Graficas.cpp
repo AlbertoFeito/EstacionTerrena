@@ -268,11 +268,6 @@ void Widget_Graficas::setDronActivo(const QString &value)
     ui->dronLineEdit->setText (dronActivo);
 }
 
-float Widget_Graficas::Map(float x, float in_min, float in_max, float out_min, float out_max)
-{
-    return (x-in_min)*(out_max - out_min)/(in_max-in_min)+out_min;
-}
-
 QString Widget_Graficas::getVuelo() const
 {
     return Vuelo;

@@ -25,7 +25,6 @@ public:
 
     SerialManager *serialManager() const;
 
-    quint16 calculateChecksum(const QByteArray &data);
 signals:
     void datosRecibidos(QByteArray);
     void conectado(bool);

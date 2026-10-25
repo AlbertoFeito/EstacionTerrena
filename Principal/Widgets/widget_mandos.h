@@ -21,7 +21,6 @@ public:
     explicit Widget_Mandos(sMANDOS *MANDOS, QWidget *parent = nullptr);
     ~Widget_Mandos();
 
-    quint16 calculateChecksum(const QByteArray &data);
 
 
 
