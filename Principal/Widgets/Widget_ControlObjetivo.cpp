@@ -130,6 +130,7 @@ Widget_ControlObjetivo::Widget_ControlObjetivo(QWidget *parent) :
             ui->pB_Play->clicked(false);
             ui->pB_Play->setChecked (false);
             ui->hS_Avanzar->setValue(0);
+            m_enReproduccion = false;
             emit limpiarDatoContolObjetivo(dronActivo);
             emit detenerDatoContolObjetivo ();
         }
@@ -239,11 +240,24 @@ QStringList Widget_ControlObjetivo::getDrones() const
     return drones;
 }
 
+// Pone la lista de drones sin perder el elegido (si sigue en la lista) y
+// vuelve a pedir sus vuelos una sola vez: al rehacer el combo con las senales
+// activas se lanzaban varias consultas a la vez.
 void Widget_ControlObjetivo::setDrones(const QStringList &value)
 {
-    ui->cB_Drones->clear ();
+    const QString elegido = ui->cB_Drones->currentText ();
     drones = value;
-    ui->cB_Drones->addItems (drones);
+    {
+        const QSignalBlocker sinSenales(ui->cB_Drones);
+        ui->cB_Drones->clear ();
+        ui->cB_Drones->addItems (drones);
+        const int i = ui->cB_Drones->findText (elegido);
+        ui->cB_Drones->setCurrentIndex (i >= 0 ? i : 0);
+    }
+    if (m_enReproduccion && ui->cB_Drones->currentText () == elegido)
+        refrescarVuelos ();   // reproduciendo: solo la lista, sin tocar lo que se ve
+    else
+        on_cB_Drones_currentTextChanged (ui->cB_Drones->currentText ());
 }
 
 void Widget_ControlObjetivo::on_pB_Ver_ControlObjetivo_clicked()
@@ -286,30 +300,20 @@ void Widget_ControlObjetivo::on_pB_Graficar_clicked()
         bool accion = false;
 
 
+        // Valores reales con los nombres de columna de DatosVuelos (antes se
+        // pedian "Cabeceo", "Altura"... que no existen: todo salia a cero). En
+        // lugar de RPM, que el dron no manda, el control del motor.
         Database::AsyncQueryResult res = _queryModel->asyncQuery ()->result ();
+        const QDateTime inicio = res.count () > 0 ? res.value (0, "Fecha").toDateTime () : QDateTime();
         for (int i = 0; i < res.count(); i++) {
             accion = true;
-
-            auto aux = res.value(i, "Cabeceo").toDouble ();
-            Cabeceo.append (Map (aux,-90,90,0,1000));
-
-            aux = res.value(i, "Banqueo").toDouble ();
-            Banqueo.append (Map (aux,-20,20,0,1000));
-
-            aux = res.value(i, "RPM").toDouble ();
-            RPM.append (Map (aux,0,1000,0,1000));
-
-            aux = res.value(i, "Velocidad").toDouble ();
-            Velocidad.append (Map (aux,0,320,0,1000));
-
-            aux = res.value(i, "Altura").toDouble ();
-            Altura.append (Map (aux,0,5000,0,1000));
-
-            auto timeFin = res.value (i,"Fecha").toDateTime ();
-            auto timeIni = res.value (0,"Fecha").toDateTime ();
-            t = timeIni.time ().msecsTo (timeFin.time ())/1000.0;
+            Cabeceo.append (res.value(i, "Realimentacion_Cabeceo").toDouble ());
+            Banqueo.append (res.value(i, "Realimentacion_Banqueo").toDouble ());
+            RPM.append (res.value(i, "Control_Motor").toDouble ());
+            Velocidad.append (res.value(i, "Realimentacion_Velocidad").toDouble ());   // km/h
+            Altura.append (res.value(i, "Realimentacion_Altura").toDouble ());
+            t = inicio.msecsTo (res.value (i,"Fecha").toDateTime ()) / 1000.0;
             tiempo.append (t);
-//            t+=0.2;
         }
 
         if(accion)
@@ -342,19 +346,40 @@ void Widget_ControlObjetivo::on_cB_Drones_currentTextChanged(const QString &arg1
     listDatosVuelos.clear();
 
     dronActivo = arg1;
+    refrescarVuelos ();
+}
 
+// Pide los vuelos grabados del dron elegido y llena su combo.
+void Widget_ControlObjetivo::refrescarVuelos()
+{
+    if (dronActivo.isEmpty ())
+        return;
     QString queryVuelos = "SELECT DISTINCT Id_Vuelos "
                           "FROM DatosVuelos "
                           "INNER JOIN DronTable ON DronTable.Id_Dron = DatosVuelos.Dron_ID "
-                          "WHERE DronTable.Nombre = \'" + dronActivo +"\'";
+                          "WHERE DronTable.Nombre = \'" + dronActivo +"\' "
+                          "ORDER BY Id_Vuelos";
 
+    // Si entretanto se eligio otro dron, esta respuesta ya no vale. Se elige el
+    // vuelo mas reciente (el ultimo grabado), salvo durante una reproduccion
+    // (de Play a Stop o al final, tambien en pausa): entonces se queda el que se ve y la
+    // lista solo gana los nuevos, sin volver a cargar sus datos.
+    const QString pedido = dronActivo;
+    const QString anterior = ui->cB_Vuelos->currentText ();
     Database::AsyncQuery::startExecOnce(queryVuelos,
                                         [=](const Database::AsyncQueryResult& res)
     {
+        if (pedido != dronActivo)
+            return;
+        const bool enReproduccion = m_enReproduccion;
+        const QSignalBlocker sinSenales(enReproduccion ? ui->cB_Vuelos : nullptr);
+        ui->cB_Vuelos->clear ();
         for (int i = 0; i < res.count(); i++) {
             ui->cB_Vuelos->addItem(res.value(i, "Id_Vuelos").toString());
         }
-        ui->cB_Vuelos->setCurrentIndex(0);
+        const int previo = ui->cB_Vuelos->findText (anterior);
+        ui->cB_Vuelos->setCurrentIndex(enReproduccion && previo >= 0 ? previo
+                                                                    : ui->cB_Vuelos->count () - 1);
         Vuelo = ui->cB_Vuelos->currentText();
     });
 }
@@ -363,6 +388,11 @@ void Widget_ControlObjetivo::on_cB_Vuelos_currentTextChanged(const QString &arg1
 {
     Vuelo = arg1;
     dronActivo = ui->cB_Drones->currentText();
+    if (Vuelo.isEmpty () || dronActivo.isEmpty ()) {   // combo vaciado: nada que pedir
+        listDatosVuelos.clear ();
+        configuraComponentesPlay ();
+        return;
+    }
 
     QString queryDatos = "SELECT DatosVuelos.Lat, "
                          "DatosVuelos.Lon, "
@@ -405,9 +435,14 @@ void Widget_ControlObjetivo::on_cB_Vuelos_currentTextChanged(const QString &arg1
 
     listDatosVuelos.clear();
 
+    // Solo vale la respuesta del ultimo vuelo pedido.
+    const QString pedido = dronActivo + QLatin1Char('/') + Vuelo;
     Database::AsyncQuery::startExecOnce(queryDatos,
                                         [=](const Database::AsyncQueryResult& res)
     {
+        if (pedido != dronActivo + QLatin1Char('/') + Vuelo)
+            return;
+        listDatosVuelos.clear();
         for (int i = 0; i < res.count(); i++) {
             listDatosVuelos.append( s_datosVuelos(
                                         res.value(i,"Id_Vuelos").toInt (),
@@ -470,6 +505,7 @@ void Widget_ControlObjetivo::on_pB_Stop_clicked()
     ui->hS_Velocidad->setValue (0);
     ui->pB_Stop->setEnabled (false);
     ui->pB_Play->setChecked (false);
+    m_enReproduccion = false;
     emit limpiarDatoContolObjetivo(dronActivo);
     emit detenerDatoContolObjetivo ();
 }
@@ -478,6 +514,7 @@ void Widget_ControlObjetivo::on_pB_Play_toggled(bool checked)
 {
     if(checked)
     {
+        m_enReproduccion = true;
         wGraficas->preparaGraficas ();
         estadoSimulacion = true;
         ui->pB_Stop->setEnabled (true);

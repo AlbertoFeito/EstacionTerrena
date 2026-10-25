@@ -168,6 +168,7 @@ private slots:
     void on_pB_Graficar_clicked();
 
     void on_cB_Drones_currentTextChanged(const QString &arg1);
+    void refrescarVuelos();
 
     void on_cB_Vuelos_currentTextChanged(const QString &arg1);
 
@@ -209,6 +210,7 @@ private:
     void configuraComponentesPlay();
     void prepara_envia_datos(int pos);
     bool estadoSimulacion;
+    bool m_enReproduccion = false;   // de Play a Stop (o al final), tambien en pausa
 };
 
 #endif // WIDGET_CONTROLOBJETIVO_H

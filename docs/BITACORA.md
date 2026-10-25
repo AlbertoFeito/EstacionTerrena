@@ -440,4 +440,29 @@ podía fusionar: tocaba `LibMapaStatic/` y `estilos.qrc`, borrados en §12).
   tabla y Ganancias no se activaba con el enlace. Ahora cada pestaña se
   reconoce por el widget que contiene. Probado con la app: vuelo guardado con
   el simulador, combos llenos y reproducción.
+- **Lo que se graba** (casilla «Guardar»): el cabeceo se guardaba en la
+  columna del banqueo y al revés, la posición con 4 decimales (unos 11 m) y,
+  con cuadróptero, los datos de la última trama de ala fija. Ahora cada
+  manejador de trama le da a `guardaDatosDron` lo suyo. Los vuelos grabados
+  antes de esto tienen el cabeceo y el banqueo cambiados.
+- **Gráficas de un vuelo grabado**: pedían columnas que no existen
+  («Cabeceo», «Altura»...), así que todo salía a cero (la línea plana a 500
+  que vio el usuario: cabeceo y banqueo a 0 en la escala de 0 a 1000). Y aun
+  con datos, todas las series compartían una escala fija (la altura de 0 a
+  5000 m): 100 m de diferencia no se veían. Ahora cada serie va en su franja
+  (altura, velocidad, motor, cabeceo y banqueo, de arriba abajo) estirada entre
+  su mínimo y su máximo, con el rango real en la leyenda («Altura 100–162 m»),
+  que va debajo de la gráfica y en blanco. «RPM», que el dron no manda, pasa a
+  ser el control del motor. La gráfica en vivo usa lo mismo, y la del
+  cuadróptero ya grafica sus datos y no los de ala fija.
+- **Combo de vuelos**: un vuelo recién grabado no salía hasta reiniciar.
+  Solo se refrescaba al abrir la pestaña, y nunca si se había empezado una
+  reproducción y se había dejado en pausa. Ahora se refresca también al
+  desconectar y al dejar de grabar, elige el vuelo más reciente y, durante una
+  reproducción, se queda con el que se ve. Las respuestas que llegan tarde (de
+  un dron o vuelo que ya no es el elegido) se descartan: el combo podía salir
+  con vuelos repetidos.
+- Probado con la app: vuelo grabado con alturas de 100 y 250 m, un segundo
+  vuelo grabado con el primero en pausa (aparece sin reiniciar y no se pierde
+  el que se veía) y la gráfica con la altura subiendo y bajando.
 - Pruebas: `test_tramas` lee una fila grabada y una incompleta. 75 en total.

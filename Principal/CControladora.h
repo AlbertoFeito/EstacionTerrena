@@ -141,7 +141,7 @@ private:
     Widget_Drones *m_wDrones;
 
     Widget_Estado_Cuadroptero *m_wEstadoCuadroptero;
-    Widget_ControlObjetivo *m_wControlObjetivo;
+    Widget_ControlObjetivo *m_wControlObjetivo = nullptr;
     Widget_Mandos *m_wMandos;
     Widget_Mandos_Cuadroptero *m_wMandosCuadroptero;
     Widget_Conexion *m_wConexion;
@@ -193,7 +193,9 @@ private:
     void refrescarIndicadorEnlace();
 
     // QObject interface
-    void guardaDatosDron();
+    void refrescarControlObjetivo();
+    void guardaDatosDron(double cabeceo, double banqueo, double velocidadKmh,
+                         double altura, double curso);
 
     // Puntos de ruta a enviar
     sPUNTOXYZ puntosEnviar[Tramas::kPuntosPlan];

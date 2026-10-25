@@ -267,6 +267,8 @@ void CControladora::Conectado(bool conectado)
     m_estadoDronAdoptado = false;
     if (!conectado && m_wMandos)
         m_wMandos->olvidarEstadoDron ();
+    if (!conectado)
+        refrescarControlObjetivo ();
     if (m_lEnlace)
         refrescarIndicadorEnlace ();
     if (m_wPuntos)
@@ -555,16 +557,7 @@ void CControladora::conecciones()
         {
             m_wControlObjetivo->setEnabled (!m_Conectado);
 
-            if(!m_ControlObjetivo)
-                Database::AsyncQuery::startExecOnce(
-                            "SELECT Nombre FROM DronTable",
-                            [=](const Database::AsyncQueryResult& res) {
-                    QStringList drones;
-                    for (int i = 0; i < res.count(); i++) {
-                        drones.append(res.value(i, "Nombre").toString());
-                    }
-                    m_wControlObjetivo->setDrones (drones);
-                });
+            refrescarControlObjetivo ();
 
 
         }
@@ -626,6 +619,8 @@ void CControladora::conecciones()
 
     connect(m_wConexion->chB_Guardar (), &QCheckBox::toggled,[=](bool checked)
     {
+        if (!checked)
+            refrescarControlObjetivo ();   // el vuelo recien grabado ya sale en la lista
         if(checked)
         {
             QString queryVuelos = "SELECT Id_Dron, Vuelos FROM DronTable WHERE Nombre = \'" +DronID+ "\'";
@@ -867,6 +862,25 @@ void CControladora::conecciones()
     connect(m_wPuntos, &Widget_Puntos::sI_rutasModificadas, this, &CControladora::actualizarMenuRutas);
 }
 
+// Vuelve a pedir los drones de Control de objetivo, y con ellos los vuelos
+// grabados. Se llama al abrir la pestaña, al desconectar y al dejar de grabar.
+// Antes no se hacia mientras habia una reproduccion empezada, y en pausa eso
+// era para siempre: un vuelo recien grabado no salia hasta cerrar la estacion.
+// Durante una reproduccion la pestaña conserva el vuelo que se esta viendo.
+void CControladora::refrescarControlObjetivo()
+{
+    if (!m_wControlObjetivo)
+        return;
+    Database::AsyncQuery::startExecOnce(
+                "SELECT Nombre FROM DronTable",
+                [=](const Database::AsyncQueryResult& res) {
+        QStringList drones;
+        for (int i = 0; i < res.count(); i++)
+            drones.append(res.value(i, "Nombre").toString());
+        m_wControlObjetivo->setDrones (drones);
+    });
+}
+
 // Una fila de un vuelo grabado (Control de objetivo, reproduccion): la misma
 // vista que en vivo (instrumentos, panel, detalle y avion del color del
 // regimen). Una fila incompleta se ignora en lugar de tumbar la estacion.
@@ -1069,14 +1083,18 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
             double const t = start_time_.msecsTo(QTime::currentTime()) / 1000.0;
             m_wGraficas->datosTiempoReal (m_wConexion->serialManager ()->getS28 ().Realimentacion_Banqueo,
                                           m_wConexion->serialManager ()->getS28 ().Realimentacion_Cabeceo,
-                                          /*m_wConexion->getSerie ()->getS28 ().rpm*/0,
+                                          m_wConexion->serialManager ()->getS34 ().Control_Motor,
                                           m_wConexion->serialManager ()->getS28 ().Realimentacion_Altura,
                                           m_wConexion->serialManager ()->getS28 ().Realimentacion_Velocidad *3.6,
                                           t);
 
             //guardar
             if(m_wConexion->chB_Guardar ()->isChecked ())
-                guardaDatosDron ();
+                guardaDatosDron (m_wConexion->serialManager ()->getS28 ().Realimentacion_Cabeceo,
+                                 m_wConexion->serialManager ()->getS28 ().Realimentacion_Banqueo,
+                                 m_wConexion->serialManager ()->getS28 ().Realimentacion_Velocidad * 3.6,
+                                 m_wConexion->serialManager ()->getS28 ().Realimentacion_Altura,
+                                 m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso);
         }
     }
 }
@@ -1235,16 +1253,21 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
         }
         //graficar
         double const t = start_time_.msecsTo(QTime::currentTime()) / 1000.0;
-        m_wGraficas->datosTiempoReal (m_wConexion->serialManager ()->getS28 ().Realimentacion_Banqueo,
-                                      m_wConexion->serialManager ()->getS28 ().Realimentacion_Cabeceo,
-                                      /*m_wConexion->getSerie ()->getS28 ().rpm*/0,
-                                      m_wConexion->serialManager ()->getS28 ().Realimentacion_Altura,
-                                      m_wConexion->serialManager ()->getS28 ().Realimentacion_Velocidad *3.6,
+        // Los datos del cuadroptero (antes se graficaba la ultima trama de ala
+        // fija); de motor, la media de los cuatro.
+        m_wGraficas->datosTiempoReal (s_cuadropteros.Realimentacion_Banqueo,
+                                      s_cuadropteros.Realimentacion_Cabeceo,
+                                      (s_cuadropteros.ControlM1 + s_cuadropteros.ControlM2 +
+                                       s_cuadropteros.ControlM3 + s_cuadropteros.ControlM4) / 4.0,
+                                      s_cuadropteros.Realimentacion_Altura,
+                                      s_cuadropteros.Realimentacion_Velocidad *3.6,
                                       t);
 
         //guardar
         if(m_wConexion->chB_Guardar ()->isChecked ())
-            guardaDatosDron ();
+            guardaDatosDron (s_cuadropteros.Realimentacion_Cabeceo, s_cuadropteros.Realimentacion_Banqueo,
+                             s_cuadropteros.Realimentacion_Velocidad * 3.6,
+                             s_cuadropteros.Realimentacion_Altura, s_cuadropteros.Realimentacion_Curso);
     }
 }
 
@@ -1362,7 +1385,11 @@ void CControladora::onRouteActionTriggered(QAction *action)
     m_wPuntos->setRouteVisible(true);
 }
 
-void CControladora::guardaDatosDron()
+// Guarda una fila del vuelo en curso (casilla "Guardar"). Antes leia siempre la
+// trama de ala fija (con cuadroptero guardaba lo que no era), cambiaba el
+// cabeceo por el banqueo y la posicion con 4 decimales (unos 11 m).
+void CControladora::guardaDatosDron(double cabeceo, double banqueo, double velocidadKmh,
+                                    double altura, double curso)
 {
     QString fecha =  QTime::currentTime ().toString ("hh:mm:ss");
     fecha.replace (":","-");
@@ -1444,41 +1471,37 @@ void CControladora::guardaDatosDron()
              ")";
     _aQuery->prepare (query1);
 
+    // Lo comun a los dos tipos de dron sale de m_ParametrosValues, que cada
+    // manejador de trama rellena con lo suyo; la actitud, de los argumentos.
+    const QVector<double> &v = m_ParametrosValues;
+    auto num = [](double x, int decimales = 2) { return QString::number (x, 'f', decimales); };
     _aQuery->bindValue(":Id_Vuelos", vueloID);
     _aQuery->bindValue(":Dron_ID", dronID);
-    _aQuery->bindValue(":Lat", QString::number(geoPos.latitude (),'f',4));
-    _aQuery->bindValue(":Lon", QString::number(geoPos.longitude (),'f',4));
-    _aQuery->bindValue(":Realimentacion_Cabeceo", QString::number(m_wConexion->serialManager ()->getS28 ().Realimentacion_Banqueo,'f',2));
-    _aQuery->bindValue(":Realimentacion_Banqueo", QString::number(m_wConexion->serialManager ()->getS28 ().Realimentacion_Cabeceo,'f',2));
-    _aQuery->bindValue(":Realimentacion_Velocidad", QString::number(m_wConexion->serialManager ()->getS28 ().Realimentacion_Velocidad *3.6,'f',2));
-    _aQuery->bindValue(":Realimentacion_Altura", QString::number(m_wConexion->serialManager ()->getS28 ().Realimentacion_Altura,'f',2));
-    _aQuery->bindValue(":Realimentacion_Curso", QString::number(m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,'f',2));
-    _aQuery->bindValue(":Distancia_Chequeo", QString::number(m_wConexion->serialManager ()->getS34 ().Distancia_Chequeo,'f',2));
-    _aQuery->bindValue(":Curso_Deseado", QString::number(m_wConexion->serialManager ()->getS34 ().Curso_Deseado,'f',2));
-    _aQuery->bindValue(":Realimentacion_Regimen", QString::number(m_wConexion->serialManager ()->getS34 ().Realimentacion_Regimen));
-    _aQuery->bindValue(":Realimentacion_ComandoMision", QString::number(m_wConexion->serialManager ()->getS34 ().Realimentacion_ComendoMision));
-    _aQuery->bindValue(":Realimentacion_CursoIMU", QString::number(m_wConexion->serialManager ()->getS28 ().Realimentacion_CursoIMO,'f',2));
-    _aQuery->bindValue(":CantidadSatelites", QString::number(m_wConexion->serialManager ()->getS34 ().Cantidad_Satelites));
+    _aQuery->bindValue(":Lat", num (geoPos.latitude (), 6));
+    _aQuery->bindValue(":Lon", num (geoPos.longitude (), 6));
+    _aQuery->bindValue(":Realimentacion_Cabeceo", num (cabeceo));
+    _aQuery->bindValue(":Realimentacion_Banqueo", num (banqueo));
+    _aQuery->bindValue(":Realimentacion_Velocidad", num (velocidadKmh));
+    _aQuery->bindValue(":Realimentacion_Altura", num (altura));
+    _aQuery->bindValue(":Realimentacion_Curso", num (curso));
+    _aQuery->bindValue(":Distancia_Chequeo", num (v[2]));
+    _aQuery->bindValue(":Curso_Deseado", num (v[3]));
+    _aQuery->bindValue(":Realimentacion_Regimen", QString::number (int (v[4])));
+    _aQuery->bindValue(":Realimentacion_ComandoMision", QString::number (int (v[5])));
+    _aQuery->bindValue(":Realimentacion_CursoIMU", num (v[6]));
+    _aQuery->bindValue(":CantidadSatelites", QString::number (int (v[7])));
 
-    _aQuery->bindValue(":KPCabeceo", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Cabeceo[0],'f',2));
-    _aQuery->bindValue(":KICabeceo", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Cabeceo[1],'f',2));
-    _aQuery->bindValue(":KPBanqueo", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Banqueo[0],'f',2));
-    _aQuery->bindValue(":KIBanqueo", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Banqueo[1],'f',2));
-    _aQuery->bindValue(":KPVelocidad", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Velocidad[0],'f',2));
-    _aQuery->bindValue(":KIVelocidad", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Velocidad[1],'f',2));
-    _aQuery->bindValue(":KPAltura", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Altura[0],'f',2));
-    _aQuery->bindValue(":KIAltura", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Altura[1],'f',2));
-    _aQuery->bindValue(":KPCurso", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Curso,'f',2));
-    _aQuery->bindValue(":KPRumbo", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Rumbo[0],'f',2));
-    _aQuery->bindValue(":KIRumbo", QString::number(m_wConexion->serialManager ()->getS34 ().Ganancia_Rumbo[1],'f',2));
-
-    _aQuery->bindValue(":Control_Estabilizadores", QString::number(m_wConexion->serialManager ()->getS34 ().Control_Estabilizadores,'f',2));
-    _aQuery->bindValue(":Control_Alerones", QString::number(m_wConexion->serialManager ()->getS34 ().Control_Alerones,'f',2));
-    _aQuery->bindValue(":Control_Motor", QString::number(m_wConexion->serialManager ()->getS34 ().Control_Motor,'f',2));
-    _aQuery->bindValue(":Control_Rumbo", QString::number(m_wConexion->serialManager ()->getS34 ().Control_Rumbo,'f',2));
-
-    _aQuery->bindValue(":Convergencia_Banqueo", QString::number(m_wConexion->serialManager ()->getS34 ().Convergencia_Banqueo,'f',2));
-    _aQuery->bindValue(":Convergencia_Cabeceo", QString::number(m_wConexion->serialManager ()->getS34 ().Convergencia_Cabeceo,'f',2));
+    const char *ganancias[] = {":KPCabeceo", ":KICabeceo", ":KPBanqueo", ":KIBanqueo",
+                               ":KPVelocidad", ":KIVelocidad", ":KPAltura", ":KIAltura",
+                               ":KPCurso", ":KPRumbo", ":KIRumbo"};
+    for (int k = 0; k < 11; ++k)
+        _aQuery->bindValue(QString::fromLatin1 (ganancias[k]), num (v[8 + k]));
+    _aQuery->bindValue(":Control_Estabilizadores", num (v[19]));
+    _aQuery->bindValue(":Control_Alerones", num (v[20]));
+    _aQuery->bindValue(":Control_Motor", num (v[21]));
+    _aQuery->bindValue(":Control_Rumbo", num (v[22]));
+    _aQuery->bindValue(":Convergencia_Banqueo", num (v[23]));
+    _aQuery->bindValue(":Convergencia_Cabeceo", num (v[24]));
 
     _aQuery->bindValue(":Fecha", QDateTime::currentDateTime ());
     _aQuery->startExec ();
