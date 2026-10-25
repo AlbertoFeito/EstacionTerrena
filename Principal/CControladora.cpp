@@ -1122,7 +1122,10 @@ void CControladora::onEnviaPlan()
         punto.x = listPuntoF.at(i).x();
         punto.y = listPuntoF.at(i).y();
         punto.z = puntos.at(i).altura;          // antes era m_ListPuntos, ahora bien
-        punto.velocidad = puntos.at(i).velocidad / 3.6;
+        // En m/s, como en el planificador: es lo que vuela el autopiloto (antes
+        // se dividia por 3,6 y con 16,5 m/s en la ruta el dron iba a 4,6 m/s).
+        // En km/h solo se muestra (la telemetria x 3,6).
+        punto.velocidad = puntos.at(i).velocidad;
         puntosEnviar[i] = punto;
     }
 

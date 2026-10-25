@@ -662,3 +662,21 @@ log y en `log.txt`: «Enlace cerrado (tcp 127.0.0.1:5760) tras 00:12:34
 conectado». Lo calcula `MonitorEnlace` (`msConectado`, `duracionUltima`,
 `textoTiempo`), que recibe la hora como parámetro, así que `test_estado`
 lo prueba sin esperar (caso `tiempoDeConexion`).
+
+## 20. La velocidad del plan llega en m/s
+
+Respondida la pregunta de la unidad (estaba en `PENDIENTES.md`): **la
+velocidad va siempre en m/s** y solo se pasa a km/h para mostrarla. Si la
+ruta dice 16,5 m/s, eso es lo que tiene que volar el dron, y en pantalla
+se ve 59,4 km/h.
+
+`CControladora::onEnviaPlan` dividía la velocidad de cada punto por 3,6
+antes de mandarla, como si el planificador estuviera en km/h: con 16,5 m/s
+en la ruta, el dron recibía 4,6 m/s, y el simulador volaba a eso. Ahora se
+manda tal cual. El resto ya era coherente:
+
+- la telemetría (`Realimentacion_Velocidad`) llega en m/s, y el horizonte,
+  el rótulo del avión en el mapa y la grabación la multiplican por 3,6;
+- la velocidad de vuelta a casa (V.RTH) se escribe en km/h en la pestaña
+  Mandos y se manda dividida por 3,6, es decir, en m/s;
+- el simulador usa la velocidad del plan en m/s, sin convertir.
