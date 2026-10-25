@@ -680,3 +680,31 @@ manda tal cual. El resto ya era coherente:
 - la velocidad de vuelta a casa (V.RTH) se escribe en km/h en la pestaña
   Mandos y se manda dividida por 3,6, es decir, en m/s;
 - el simulador usa la velocidad del plan en m/s, sin convertir.
+
+## 21. Horas en «Repetir misión» sin que se vuelva lenta
+
+Pregunta del usuario: ¿cuánto aguanta la estación recibiendo y pintando una
+ruta en «Repetir misión»? Para medirlo, el simulador en automático y
+«Repetir» a 100 tramas/s (diez veces el dron real) y la estación 10 minutos
+contra él: unas 42.000 tramas, como unos 70 minutos de vuelo de verdad. La
+memoria pasó de 78 a 85 MB, unos 6 MB por hora de vuelo. Eso no tumba nada,
+pero había dos cosas que crecían sin tope y que cada trama recorría entera:
+
+- **La estela del dron en el mapa** era entera (`setTargetTrailLength(-1)`)
+  y se redibujaba completa en cada repintado: 36.000 puntos por hora,
+  860.000 en un día. Ahora es de **10 minutos** (6000 posiciones a 10
+  tramas/s). La ruta completa la sigue guardando libmapa aparte
+  (`targetHistory`, con 5000 puntos como mucho y aclarando los
+  intermedios), y los puntos cumplidos siguen marcados en el plan.
+- **Las gráficas en vivo** guardaban todo desde la conexión y, abiertas,
+  lo redibujaban con cada trama. Ahora guardan la **última media hora**; se
+  recorta de minuto en minuto, no en cada trama. Las gráficas de un vuelo
+  grabado no cambian: entran por otro camino.
+
+Lo demás ya estaba acotado: el log se queda en sus últimas 5000 líneas, los
+puntos cumplidos se marcan una vez por punto (no una vez por vuelta) y la
+grabación va a disco desde su propio hilo.
+
+Repetida la misma medida de 10 minutos: la memoria va de 79 a 83 MB en los
+primeros 6 minutos, mientras se llenan la estela y el historial, y se queda
+en 83 MB los 4 últimos.

@@ -14,6 +14,8 @@ using namespace libmapa;
 namespace {
 // El dron es el unico objetivo del mapa: id fijo para reemplazarlo siempre.
 const qint64 kIdVehiculo = 1;
+// Posiciones de la estela del dron: 10 minutos a 10 tramas por segundo.
+const int kEstelaPuntos = 10 * 60 * 10;
 
 const QString kCapaRuta = QStringLiteral("ruta");
 const QString kCapaMision = QStringLiteral("mision");
@@ -67,7 +69,11 @@ MapaMision::MapaMision(const QString &paquete, QWidget *padre)
     ponerCapaBase(CapaBase::Satelital);
     m_mapa->setScaleBarVisible(true);
 
-    m_mapa->setTargetTrailLength(-1);   // la traza entera, como antes (TODAS)
+    // Estela de los ultimos 10 minutos (a 10 tramas/s, 6000 posiciones). Antes
+    // era entera y se redibujaba completa con cada trama: tras horas en
+    // «Repetir mision» cada repintado iba mas lento. La ruta completa la sigue
+    // guardando libmapa aparte (targetHistory, aclarada para no crecer).
+    m_mapa->setTargetTrailLength(kEstelaPuntos);
     m_mapa->setTargetSymbolProvider([this](const MapTarget &t) {
         TargetSymbol s;
         if (t.id == m_vehiculo)
