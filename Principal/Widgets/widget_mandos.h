@@ -4,7 +4,6 @@
 #include <QWidget>
 #include <QDebug>
 #include <QGeoCoordinate>
-#include <cprojection.h>
 #include <QDoubleSpinBox>
 #include <QTimer>
 #include "Estructuras/Estructuras.h"
@@ -19,7 +18,7 @@ class Widget_Mandos : public QWidget
     Q_OBJECT
 
 public:
-    explicit Widget_Mandos(CProjection *projection, sMANDOS *MANDOS, QWidget *parent = nullptr);
+    explicit Widget_Mandos(sMANDOS *MANDOS, QWidget *parent = nullptr);
     ~Widget_Mandos();
 
     quint16 calculateChecksum(const QByteArray &data);
@@ -29,6 +28,12 @@ public:
     QDoubleSpinBox *getDsB_Lon() const;
 
     QDoubleSpinBox *getDsB_Lat() const;
+    void setPosicionDron(const QGeoCoordinate &pos);
+    void setEstadoDron(int regimen, int mision, bool adoptar);
+    void olvidarEstadoDron();
+    QString textoEstadoDron() const;
+    int regimenElegido() const { return regimen; }
+    int misionElegida() const { return comando; }
 public slots:
     void on_AcuseRecibo();
     void on_restoreStyle();
@@ -51,6 +56,8 @@ private slots:
 
     void on_chB_Paracaidas_toggled(bool checked);
 
+    void on_pB_CasaDron_clicked();
+
 private:
     Ui::Widget_Mandos *ui;
     unsigned char regimen = 0;
@@ -65,8 +72,10 @@ private:
 
     void configuraUI();
 
-    CProjection *m_projection;
     QDoubleSpinBox *m_dsB_Lat,*m_dsB_Lon;
+    QGeoCoordinate m_posicionDron;
+    int m_regimenDron = -1;
+    int m_misionDron = -1;
 
     QTimer m_timer;
     QString m_originalStyle;

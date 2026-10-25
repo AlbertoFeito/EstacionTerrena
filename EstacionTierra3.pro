@@ -4,9 +4,10 @@ CONFIG += ordered \
     qt \
     qt
 SUBDIRS += \
-    LibMapaStatic \
     usbdeviceswatcher \
-    Principal
+    Principal \
+    simulador \
+    tests
 QT += widgets
 
 

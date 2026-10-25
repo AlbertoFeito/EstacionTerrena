@@ -2,7 +2,9 @@
 #include <QObject>
 #include <QUuid>
 #include <QSharedPointer>
+#ifdef Q_OS_WIN
 #include <Windows.h>
+#endif
 class DeviceHotplugPrivate;
 
 /**

@@ -4,7 +4,6 @@
 
 #include "Widget_Puntos.h"
 #include "dronedialog.h"
-#include "cmapaplot.h"  // necesario para onPointMoved
 
 #include <QFileDialog>
 #include <QMessageBox>
@@ -2853,6 +2852,15 @@ void Widget_Puntos::seleccionarRuta(const QString &/*nombreRuta*/)
 /**
  * @brief Muestra un acuse de recibo visual en el botón de enviar.
  */
+/**
+ * @brief Recuerda si hay enlace con el dron (lo avisa CControladora al conectar y desconectar).
+ * @param disponible true mientras la estación está conectada.
+ */
+void Widget_Puntos::setEnlaceDisponible(bool disponible)
+{
+    m_enlaceDisponible = disponible;
+}
+
 void Widget_Puntos::on_AcuseRecibo()
 {
     if (!m_timer.isActive())
@@ -2904,19 +2912,13 @@ void Widget_Puntos::onAnalisisActualizado(const QVariantMap &analisis)
  * ...
  *
  * \startuml
- * participant "CMapaPlot (mapa)" as Map
+ * participant "MapaMision (mapa)" as Map
  * participant "Widget_Puntos" as Widget
  * participant "MiModelo" as Model
  * participant "AlturaWorker" as AltWorker
  *
- * Map -> Widget: onPointMoved(index)
+ * Map -> Widget: onPointMoved(index, nuevaPos)
  * activate Widget
- *
- * Widget -> Map: currentPoints()
- * Map --> Widget: pointsMetros
- *
- * Widget -> Map: getProjection()->inverse()
- * Map --> Widget: nuevaPos (QGeoCoordinate)
  *
  * Widget -> Model: setData(idxLat, nuevaPos.latitude())
  * Widget -> Model: setData(idxLon, nuevaPos.longitude())
@@ -2935,27 +2937,12 @@ void Widget_Puntos::onAnalisisActualizado(const QVariantMap &analisis)
  * deactivate Widget
  * \enduml
  */
-void Widget_Puntos::onPointMoved(int index)
+void Widget_Puntos::onPointMoved(int index, const QGeoCoordinate &nuevaPos)
 {
     if (!modelo || !modelo->isDroneConfigured() || modelo->rowCount() == 0)
         return;
-    if (index < 0 || index >= modelo->rowCount())
+    if (index < 0 || index >= modelo->rowCount() || !nuevaPos.isValid())
         return;
-
-    CMapaPlot *mapa = qobject_cast<CMapaPlot*>(sender());
-    if (!mapa) {
-        return;
-    }
-    if (!mapa->getProjection()) {
-        return;
-    }
-
-    QVector<QPointF> pointsMetros = mapa->currentPoints();
-    if (index >= pointsMetros.size()) {
-        return;
-    }
-
-    QGeoCoordinate nuevaPos = mapa->getProjection()->inverse(pointsMetros[index]);
 
     QModelIndex idxLat = modelo->index(index, 3);
     QModelIndex idxLon = modelo->index(index, 4);
@@ -3443,6 +3430,13 @@ void Widget_Puntos::on_pB_EnviaRuta_clicked()
         return;
     }
 
+    if (!m_enlaceDisponible) {
+        QMessageBox::warning(this, "Sin enlace",
+                             "No hay enlace con el dron: conéctate en la pestaña Configuración "
+                             "y vuelve a enviar la ruta.");
+        return;
+    }
+
     if (modelo->rowCount() != 10) {
         QMessageBox::critical(this, "Error",
                               QString("La ruta debe tener EXACTAMENTE 10 puntos.\n"
@@ -3471,9 +3465,10 @@ void Widget_Puntos::on_pB_EnviaRuta_clicked()
         emit sI_Ruta(coordenadas);
         emit sI_Ruta2(puntos);
         emit sI_RutaValidada(validacion.first, validacion.second);
-        on_AcuseRecibo();
+        // El botón se pone verde cuando el dron confirma (acuse "uvw"), no ahora.
 
-        QString mensaje = QString("✓ Ruta enviada exitosamente\n\n");
+        QString mensaje = QString("Ruta enviada al dron. El botón Enviar se pondrá verde "
+                                  "cuando el dron la confirme.\n\n");
         mensaje += QString("Puntos: %1\n").arg(puntos.size());
         auto metricas = modelo->obtenerMetricasRuta();
         mensaje += QString("Distancia: %1 m\n").arg(metricas["distancia_total"].toDouble(), 0, 'f', 1);

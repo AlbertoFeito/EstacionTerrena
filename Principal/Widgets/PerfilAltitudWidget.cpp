@@ -1,4 +1,4 @@
-#include "perfilaltitudwidget.h"
+#include "PerfilAltitudWidget.h"
 #include <QVBoxLayout>
 #include <QDebug>
 #include <algorithm>

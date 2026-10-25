@@ -52,6 +52,8 @@ public:
     HWND m_hwnd = nullptr;
     HDEVNOTIFY m_deviceNotification = nullptr;
 #elif defined(Q_OS_LINUX)
+    // Bucle de escucha de udev (en Linux no lo arranca nadie todavia).
+    void run_from_thread();
     udev *dev_udev = nullptr;
     udev_monitor *dev_mon = nullptr;
 #endif

@@ -3,10 +3,9 @@
 
 #include <QDir>
 
-Widget_Ganancias_Control::Widget_Ganancias_Control(CProjection *projection, sMANDOS *MANDOS, QWidget *parent) :
+Widget_Ganancias_Control::Widget_Ganancias_Control(sMANDOS *MANDOS, QWidget *parent) :
     QWidget(parent),
     ui(new Ui::Widget_Ganancias_Control),
-    m_projection(projection),
     mandos(MANDOS)
 
 {

@@ -1,32 +1,44 @@
 #ifndef SERIALMANAGER_H
 #define SERIALMANAGER_H
 
+#include <QHostAddress>
 #include <QObject>
-#include <QSerialPort>
-#include <QMessageBox>
-#include <QDebug>
 #include <QTimer>
 #include "Estructuras/Estructuras.h"
+#include "Protocolo/Tramas.h"
+
+class QSerialPort;
+class QTcpSocket;
+class QUdpSocket;
 
 /**
- * @brief Clase para manejo de comunicación serial con protocolo estructurado
+ * @brief Enlace con el dron: puerto serie, TCP o UDP, con el mismo protocolo.
  *
- * Protocolo esperado:
- * - Tramas comienzan con encabezados "abc", "xyz" o "uvw"
- * - Tras "abc" vienen estructuras sTRAMA1 y sTRAMA2
- * - Tras "xyz" o "uvw" vienen acuses de recibo
- * - Se esperan tramas de planificación con múltiples sPUNTOXYZ
+ * Las tramas son las de siempre (ver Protocolo/Tramas.h): "abc" con la
+ * telemetria, "xyz"/"uvw" con los acuses; hacia el dron, mandos y plan. Da
+ * igual por donde lleguen: la decodificacion es la misma y las senales
+ * tambien, asi que el resto de la estacion no sabe si habla con un puerto
+ * serie, con un puente TCP o con el simulador.
+ *
+ * - Serie: 115200 8N1, como siempre.
+ * - TCP: la estacion es CLIENTE (se conecta a host:puerto; el simulador o el
+ *   puente de radio hacen de servidor).
+ * - UDP: escucha en un puerto local y manda al host:puerto remoto; sin
+ *   remoto, contesta a quien le haya hablado el ultimo.
  */
 class SerialManager : public QObject
 {
     Q_OBJECT
 public:
+    enum class Enlace { Serie, Tcp, Udp };
+
     explicit SerialManager(QObject *parent = nullptr);
     ~SerialManager();
 
-
     bool isConnected() const;
+    //! Por donde se esta hablando: "COM3", "tcp 127.0.0.1:5760", "udp 14550"...
     QString currentPort() const;
+    Enlace enlace() const { return m_enlace; }
 
     sTRAMA1 getS28() const;
     sTRAMA2 getS34() const;
@@ -37,8 +49,16 @@ public:
     void setTipo_dron(int value);
 
 public slots:
+    //! Abre el puerto serie (como siempre).
     bool conectar(const QString &portName);
+    //! Se conecta como cliente TCP. Devuelve true si el intento empezo; la
+    //! conexion se confirma con connectionChanged(true) (o errorOccurred).
+    bool conectarTcp(const QString &host, quint16 puerto);
+    //! Escucha UDP en \a puertoLocal y manda a \a hostRemoto:\a puertoRemoto
+    //! (si \a hostRemoto esta vacio, a quien haya mandado el ultimo datagrama).
+    bool conectarUdp(quint16 puertoLocal, const QString &hostRemoto, quint16 puertoRemoto);
     void desconectar();
+    //! Manda bytes por el enlace abierto.
     void serieWrite(const QByteArray &data);
 
 signals:
@@ -52,47 +72,33 @@ signals:
     void si_AcuseReciboXYZ();
     void si_AcuseReciboUVW();
 
-private slots:
-    void readyRead();
-    void procesarBuffer();
-
 private:
+    void leerFlujo();
+    void leerDatagramas();
+    void entregar(const QByteArray &bytes);
+    void cerrarTodo();
+    void manejarError(const QString &mensaje);
+
+    Enlace m_enlace = Enlace::Serie;
     QSerialPort *m_serial;
+    QTcpSocket *m_tcp;
+    QUdpSocket *m_udp;
+    QTimer m_esperaTcp;            // tope para conectar por TCP
     QString m_currentPort;
-    QTimer *m_timeoutTimer;
+    bool m_conectado = false;
+    bool m_cerrando = false;       // cerrando a proposito: los errores no cuentan
 
-    int tipo_dron = 0;
-    // Buffer y máquina de estados
-    QByteArray m_buffer;
-    static constexpr int MAX_BUFFER_SIZE = 4096; // 4KB máximo para prevenir desbordamiento
+    // UDP: a donde se manda.
+    QHostAddress m_udpRemoto;
+    quint16 m_udpPuertoRemoto = 0;
+    bool m_udpRemotoFijo = false;
 
-    enum State {
-        WaitingForHeader,
-        WaitingForStruct28,
-        WaitingForStruct34,
-        WaitingForPlanificacion,
-        WaitingForCuadropteros
-    };
-    State m_currentState = WaitingForHeader;
+    Tramas::DecodificadorDron m_decodificador;
 
-    // Variables para almacenar datos recibidos
-    char m_headerA, m_headerB, m_headerC;
+    // Ultimos datos recibidos (los leen CControladora y los widgets).
     sTRAMA1 m_trama28;
     sTRAMA2 m_trama34;
-    bool m_planificacionOK = false;
-
     sCUADROPTEROS m_cuadropteros;
-
-    // Métodos auxiliares
-    void resetProtocolo();
-    bool validarChecksum(const QByteArray &data);
-    bool procesarEncabezado(const QByteArray &header);
-    bool procesarTrama28();
-    bool procesarTrama34();
-    bool procesarPlanificacion();
-    bool procesarCuadropteros();
-    void manejarError(const QString &mensaje);
-    bool procesarAcuseRecibo(const QByteArray &tipo);
 };
 
 #endif // SERIALMANAGER_H

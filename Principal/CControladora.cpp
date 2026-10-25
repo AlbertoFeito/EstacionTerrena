@@ -1,9 +1,14 @@
 #include "CControladora.h"
 #include <QAction>
 #include <QMenuBar>
+#include <QCoreApplication>
 #include <QDir>
 #include <QScrollBar>
 #include <logger/LogHandler.h>
+#include <libmapa/MapWidget.h>   // solo para usar MapaMision::mapa() como QWidget
+#include <QMessageBox>
+#include <QStatusBar>
+#include "MyQSettings/myqsetting.h"
 
 CControladora::CControladora(QObject *parent) :
     QObject(parent),
@@ -31,22 +36,15 @@ indicador = new qfi_EADI(mPrincipal);
 
 tabOpciones = new QTabWidget(mPrincipal);
     tabOpciones->setFixedWidth (300);
-    tabOpciones->setTabPosition (QTabWidget::North);
+    // Pestanas a la izquierda, en vertical: con nombres cortos caben todas y
+    // enteras (arriba no cabian en 300 px y salian cortadas con flechas).
+    tabOpciones->setTabPosition (QTabWidget::West);
     tabOpciones->setTabShape (QTabWidget::Rounded);
 
 
 RecursosDir.setPath (QDir::currentPath ());
     RecursosDir.cdUp ();
-    //    QVBoxLayout *layMapaDatos = new QVBoxLayout();
-    libMapa = new LibMapaStatic(RecursosDir.path (),mPrincipal);
-    libMapa->mostrarCapaImgSatSeleccionada (true);
-    libMapa->getTb_zMas ()->setVisible (false);
-    libMapa->getTb_zMenos ()->setVisible (false);
-    libMapa->getTb_zoomArea ()->setVisible (false);
-    libMapa->getTb_trazaRuta ()->setVisible (false);
-    libMapa->getTb_nuevoPunto ()->setVisible (false);
-    libMapa->getTb_nuevoPoligono ()->setVisible (false);
-    libMapa->getTb_medirDistancia ()->setVisible (false);
+    crearMapa();
     initTabOpciones();
     preparaDataBase();
     m_wConexion->cBDrones ()->setCurrentIndex (0);
@@ -57,12 +55,19 @@ RecursosDir.setPath (QDir::currentPath ());
                              "KPCab","KICab","KPBan","KIBan","KPVel","KIVel",
                              "KPAlt","KIAlt","KCurso","KPRumbo","KIPRumbo"});
 
-    m_wGraficas = new Widget_Graficas(libMapa->getOMapa ());
+    m_wGraficas = new Widget_Graficas(m_mapa->mapa ());
     m_wGraficas->raise();
     m_wGraficas->setVisible (false);
 
-    m_wParametros = new Widget_Parametros(libMapa->getOMapa ());
-    m_wParametros->raise();
+    // Panel de vuelo con el detalle tecnico (ganancias, actuadores) plegado
+    // debajo: un solo panel en lugar de dos.
+    m_panelVuelo = new PanelVuelo(m_mapa->mapa ());
+    m_panelVuelo->raise();
+    m_panelVuelo->adjustSize();
+    connect (m_panelVuelo, &PanelVuelo::detalleConmutado, this, [this](bool abierto) {
+        aDetalleTecnico->setChecked (abierto);
+        updateOverlayPosition ();
+    });
     loadInitialData ();
 
     auto vLine = new QFrame();
@@ -77,7 +82,7 @@ RecursosDir.setPath (QDir::currentPath ());
     gridLayout->addWidget (tabOpciones,2,0);
 
     gridLayout->addWidget (vLine,0,1,3,1);
-    gridLayout->addWidget (libMapa,0,2,3,1);
+    gridLayout->addWidget (m_mapa->mapa (),0,2,3,1);
 
     gridLayout->setHorizontalSpacing (3);
     gridLayout->setVerticalSpacing (3);
@@ -97,6 +102,7 @@ RecursosDir.setPath (QDir::currentPath ());
 
     mPrincipal->setWindowTitle ("ECT v.1.2 - Estación de Control Terrestre (CID3)");
     mPrincipal->showMaximized ();
+    QTimer::singleShot (0, this, [this]() { updateOverlayPosition(); });
 }
 
 bool CControladora::eventFilter(QObject *obj, QEvent *event)
@@ -113,10 +119,21 @@ bool CControladora::eventFilter(QObject *obj, QEvent *event)
     return QObject::eventFilter(obj, event);
 }
 
+// Detalle tecnico del panel de vuelo a partir del vector de siempre: 6 rumbo
+// de la IMU, 8..18 ganancias, 19..22 actuadores, 23..24 convergencias. El
+// cuadroptero no manda ganancias: se quedan sin dato. Tambien da al boton
+// "Usar posicion actual del dron como casa" la ultima posicion.
 void CControladora::updateParameters(const QVector<double> &values) {
-    m_wParametros->updateValues (values);
-    auto cantSatelites = m_wConexion->serialManager ()->getS34 ().Cantidad_Satelites;
-    m_wParametros->updateSatelites (int(cantSatelites));
+    const bool cuadro = m_detalle.tipoDron != 0;
+    m_detalle.rumboImu = values[6];
+    for (int i = 0; i < 11; ++i)
+        m_detalle.ganancias[i] = cuadro ? std::numeric_limits<double>::quiet_NaN () : values[8 + i];
+    for (int i = 0; i < 4; ++i)
+        m_detalle.actuadores[i] = values[19 + i];
+    m_detalle.convergenciaBanqueo = values[23];
+    m_detalle.convergenciaCabeceo = values[24];
+    m_panelVuelo->mostrarDetalle (m_detalle);
+    m_wMandos->setPosicionDron (geoPos);
 }
 
 void CControladora::initTabOpciones()
@@ -139,15 +156,16 @@ QWidget *w2 = new QWidget();
 
     QWidget *w3 = new QWidget();
     QGridLayout *LayOutMandos = new QGridLayout;
-    m_wMandos = new Widget_Mandos(libMapa->getOMapa ()->getProjection (),&mandos);
+    m_wMandos = new Widget_Mandos(&mandos);
     m_wMandosCuadroptero = new Widget_Mandos_Cuadroptero();
+    LayOutMandos->setContentsMargins (0, 0, 0, 0);
     LayOutMandos->addWidget (m_wMandos);
     LayOutMandos->addWidget (m_wMandosCuadroptero);
     w3->setLayout (LayOutMandos);
 
 QWidget *w4 = new QWidget();
     QGridLayout *LayOutGanancias = new QGridLayout;
-    m_wGanancias = new Widget_Ganancias_Control(libMapa->getOMapa ()->getProjection (),&mandos);
+    m_wGanancias = new Widget_Ganancias_Control(&mandos);
     LayOutGanancias->addWidget (m_wGanancias);
     w4->setLayout (LayOutGanancias);
 
@@ -157,11 +175,17 @@ QWidget *w4 = new QWidget();
     LayOutConexion->addWidget (m_wConexion);
     w5->setLayout (LayOutConexion);
 
-    tabOpciones->addTab (w5,"Configuración");
-    tabOpciones->addTab (w1,"Datos_Drones");
-    tabOpciones->addTab (w3,"Mandos");
-    tabOpciones->addTab (w4,"Ganacias_Control");
-    tabOpciones->addTab (w2,"Control_Objetivo");
+    const struct { QWidget *pagina; const char *nombre; const char *ayuda; } pestanas[] = {
+        {w5, "Enlace", "Configuración: dron, enlace y conexión"},
+        {w1, "Drones", "Datos de los drones"},
+        {w3, "Mandos", "Régimen, misión, navegación y casa"},
+        {w4, "Ganancias", "Ganancias del control"},
+        {w2, "Objetivo", "Control de objetivo"},
+    };
+    for (const auto &p : pestanas) {
+        const int i = tabOpciones->addTab (p.pagina, tr(p.nombre));
+        tabOpciones->setTabToolTip (i, tr(p.ayuda));
+    }
 
     mPrincipal->installEventFilter(this);
 }
@@ -234,11 +258,28 @@ void CControladora::Conectado(bool conectado)
     primeraCoordenada = conectado;
     m_wConexion->chB_Guardar ()->setChecked (false);
     m_Conectado = conectado;
+    m_monitor.setConectado (conectado, m_wConexion->serialManager ()->currentPort (),
+                            m_reloj.isValid () ? m_reloj.elapsed () : 0);
+    if (!conectado && m_panelVuelo) {
+        m_panelVuelo->limpiar ();
+        m_puntoActual = -1;
+    }
+    // La pestaña de Mandos adopta lo que diga la primera trama de este enlace.
+    m_estadoDronAdoptado = false;
+    if (!conectado && m_wMandos)
+        m_wMandos->olvidarEstadoDron ();
+    if (m_lEnlace)
+        refrescarIndicadorEnlace ();
+    if (m_wPuntos)
+        m_wPuntos->setEnlaceDisponible (conectado);
+    if (!conectado && m_esperaAcusePlan) {
+        m_esperaAcusePlan->stop ();
+        m_esperaAcuseMandos->stop ();
+    }
     if(m_wConexion->cBDrones ()->currentIndex () != -1)
     {
         m_wConexion->cBDrones ()->setEnabled (!conectado);
         m_wConexion->chB_Guardar ()->setEnabled (conectado);
-        indexAnterior = 0;
         if(conectado)
         {
 
@@ -257,7 +298,7 @@ void CControladora::Conectado(bool conectado)
                 tipoDrone = tipodrone == "Ala fija" ? 0 : 1;
                 vueloID = res.value(0, "Vuelos").toInt () ;
                 m_wConexion->serialManager ()->setTipo_dron (tipoDrone);
-                m_wParametros->setTipo_dron (tipoDrone);
+                m_detalle.tipoDron = tipoDrone;
             });
         }
         else
@@ -271,21 +312,7 @@ void CControladora::Conectado(bool conectado)
             indicador->setAltitude (0);
             indicador->redraw ();
 
-            //            libMapa->getOMapa ()->eliminarPunto ("PuntoNuevo");
-            libMapa->getOMapa ()->borrarElementosPorNombre ("PuntoNuevo");
-
-            //            if(libMapa->getOMapa ()->getPuntoItem ().text == NULL)
-            //                return;
-            if(libMapa->getOMapa ()->getPuntoItem ().text != NULL)
-            {
-                libMapa->getOMapa ()->getPuntoItem ().text->setVisible (false);
-                libMapa->getOMapa ()->getPuntoItem ().ellipse->setVisible (false);
-                libMapa->getOMapa ()->getPuntoItem ().ellipse2->setVisible (false);
-            }
-            libMapa->getOMapa ()->getLineaRumboDestino ()->setVisible (false);
-            libMapa->getOMapa ()->getLineaRumboVehiculo ()->setVisible (false);
-            libMapa->getOMapa ()->getLineaRumboCalculado ()->setVisible (false);
-            libMapa->getOMapa ()->layer (sMapaZOOM)->replot ();
+            limpiarVueloEnMapa();
 
 
 
@@ -309,6 +336,7 @@ void CControladora::createMenus()
 
     mEstadoDrone = mPrincipal->menuBar ()->addMenu (tr("&Estado_Drone"));
     mEstadoDrone->addAction (aEstadoDrone);
+    mEstadoDrone->addAction (aDetalleTecnico);
     mEstadoDrone->addAction (aVerGraficaDrone);
 
     mRuta = mPrincipal->menuBar()->addMenu(tr("&Rutas"));
@@ -344,7 +372,7 @@ void CControladora::createActions()
     aSatelital->setChecked (true);
     connect (aSatelital,&QAction::triggered,[this]()
     {
-        libMapa->mostrarCapaImgSatSeleccionada(true);
+        m_mapa->ponerCapaBase(MapaMision::CapaBase::Satelital);
     });
 
     aOSM = new QAction(tr("&OSM"),mPrincipal);
@@ -354,7 +382,7 @@ void CControladora::createActions()
     aOSM->setChecked (false);
     connect (aOSM,&QAction::triggered,[this]()
     {
-        libMapa->mostrarCapaImgOSMSeleccionada (true);
+        m_mapa->ponerCapaBase(MapaMision::CapaBase::OSM);
     });
 
     aG_Capas= new QActionGroup(mPrincipal);
@@ -384,7 +412,7 @@ void CControladora::createActions()
     aG_Tema->addAction (aClaro);
     aG_Tema->addAction (aOscuro);
 
-    aEstadoDrone = new QAction(tr("&Datos"),mPrincipal);
+    aEstadoDrone = new QAction(tr("&Datos de vuelo"),mPrincipal);
     aEstadoDrone->setShortcut (QKeySequence(tr("Ctrl+E+D")));
     aEstadoDrone->setStatusTip(tr("Ver estado del drone activo"));
     aEstadoDrone->setCheckable (true);
@@ -421,18 +449,38 @@ void CControladora::createActions()
         // Actualizar combos si es necesario (se hace en Widget_Puntos al abrirse)
     });
 
+    aDetalleTecnico = new QAction(tr("Detalle &técnico (ganancias y actuadores)"), mPrincipal);
+    aDetalleTecnico->setStatusTip(tr("Ver todos los datos del autopiloto"));
+    aDetalleTecnico->setCheckable (true);
+    aDetalleTecnico->setChecked (false);
+
+    // Datos de vuelo y detalle tecnico se pueden ver a la vez; las graficas
+    // ocupan su sitio, asi que los esconden.
     connect (aEstadoDrone,&QAction::triggered,[this]()
     {
-        m_wParametros->setVisible (aEstadoDrone->isChecked ());
+        m_panelVuelo->setVisible (aEstadoDrone->isChecked ());
         m_wGraficas->setVisible (false);
         aVerGraficaDrone->setChecked (false);
+        updateOverlayPosition();
+    });
 
+    // El detalle va dentro del panel de vuelo: abrirlo lo muestra tambien.
+    connect (aDetalleTecnico,&QAction::triggered,[this]()
+    {
+        m_panelVuelo->setDetalleVisible (aDetalleTecnico->isChecked ());
+        if (aDetalleTecnico->isChecked ()) {
+            m_panelVuelo->setVisible (true);
+            aEstadoDrone->setChecked (true);
+        }
+        m_wGraficas->setVisible (false);
+        aVerGraficaDrone->setChecked (false);
+        updateOverlayPosition();
     });
 
     connect (aVerGraficaDrone,&QAction::triggered,[this]()
     {
         m_wGraficas->setVisible (aVerGraficaDrone->isChecked ());
-        m_wParametros->setVisible (false);
+        m_panelVuelo->setVisible (false);
         aEstadoDrone->setChecked (false);
     });
 
@@ -606,44 +654,14 @@ void CControladora::conecciones()
 
     connect (m_wConexion,&Widget_Conexion::conectado, this,&CControladora::Conectado );
 
-    connect (m_wMandos,&Widget_Mandos::enviaMandosDron, [this](){
-
-        auto radioAcercamiento = mandos.Radio_Acercamiento;
-        QByteArray sendMando;
-        sendMando.append ("xyz");
-
-        sendMando.append (reinterpret_cast<const char*>(&mandos),sizeof (sMANDOS));
-        quint16 checksum = 0;
-        for (char byte : sendMando) {
-            checksum += static_cast<quint8>(byte);
-        }
-        sendMando.append (static_cast<char>(checksum & 0xFF));
-        sendMando.append (static_cast<char>(checksum >>8));
-        m_wConexion->sL_EnviaMandosDron (sendMando);
-
-        libMapa->getOMapa()->setRadioAcercamiento (radioAcercamiento);
-    });
-
-    connect (m_wGanancias,&Widget_Ganancias_Control::enviaMandosDron, [this](){
-        auto radioAcercamiento = mandos.Radio_Acercamiento;
-        QByteArray sendMando;
-        sendMando.append ("xyz");
-
-        sendMando.append (reinterpret_cast<const char*>(&mandos),sizeof (sMANDOS));
-        quint16 checksum = 0;
-        for (char byte : sendMando) {
-            checksum += static_cast<quint8>(byte);
-        }
-        sendMando.append (static_cast<char>(checksum & 0xFF));
-        sendMando.append (static_cast<char>(checksum >>8));
-        m_wConexion->sL_EnviaMandosDron (sendMando);
-        libMapa->getOMapa()->setRadioAcercamiento (radioAcercamiento);
-
-    });
+    crearEsperasDeAcuse();
+    crearIndicadorEnlace();
+    connect (m_wMandos,&Widget_Mandos::enviaMandosDron, this, &CControladora::enviarMandos);
+    connect (m_wGanancias,&Widget_Ganancias_Control::enviaMandosDron, this, &CControladora::enviarMandos);
 
     // Clic derecho en el mapa
-    connect(libMapa->getOMapa(), &CMapaPlot::sig_devuelveWidgetClickDerechoParaDisenoExterno,
-            [this](QGeoCoordinate puntoG) {
+    connect(m_mapa, &MapaMision::clicDerecho,
+            [this](const QGeoCoordinate &puntoG) {
         if (m_esperandoPuntoInicial) {
             if (m_wPuntos) {
                 m_wPuntos->agregarPuntoInicialYGenerarResto(puntoG);
@@ -651,8 +669,20 @@ void CControladora::conecciones()
         }
     });
 
+    // El dron rechazo el plan (acuse "uvw" negativo): se reenvia unas pocas veces.
     connect(m_wConexion->serialManager (),&SerialManager::siVolverEnviar,[this](){
-        onEnviaPlan ();
+        m_esperaAcusePlan->stop ();
+        if (++m_reintentosPlan <= kMaxReintentosPlan) {
+            mPrincipal->statusBar ()->showMessage (
+                tr("El dron rechazó el plan: reenviando (%1 de %2)")
+                    .arg (m_reintentosPlan).arg (kMaxReintentosPlan), 5000);
+            onEnviaPlan ();
+        } else {
+            m_reintentosPlan = 0;
+            QMessageBox::warning (mPrincipal, tr("Plan de vuelo"),
+                                  tr("El dron ha rechazado el plan %1 veces. Revisa el enlace "
+                                     "y vuelve a enviar la ruta.").arg (kMaxReintentosPlan));
+        }
     });
 
     connect(m_wConexion->serialManager (),&SerialManager::newTramaConstanteReceived,this,&CControladora::onNewTramaConstanteReceived );
@@ -671,18 +701,41 @@ void CControladora::conecciones()
         logHandler.setVisible (visible);
     });
 
-    connect(libMapa->getOMapa (), &CMapaPlot::sig_enviaPosActual,[this](QGeoCoordinate coord)
+    // Posicion del raton y cota del terreno en la barra de estado (antes iban
+    // al log en cada movimiento del raton).
+    // La cota se lee de disco: se pide solo cuando el raton se para (150 ms),
+    // no en cada movimiento, para no frenar el arrastre del mapa.
+    m_timerCota = new QTimer(this);
+    m_timerCota->setSingleShot (true);
+    m_timerCota->setInterval (150);
+    connect(m_timerCota, &QTimer::timeout, [this]()
     {
-        auto alt = alturaWorkerPTR->obtenerAltura (coord.latitude (),coord.longitude ());
-        LogHandler& logHandler = LogHandler::getInstance();
-        logHandler.appendLogMessage("Altura: "+ QString::number (alt));
+        auto alt = alturaWorkerPTR->obtenerAltura (m_posRaton.latitude (),m_posRaton.longitude ());
+        m_lPosicionRaton->setText (QString("Lat: %1  Lon: %2  Alt: %3 m")
+                                   .arg (m_posRaton.latitude (),0,'f',6)
+                                   .arg (m_posRaton.longitude (),0,'f',6)
+                                   .arg (alt));
+    });
+    connect(m_mapa, &MapaMision::posicionRaton,[this](const QGeoCoordinate &coord)
+    {
+        m_posRaton = coord;
+        m_lPosicionRaton->setText (QString("Lat: %1  Lon: %2")
+                                   .arg (coord.latitude (),0,'f',6)
+                                   .arg (coord.longitude (),0,'f',6));
+        m_timerCota->start ();
+    });
 
+    connect(m_mapa, &MapaMision::medidaTerminada,[this](double rumbo, double distancia)
+    {
+        mPrincipal->statusBar ()->showMessage (QString("Azimut: %1°  Distancia: %2 m")
+                                               .arg (rumbo,0,'f',1)
+                                               .arg (distancia,0,'f',1));
     });
 
     connect(alturaWorkerPTR.get (), &AlturaWorker::alturaActualizada, [](qint16 altura) {
     });
 
-    connect(libMapa->getOMapa(), &CMapaPlot::pointMoved,
+    connect(m_mapa, &MapaMision::puntoRutaMovido,
             m_wPuntos, &Widget_Puntos::onPointMoved);
 
     connect(mPrincipal,&Ci_Principal::resize,[this](){
@@ -704,38 +757,38 @@ void CControladora::conecciones()
     });
 
     ////acciones mapa en barra de herramientas
-    connect (aDistancia,&QAction::triggered,[this]()
+    connect (aDistancia,&QAction::triggered,[this](bool checked)
     {
-        libMapa->accionarMedirDistancia ();
+        m_mapa->medirDistancia (checked);
+        aLupa->setChecked (false);
     });
 
-    connect (aLupa,&QAction::triggered,[this]()
+    connect (aLupa,&QAction::triggered,[this](bool checked)
     {
-        libMapa->getOMapa ()->AccionarZoomArea ();
+        m_mapa->zoomArea (checked);
         aDistancia->setChecked (false);
     });
 
-    connect (libMapa->getOMapa (),&CMapaPlot::sig_finZoomArea ,[this]()
+    connect (m_mapa,&MapaMision::zoomAreaTerminado ,[this]()
     {
         aLupa->setChecked (false);
     });
 
     connect (aLupaMas,&QAction::triggered,[this]()
     {
-        libMapa->getOMapa ()->AccionarZoomMas ();
-        aDistancia->setChecked (false);
+        m_mapa->zoomMas ();
     });
 
     connect (aLupaMen,&QAction::triggered,[this]()
     {
-        libMapa->getOMapa ()->AccionarZoomMenos ();
-        aDistancia->setChecked (false);
+        m_mapa->zoomMenos ();
     });
 
     connect (aPoligono,&QAction::triggered,[this]()
     {
-        libMapa->getOMapa ()->AccionarCrearPoligono ();
+        m_mapa->dibujarPoligono ();
         aDistancia->setChecked (false);
+        aLupa->setChecked (false);
     });
 
     // Acuse de recibo del plan de vuelo
@@ -744,17 +797,7 @@ void CControladora::conecciones()
 
     // Pintar ruta en el mapa
     connect(m_wPuntos, &Widget_Puntos::sI_pintaRuta, [this](bool visible) {
-        QList<EPuntoRuta> listPunto;
-        QStringList nombrePuntos;
-        for (const auto &punto : m_wPuntos->getModelo()->obtenerLista()) {
-            EPuntoRuta puntoRuta;
-            puntoRuta.pos = punto.pos;
-            puntoRuta.radio = punto.radio;
-            puntoRuta.descripcion = punto.nombre;
-            listPunto.append(puntoRuta);
-            nombrePuntos.append(punto.nombre);
-        }
-        libMapa->getOMapa()->pinta_PuntoRuta(listPunto, nombrePuntos, visible);
+        pintarRutaEnMapa(visible);
     });
 
     // Envío de la ruta (coordenadas simples)
@@ -763,10 +806,10 @@ void CControladora::conecciones()
         }
     });
 
-    // Envío de la ruta completa (objeto E_Punto)
-    connect(m_wPuntos, &Widget_Puntos::sI_Ruta2, [this](QList<E_Punto> listaPuntos) {
-        // Ya no usamos m_ListPuntos, se pasa directamente
+    // Envío de la ruta completa (objeto E_Punto): un plan nuevo, sin reintentos aún.
+    connect(m_wPuntos, &Widget_Puntos::sI_Ruta2, [this](QList<E_Punto>) {
         if (m_Conectado) {
+            m_reintentosPlan = 0;
             onEnviaPlan();   // onEnviaPlan() tomará los puntos del modelo
         }
     });
@@ -875,18 +918,12 @@ void CControladora::recibirDatos(QByteArray byteArray)
     if (lat != 0)
     {
         QString descripcion = QGeoCoordinate(lat,lon).toString();
-        libMapa->getOMapa ()->nuevoPunto (TipoPunto::VehiculoTerrestre,
-                                          QGeoCoordinate(lat,lon),Actualizado,
-                                          "PuntoNuevo",
-                                          colorTraza,
-                                          simbolo,
-                                          descripcion,
-                                          true,
-                                          aux.at(7).toFloat(),
-                                          aux.at(6).toFloat(),
-                                          aux.at(9).toFloat());
-
-        libMapa->getOMapa ()->getListVehiculos ().last ()->setCantPuntosTrayecAVisualizar (TODAS);
+        // El rumbo es el mismo campo que usaba la libreria antigua (aux 6).
+        m_mapa->actualizarVehiculo (QGeoCoordinate(lat,lon),
+                                    aux.at(6).toFloat(),
+                                    colorTraza,
+                                    simbolo,
+                                    descripcion);
     }
 }
 
@@ -895,7 +932,9 @@ QList<QPointF> CControladora::sL_cambiaProyeccion()
     QList<QPointF> listPunto;
     for (auto punto: m_wPuntos->getModelo ()->obtenerLista ())
     {
-        QPointF pointf = libMapa->getOMapa()->getProjection()->forward(punto.pos);
+        // Norte primero y truncado a metros enteros (QPoint), como espera el
+        // autopiloto y como luego se compara con Cumplir_Punto.
+        QPointF pointf = ProyeccionMercator::aMetros(punto.pos);
         listPunto.append(QPoint (pointf.y (),pointf.x ()));
     }
     return listPunto;
@@ -903,7 +942,7 @@ QList<QPointF> CControladora::sL_cambiaProyeccion()
 
 QPointF CControladora::sL_cambiaProyeccionPunto(QGeoCoordinate pos)
 {
-    QPointF pointf = libMapa->getOMapa()->getProjection()->forward(pos);
+    QPointF pointf = ProyeccionMercator::aMetros(pos);
     return pointf;
 }
 
@@ -926,7 +965,7 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
             {
                 m_wMandos->getDsB_Lat ()->setValue (lat);
                 m_wMandos->getDsB_Lon ()->setValue (lon);
-                libMapa->getOMapa ()->pintaElipseHome(QGeoCoordinate(lat,lon));
+                m_mapa->ponerHome(QGeoCoordinate(lat,lon));
                 primeraCoordenada = false;
                 logHandler.appendLogMessage("TramaConstante(a,b,c):"
                                             "Home: --- Lat " + QString::number (lat) +
@@ -970,6 +1009,12 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
             m_ParametrosValues[24] = m_wConexion->serialManager ()->getS34 ().Convergencia_Cabeceo;
 
             updateParameters(m_ParametrosValues);
+            actualizarPanel (m_wConexion->serialManager ()->getS34 ().Realimentacion_Regimen,
+                             m_wConexion->serialManager ()->getS34 ().Realimentacion_ComendoMision,
+                             m_wConexion->serialManager ()->getS34 ().Distancia_Chequeo,
+                             m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
+                             cursoDeseado,
+                             m_wConexion->serialManager ()->getS34 ().Cantidad_Satelites);
             logHandler.appendLogMessage("TramaConstante(a,b,c):"
                                         "Parámetros actualizados");
 
@@ -1007,24 +1052,18 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
             if (geoPos.latitude() != 0)
             {
 
-                libMapa->getOMapa ()->nuevoPunto (TipoPunto::VehiculoTerrestre,
-                                                  geoPos,Actualizado,
-                                                  "PuntoNuevo",
-                                                  colorTraza,
-                                                  simbolo.scaled (40,40),
-                                                  descripcion,
-                                                  true,
-                                                  m_wConexion->serialManager ()->getS28 ().Realimentacion_Velocidad *3.6,
-                                                  m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
-                                                  m_wConexion->serialManager ()->getS28 ().Realimentacion_Altura);
-
-                libMapa->getOMapa ()->getListVehiculos ().last ()->setCantPuntosTrayecAVisualizar (TODAS);
+                m_mapa->actualizarVehiculo (geoPos,
+                                            m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
+                                            colorTraza,
+                                            simbolo.scaled (40,40),
+                                            descripcion);
 
                 auto x = m_wConexion->serialManager ()->getS34 ().Cumplir_Punto[0];
                 auto y = m_wConexion->serialManager ()->getS34 ().Cumplir_Punto[1];
                 auto z = m_wConexion->serialManager ()->getS34 ().Cumplir_Punto[2];
 
-                auto puntoProxGeo = libMapa->getOMapa ()->getProjection ()->inverse (QPointF(y,x));
+                // Cumplir_Punto llega con el norte primero: x = norte, y = este.
+                auto puntoProxGeo = ProyeccionMercator::aGeo (QPointF(y,x));
                 rumboProxPunto = geoPos.azimuthTo (puntoProxGeo);
 
                 auto cursoDeseado = m_wConexion->serialManager ()->getS34 ().Curso_Deseado;
@@ -1033,29 +1072,12 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
                 bool automatico = false;
                 automatico = m_wConexion->serialManager ()->getS34().Realimentacion_Regimen == 2 ? true : false;
 
-                libMapa->getOMapa ()->pintaRumbosVehiculo (geoPos,
-                                                           m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
-                                                           cursoDeseado,
-                                                           puntoProxGeo,
-                                                           QColor(0,0,255),QColor(120,0,255),QColor(0,255,0),
-                                                           automatico);
+                m_mapa->ponerRumbos (m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
+                                     cursoDeseado,
+                                     puntoProxGeo,
+                                     automatico);
                 if(automatico)
-                {
-                    //actualizar color del proximo punto
-                    int  index = listPuntoF.lastIndexOf(QPointF(x,y));
-                    if(index > 0 )
-                    {
-                        if( index != indexAnterior)
-                        {
-                            if(!listPuntoF.isEmpty())
-                                for(int i = 0;i < index; i++)
-                                {
-                                    libMapa->getOMapa ()->rellenaProximoPunto (i);
-                                    indexAnterior = index;
-                                }
-                        }
-                    }
-                }
+                    marcarCumplidos (QPointF(x,y), geoPos);
 
                 logHandler.appendLogMessage("TramaConstante(a,b,c):"
                                             "Objetivo con rumbo representados");
@@ -1088,13 +1110,11 @@ void CControladora::onEnviaPlan()
         return;
 
     const QList<E_Punto> &puntos = m_wPuntos->getModelo()->obtenerLista();
-    if (puntos.size() != 10) {
+    if (puntos.size() != Tramas::kPuntosPlan) {
         return;
     }
 
     listPuntoF = sL_cambiaProyeccion();   // convierte usando el modelo actualizado
-    QByteArray data;
-    data.append("uvw");
 
     for (int i = 0; i < puntos.size(); ++i) {
         sPUNTOXYZ punto;
@@ -1106,11 +1126,8 @@ void CControladora::onEnviaPlan()
         puntosEnviar[i] = punto;
     }
 
-    data.append(reinterpret_cast<char*>(puntosEnviar), 10 * sizeof(sPUNTOXYZ));
-    quint16 checkSum = m_wMandos->calculateChecksum(data);
-    data.append(static_cast<char>(checkSum & 0xFF));
-    data.append(static_cast<char>(checkSum >> 8));
-    m_wConexion->serialManager()->serieWrite(data);
+    m_wConexion->serialManager()->serieWrite(Tramas::plan(puntosEnviar));
+    m_esperaAcusePlan->start();
 }
 
 void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
@@ -1125,7 +1142,10 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
     indicador->setAltitude (s_cuadropteros.Realimentacion_Altura);
     indicador->redraw ();
 
-    auto latlon = libMapa->getOMapa()->getProjection()->inverse (s_cuadropteros.Realimentacion_Latitud,s_cuadropteros.Realimentacion_Longitud);
+    // inverse(lat, lon) de la libreria antigua: el norte va en la latitud y el
+    // este en la longitud de la trama.
+    auto latlon = ProyeccionMercator::aGeo (QPointF(s_cuadropteros.Realimentacion_Longitud,
+                                                    s_cuadropteros.Realimentacion_Latitud));
     logHandler.appendLogMessage("onNewCuadropteros: "
                                 "Lat: " + QString::number (latlon.latitude()) +
                                 "  Lon: " + QString::number (latlon.longitude()));
@@ -1142,7 +1162,7 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
         {
             m_wMandos->getDsB_Lat ()->setValue (geoPos.latitude());
             m_wMandos->getDsB_Lon ()->setValue (geoPos.longitude());
-            libMapa->getOMapa ()->pintaElipseHome(geoPos);
+            m_mapa->ponerHome(geoPos);
             primeraCoordenada = false;
             //            qDebug()<<"Busca primera coordenada: "<<primeraCoordenada;
             logHandler.appendLogMessage("onNewCuadropteros: "
@@ -1176,6 +1196,12 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
         m_ParametrosValues[24] = s_cuadropteros.Convergencia_Cabeceo;
 
         updateParameters(m_ParametrosValues);
+        actualizarPanel (s_cuadropteros.Realimentacion_Regimen,
+                         s_cuadropteros.Realimentacion_ComandoMision,
+                         s_cuadropteros.Distancia_Chequeo,
+                         s_cuadropteros.Realimentacion_Curso,
+                         cursoDeseado,
+                         s_cuadropteros.Cantidad_Satelites);
 
         //color de avion y traza en dependencia del modo de trabajo manu8al automatico semiautomatico
         QColor colorTraza = Qt::red;
@@ -1201,24 +1227,17 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
         //
         if (geoPos.latitude() != 0)
         {
-            libMapa->getOMapa ()->nuevoPunto (TipoPunto::VehiculoTerrestre,
-                                              geoPos,Actualizado,
-                                              "PuntoNuevo",
-                                              colorTraza,
-                                              simbolo.scaled (40,40),
-                                              descripcion,
-                                              true,
-                                              s_cuadropteros.Realimentacion_Velocidad *3.6,
-                                              s_cuadropteros.Realimentacion_Curso,
-                                              s_cuadropteros.Realimentacion_Altura);
-
-            libMapa->getOMapa ()->getListVehiculos ().last ()->setCantPuntosTrayecAVisualizar (TODAS);
+            m_mapa->actualizarVehiculo (geoPos,
+                                        s_cuadropteros.Realimentacion_Curso,
+                                        colorTraza,
+                                        simbolo.scaled (40,40),
+                                        descripcion);
 
             auto x = s_cuadropteros.Cumplir_Punto[0];
             auto y = s_cuadropteros.Cumplir_Punto[1];
             auto z = s_cuadropteros.Cumplir_Punto[2];
 
-            auto puntoProxGeo = libMapa->getOMapa ()->getProjection ()->inverse (QPointF(y,x));
+            auto puntoProxGeo = ProyeccionMercator::aGeo (QPointF(y,x));
             rumboProxPunto = geoPos.azimuthTo (puntoProxGeo);
 
             auto cursoDeseado = /*qRadiansToDegrees*/(s_cuadropteros.Curso_Deseado);
@@ -1226,30 +1245,13 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
 
             bool automatico = false;
             automatico = s_cuadropteros.Realimentacion_Regimen == 2 ? true : false;
-            libMapa->getOMapa ()->pintaRumbosVehiculo (geoPos,
-                                                       cursoDeseado,
-                                                       s_cuadropteros.Realimentacion_Curso,
-
-                                                       puntoProxGeo,
-                                                       QColor(0,0,255),QColor(120,0,255),QColor(0,255,0),
-                                                       automatico);
+            // Mismo orden que pasaba la libreria antigua al cuadroptero.
+            m_mapa->ponerRumbos (cursoDeseado,
+                                 s_cuadropteros.Realimentacion_Curso,
+                                 puntoProxGeo,
+                                 automatico);
             if(automatico)
-            {
-                //actualizar color del proximo punto
-                int  index = listPuntoF.lastIndexOf(QPointF(x,y));
-                if(index > 0 )
-                {
-                    if( index != indexAnterior)
-                    {
-                        if(!listPuntoF.isEmpty())
-                            for(int i = 0;i < index; i++)
-                            {
-                                libMapa->getOMapa ()->rellenaProximoPunto (i);
-                                indexAnterior = index;
-                            }
-                    }
-                }
-            }
+                marcarCumplidos (QPointF(x,y), geoPos);
 
             logHandler.appendLogMessage("Objetivo con rumbo representados");
 
@@ -1280,17 +1282,7 @@ void CControladora::on_EliminarPunto(QString s)
     indicador->setAltitude (0);
     indicador->redraw ();
 
-    libMapa->getOMapa ()->borrarElementosPorNombre ("PuntoNuevo");
-
-    if(libMapa->getOMapa ()->getPuntoItem ().text == NULL)
-        return;
-    libMapa->getOMapa ()->getPuntoItem ().text->setVisible (false);
-    libMapa->getOMapa ()->getPuntoItem ().ellipse->setVisible (false);
-    libMapa->getOMapa ()->getPuntoItem ().ellipse2->setVisible (false);
-    libMapa->getOMapa ()->getLineaRumboDestino ()->setVisible (false);
-    libMapa->getOMapa ()->getLineaRumboVehiculo ()->setVisible (false);
-    libMapa->getOMapa ()->getLineaRumboCalculado ()->setVisible (false);
-    libMapa->getOMapa ()->layer (sMapaZOOM)->replot ();
+    limpiarVueloEnMapa();
 }
 
 void CControladora::on_DetenerCO()
@@ -1517,27 +1509,23 @@ void CControladora::guardaDatosDron()
 
 void CControladora::updateOverlayPosition()
 {   
-    if(m_wParametros && libMapa->getOMapa ()) {
-        // Calcular posición relativa al área visible
-        QRect visibleRect = libMapa->getOMapa ()->geometry();
-        int xPos = (visibleRect.right() - m_wParametros->width())/2;
-        int yPos = visibleRect.top();
-
-        // Ajustar altura si sobrepasa el área
-        if(yPos + m_wParametros->height() > visibleRect.bottom()) {
-            yPos = visibleRect.bottom() - m_wParametros->height();
-        }
-
-        m_wParametros->move(xPos, yPos);
+    if(m_panelVuelo && m_mapa) {
+        // Panel de vuelo (con su detalle) arriba en el centro (los overlays
+        // son hijos del mapa: coordenadas del mapa).
+        const QRect visibleRect = m_mapa->mapa ()->rect();
+        int yPos = visibleRect.top() + 8;
+        m_panelVuelo->adjustSize();
+        // Centrado, pero sin salirse por la izquierda si el mapa es estrecho.
+        m_panelVuelo->move(qMax(8, (visibleRect.width() - m_panelVuelo->width())/2), yPos);
     }
-    if(m_wGraficas && libMapa->getOMapa ()) {
-        m_wGraficas->setFixedWidth (libMapa->getOMapa ()->width () * 0.95);
+    if(m_wGraficas && m_mapa) {
+        m_wGraficas->setFixedWidth (m_mapa->mapa ()->width () * 0.95);
         // Calcular posición relativa al área visible
 
 
         // Ajustar altura si sobrepasa el área
         QPoint newPos;
-        newPos.setX ((libMapa->getOMapa ()->width ()- m_wGraficas->width ())/2);
+        newPos.setX ((m_mapa->mapa ()->width ()- m_wGraficas->width ())/2);
         newPos.setY (10);
 
         m_wGraficas->move(newPos);
@@ -1546,12 +1534,12 @@ void CControladora::updateOverlayPosition()
 
 void CControladora::updateRutaPosition()
 {
-    if(!m_wPuntos || !libMapa->getOMapa() || !m_wPuntos->isVisible()) {
+    if(!m_wPuntos || !m_mapa || !m_wPuntos->isVisible()) {
         return;
     }
 
     //Usar el widget del mapa como referencia de pantalla
-    QWidget *mapWidget = libMapa->getOMapa();
+    QWidget *mapWidget = m_mapa->mapa();
 
     // 1. Obtener esquina inferior derecha del mapa en coordenadas GLOBALES
     QPoint mapBottomRightGlobal = mapWidget->mapToGlobal(
@@ -1592,6 +1580,8 @@ void CControladora::loadInitialData()
     for(int i = 0; i < 25;i++)//24parametros
         m_ParametrosValues.append (0.0);
     updateParameters(m_ParametrosValues);
+    if (m_panelVuelo)
+        m_panelVuelo->limpiar ();
 }
 
 void CControladora::timerEvent(QTimerEvent *event)
@@ -1620,4 +1610,217 @@ void CControladora::updateStatus(double lat, double lon, bool isValid) {
             .arg(isValid ? "Valida" : "Invalida");
     LogHandler& logHandler = LogHandler::getInstance();
     logHandler.appendLogMessage (status);
+}
+
+// Paquete de datos del mapa: la ruta de su mapa.json (o la carpeta que lo
+// contiene). Por orden: el primer argumento de la linea de ordenes
+// (EstacionTerrena D:/QtPro/Recursos/mapa.json), conf.ini (seccion [MAPA],
+// clave paquete) o la de siempre, <carpeta de trabajo>/../Recursos.
+QString CControladora::dirPaqueteMapa() const
+{
+    const QStringList args = QCoreApplication::arguments();
+    for (int i = 1; i < args.size(); ++i) {
+        if (!args.at(i).startsWith('-'))
+            return QDir::fromNativeSeparators(args.at(i));
+    }
+
+    MyQSetting settings;
+    const QString fichero = QDir::currentPath() + "/conf.ini";
+    const QString defecto = RecursosDir.path() + "/Recursos";
+    return settings.cargarSetting(fichero, "paquete", "MAPA", defecto).toString();
+}
+
+// Crea el mapa (libmapa) sobre el paquete de datos, le da al worker de alturas
+// de donde leer la cota y pone en la barra de estado la posicion del raton.
+void CControladora::crearMapa()
+{
+    const QString paquete = dirPaqueteMapa();
+    m_mapa = new MapaMision(paquete, mPrincipal);
+    alturaWorkerPTR->setMapa(m_mapa);
+
+    m_lPosicionRaton = new QLabel(mPrincipal);
+    mPrincipal->statusBar()->addPermanentWidget(m_lPosicionRaton);
+
+    LogHandler& logHandler = LogHandler::getInstance();
+    if (!m_mapa->listo()) {
+        logHandler.appendLogMessage("Mapa: no se pudo abrir " + paquete + ": " + m_mapa->error());
+        QMessageBox::warning(mPrincipal, tr("Mapa"),
+                             tr("No se pudo abrir el paquete de mapas en %1:\n%2\n\n"
+                                "Pasa la ruta de su mapa.json como argumento "
+                                "(EstacionTerrena D:/QtPro/Recursos/mapa.json) "
+                                "o indícala en conf.ini, sección [MAPA], clave paquete.")
+                             .arg(QDir::toNativeSeparators(paquete), m_mapa->error()));
+        return;
+    }
+    for (const QString &aviso : m_mapa->avisos())
+        logHandler.appendLogMessage("Mapa: " + aviso);
+}
+
+// Pinta (u oculta) en el mapa la ruta del modelo de Widget_Puntos.
+void CControladora::pintarRutaEnMapa(bool visible)
+{
+    QVector<PuntoRutaMapa> puntos;
+    for (const auto &punto : m_wPuntos->getModelo()->obtenerLista())
+        puntos.append({punto.pos, punto.nombre});
+    m_mapa->pintarRuta(puntos, visible);
+    // Repintar no borra lo ya cumplido.
+    for (int i = 0; i < puntos.size(); ++i)
+        if (m_cumplidos.cumplido (i))
+            m_mapa->marcarPuntoCumplido (i);
+}
+
+// Al desconectar o limpiar el control de objetivo: fuera el dron, sus rumbos y la casa.
+void CControladora::limpiarVueloEnMapa()
+{
+    m_mapa->limpiarVuelo();
+}
+
+// Manda los mandos de la pantalla de Mandos o de Ganancias (la misma
+// estructura) y espera su acuse. El radio de acercamiento se ve ya en el mapa.
+void CControladora::enviarMandos()
+{
+    m_wConexion->sL_EnviaMandosDron (Tramas::mandos (mandos));
+    m_mapa->ponerRadioAcercamiento (mandos.Radio_Acercamiento);
+    if (m_Conectado)
+        m_esperaAcuseMandos->start ();
+}
+
+// Esperas de los acuses del plan y de los mandos: el acuse para la espera y lo
+// dice en la barra de estado; si no llega a tiempo, se avisa. Con el plan
+// confirmado se repinta la ruta (sin puntos cumplidos) y se empieza de nuevo a
+// contar los cumplidos.
+void CControladora::crearEsperasDeAcuse()
+{
+    m_esperaAcusePlan = new QTimer(this);
+    m_esperaAcusePlan->setSingleShot (true);
+    m_esperaAcusePlan->setInterval (kEsperaAcuseMs);
+    connect (m_esperaAcusePlan, &QTimer::timeout, this, [this]() {
+        m_reintentosPlan = 0;
+        LogHandler::getInstance ().appendLogMessage ("Plan: el dron no contesto");
+        QMessageBox::warning (mPrincipal, tr("Plan de vuelo"),
+                              tr("El dron no ha confirmado el plan en %1 s. Revisa el enlace "
+                                 "y vuelve a enviar la ruta.").arg (kEsperaAcuseMs / 1000));
+    });
+
+    m_esperaAcuseMandos = new QTimer(this);
+    m_esperaAcuseMandos->setSingleShot (true);
+    m_esperaAcuseMandos->setInterval (kEsperaAcuseMs);
+    connect (m_esperaAcuseMandos, &QTimer::timeout, this, [this]() {
+        LogHandler::getInstance ().appendLogMessage ("Mandos: el dron no contesto");
+        mPrincipal->statusBar ()->showMessage (tr("⚠ El dron no ha confirmado los mandos"), 8000);
+    });
+
+    SerialManager *enlace = m_wConexion->serialManager ();
+    connect (enlace, &SerialManager::si_AcuseReciboUVW, this, [this]() {
+        m_esperaAcusePlan->stop ();
+        m_reintentosPlan = 0;
+        m_cumplidos.setPlan (listPuntoF);
+        if (m_wPuntos && m_wPuntos->isRouteVisible ())
+            pintarRutaEnMapa (true);
+        mPrincipal->statusBar ()->showMessage (tr("✓ El dron ha confirmado el plan"), 5000);
+    });
+    connect (enlace, &SerialManager::si_AcuseReciboXYZ, this, [this]() {
+        m_esperaAcuseMandos->stop ();
+        // La "H" del mapa es la casa que el dron acaba de aceptar (norte, este).
+        if (mandos.Home[0] != 0.0f || mandos.Home[1] != 0.0f)
+            m_mapa->ponerHome (ProyeccionMercator::aGeo (QPointF(mandos.Home[1], mandos.Home[0])));
+        mPrincipal->statusBar ()->showMessage (tr("✓ El dron ha confirmado los mandos"), 5000);
+    });
+}
+
+// Pinta de verde los puntos del plan que el dron ya ha cumplido: los
+// anteriores al que va (\a cumplir, Cumplir_Punto: norte, este) y el propio
+// punto en cuanto el dron entra en su radio de acercamiento (asi se marca
+// tambien el ultimo).
+void CControladora::marcarCumplidos(const QPointF &cumplir, const QGeoCoordinate &posDron)
+{
+    m_puntoActual = listPuntoF.lastIndexOf (cumplir);
+    const QPointF m = ProyeccionMercator::aMetros (posDron);
+    const auto nuevos = m_cumplidos.actualizar (cumplir, QPointF(m.y (), m.x ()),
+                                                mandos.Radio_Acercamiento);
+    for (int i : nuevos)
+        m_mapa->marcarPuntoCumplido (i);
+}
+
+// Pone en el panel de vuelo los datos de una trama (ala fija o cuadroptero).
+// El punto al que va solo tiene sentido en automatico. La pestaña de Mandos
+// muestra tambien en que regimen y mision esta el dron.
+void CControladora::actualizarPanel(int regimen, int mision, double distancia, double rumbo,
+                                    double rumboDeseado, int satelites)
+{
+    PanelVuelo::Datos d;
+    d.regimen = regimen;
+    d.mision = mision;
+    d.puntoActual = regimen == 2 ? m_puntoActual : -1;
+    d.totalPuntos = listPuntoF.size ();
+    d.puntosCumplidos = m_cumplidos.cuantos ();
+    d.distanciaPunto = distancia;
+    d.rumbo = rumbo;
+    d.rumboDeseado = rumboDeseado;
+    d.satelites = satelites;
+    d.posicion = geoPos;
+    m_panelVuelo->mostrar (d);
+    m_wMandos->setEstadoDron (regimen, mision, !m_estadoDronAdoptado);
+    m_estadoDronAdoptado = true;
+}
+
+// Indicador del enlace en la barra de estado: cuenta las tramas de telemetria
+// que llegan y cada 250 ms dice como va (gris sin enlace, ambar esperando o
+// lento, verde bien, rojo sin datos).
+void CControladora::crearIndicadorEnlace()
+{
+    m_reloj.start ();
+    m_lEnlace = new QLabel(mPrincipal);
+    m_lEnlace->setMinimumWidth (330);
+    mPrincipal->statusBar ()->insertPermanentWidget (0, m_lEnlace);
+
+    SerialManager *enlace = m_wConexion->serialManager ();
+    connect (enlace, &SerialManager::newTramaConstanteReceived, this,
+             [this]() { m_monitor.registrarTrama (m_reloj.elapsed ()); });
+    connect (enlace, &SerialManager::newCuadropteros, this,
+             [this]() { m_monitor.registrarTrama (m_reloj.elapsed ()); });
+
+    m_timerEnlace = new QTimer(this);
+    connect (m_timerEnlace, &QTimer::timeout, this, &CControladora::refrescarIndicadorEnlace);
+    m_timerEnlace->start (250);
+    refrescarIndicadorEnlace ();
+}
+
+// Texto y color del indicador segun el estado del enlace. Al perder los datos
+// (mas de 3 s sin tramas): rojo, aviso en el panel de vuelo, pitido (y otro
+// cada 5 s mientras dure) y nota en el log; al recuperarlos, nota en el log.
+void CControladora::refrescarIndicadorEnlace()
+{
+    const qint64 ahora = m_reloj.elapsed ();
+    const MonitorEnlace::Estado e = m_monitor.estado (ahora);
+
+    QString fondo = QStringLiteral("#616161"), letra = QStringLiteral("white");
+    switch (e) {
+    case MonitorEnlace::Estado::Desconectado: break;
+    case MonitorEnlace::Estado::Esperando:
+    case MonitorEnlace::Estado::Lento:   fondo = QStringLiteral("#ffb300"); letra = QStringLiteral("black"); break;
+    case MonitorEnlace::Estado::Bien:    fondo = QStringLiteral("#2e7d32"); break;
+    case MonitorEnlace::Estado::Perdido: fondo = QStringLiteral("#c62828"); break;
+    }
+    m_lEnlace->setText (m_monitor.texto (ahora));
+    m_lEnlace->setStyleSheet (QStringLiteral("QLabel { background: %1; color: %2; padding: 1px 8px;"
+                                             " border-radius: 3px; font-weight: bold; }")
+                                  .arg (fondo, letra));
+
+    LogHandler& logHandler = LogHandler::getInstance ();
+    if (e == MonitorEnlace::Estado::Perdido) {
+        m_panelVuelo->setAviso (tr("SIN DATOS DEL DRON hace %1 s")
+                                    .arg (m_monitor.msDesdeUltima (ahora) / 1000));
+        if (m_estadoEnlace != MonitorEnlace::Estado::Perdido || ahora - m_ultimoPitido > 5000) {
+            QApplication::beep ();
+            m_ultimoPitido = ahora;
+        }
+        if (m_estadoEnlace != MonitorEnlace::Estado::Perdido)
+            logHandler.appendLogMessage ("Enlace: sin datos del dron (" + m_monitor.descripcion () + ")");
+    } else {
+        m_panelVuelo->setAviso (QString());
+        if (m_estadoEnlace == MonitorEnlace::Estado::Perdido && e == MonitorEnlace::Estado::Bien)
+            logHandler.appendLogMessage ("Enlace: datos recuperados");
+    }
+    m_estadoEnlace = e;
 }
