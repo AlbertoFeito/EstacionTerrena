@@ -56,6 +56,7 @@ SOURCES += \
     SerialPortComboBox/DeviceHotplug.cpp \
     SerialPortComboBox/SerialManager.cpp \
     SerialPortComboBox/SerialPortComboBox.cpp \
+    Widgets/PanelFlotante.cpp \
     Widgets/PanelVuelo.cpp \
     Widgets/PerfilAltitudWidget.cpp \
     Widgets/Widget_Conexion.cpp \
@@ -103,6 +104,7 @@ HEADERS += \
     SerialPortComboBox/DeviceHotplug.h \
     SerialPortComboBox/SerialManager.h \
     SerialPortComboBox/SerialPortComboBox.h \
+    Widgets/PanelFlotante.h \
     Widgets/PanelVuelo.h \
     Widgets/PerfilAltitudWidget.h \
     Widgets/Widget_Conexion.h \

@@ -5,7 +5,6 @@
 #include <QGeoCoordinate>
 #include <QObject>
 #include <QPixmap>
-#include <QSize>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -123,7 +122,7 @@ public:
     //! Dibuja la ruta (linea, puntos arrastrables y circulos de acercamiento).
     //! Con \a visible = false la quita del mapa.
     void pintarRuta(const QVector<PuntoRutaMapa> &puntos, bool visible);
-    //! Ajusta la vista para que quepa la ruta entera (al pedir verla).
+    //! Ajusta la vista para que quepa la ruta entera en la parte que se ve.
     void encuadrarRuta();
     //! Pinta de verde el punto \a indice, ya cumplido por el dron.
     void marcarPuntoCumplido(int indice);
@@ -139,8 +138,11 @@ public:
     void zoomMenos();
     void dibujarPoligono();
 
-    //! Lleva la vista a \a pos sin cambiar el zoom.
+    //! Lleva \a pos al centro de la parte que se ve, sin cambiar el zoom.
     void centrarEn(const QGeoCoordinate &pos);
+    //! Lo que tapan los paneles flotantes (rutas abajo, capas a la derecha), en
+    //! pixeles: encuadrar y centrar usan solo la parte del mapa que se ve.
+    void ponerZonaTapada(int abajoPx, int derechaPx);
 
     //! Cota del terreno en metros, o NaN si no hay dato.
     double alturaTerreno(const QGeoCoordinate &pos) const;
@@ -157,9 +159,6 @@ signals:
     //! panel y el menu de capas se pongan al dia).
     void capasCambiadas();
 
-protected:
-    bool eventFilter(QObject *objeto, QEvent *evento) override;
-
 private:
     void ocultarCapasDelPaquete();
     static bool esCapaDeLaEstacion(const QString &id);
@@ -172,7 +171,8 @@ private:
     static QString idCapa(CapaBase capa);
 
     libmapa::MapWidget *m_mapa = nullptr;
-    QSize m_tamVentana;   // para saber si el mapa cambia por un panel o por la ventana
+    int m_tapadoAbajo = 0;     // pixeles que tapan los paneles flotantes
+    int m_tapadoDerecha = 0;
 
     qint64 m_vehiculo = -1;
     QPixmap m_simbolo;

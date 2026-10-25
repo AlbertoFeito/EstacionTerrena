@@ -23,7 +23,7 @@ PanelCapas::PanelCapas(MapaMision *mapa, QWidget *padre)
     auto *caja = new QVBoxLayout(this);
     caja->setContentsMargins(6, 6, 6, 6);
     caja->setSpacing(4);
-    caja->addWidget(new QLabel(tr("<b>Capas</b> — marca para mostrar u ocultar")));
+    caja->addWidget(new QLabel(tr("Marca para mostrar u ocultar")));
 
     m_arbol = new QTreeWidget(this);
     m_arbol->setHeaderHidden(true);

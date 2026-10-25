@@ -2264,7 +2264,7 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     // Perfil de altitud dentro del panel: la ruta sobre el terreno siempre a la
     // vista (antes era una ventana aparte que habia que abrir).
     m_perfilWidget = new PerfilAltitudWidget(m_alturaWorker, this);
-    m_perfilWidget->setMinimumWidth(260);
+    m_perfilWidget->setMinimumWidth(0);   // si no cabe se oculta (resizeEvent)
     connect(m_perfilWidget, &PerfilAltitudWidget::puntoSeleccionado, this, [this](int i) {
         tw_puntosRuta->selectRow(i);
     });
@@ -3927,4 +3927,15 @@ void Widget_Puntos::actualizarPanelAnalisis(const QVariantMap &analisis)
     if (analisis.contains("error")) return;
 
     emit sI_AnalisisActualizado(analisis);
+}
+
+// El perfil se queda con lo que dejan las tres columnas; si son menos de 220 px
+// (mapa estrecho) se oculta en vez de quedar aplastado en una raya.
+void Widget_Puntos::resizeEvent(QResizeEvent *event)
+{
+    QWidget::resizeEvent(event);
+    const QMargins m = layout() ? layout()->contentsMargins() : QMargins();
+    const int espacio = layout() ? layout()->spacing() : 0;
+    const int libre = width() - m.left() - m.right() - 230 - tw_puntosRuta->width() - 260 - 3 * espacio;
+    m_perfilWidget->setVisible(libre >= 220);
 }

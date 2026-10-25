@@ -180,7 +180,7 @@ private slots:
     void soloCapasBaseConEscala();
     void capasDelPaquete();
     void panelDeCapas();
-    void panelNoDesplazaElMapa();
+    void zonaTapadaPorLosPaneles();
     void estadoDeCapasSeRestaura();
     void pintaYQuitaLaRuta();
     void radioDeAcercamientoEnMetrosMercator();
@@ -294,30 +294,31 @@ void TestMapaMision::capasDelPaquete()
     QCOMPARE(cambios.count(), 3);
 }
 
-// Un panel que quita sitio al mapa (la ventana no cambia) no desplaza lo que
-// se ve: la esquina noroeste se queda y se recorta por abajo y por la derecha.
-// Si cambia la ventana, se conserva el centro.
-void TestMapaMision::panelNoDesplazaElMapa()
+// Con un panel flotante tapando la parte de abajo del mapa, encuadrar deja la
+// ruta entera por encima del panel, y centrar pone el punto en el centro de lo
+// que se ve (no en el centro del mapa, que queda debajo del panel).
+void TestMapaMision::zonaTapadaPorLosPaneles()
 {
     auto *mapa = m_mision->mapa();
+    const int tapado = 250;
+    // Fila en pantalla (pixeles desde arriba) de una posicion.
+    auto fila = [mapa](const QGeoCoordinate &c) {
+        const QPointF no = mapa->toAxisCoords(mapa->visibleNorthWest());
+        const QPointF se = mapa->toAxisCoords(mapa->visibleSouthEast());
+        return (no.y() - mapa->toAxisCoords(c).y()) / (no.y() - se.y()) * mapa->height();
+    };
+    m_mision->pintarRuta(rutaDePrueba(), true);
+    m_mision->ponerZonaTapada(tapado, 0);
+    m_mision->encuadrarRuta();
     QCoreApplication::processEvents();
-    const QGeoCoordinate noAntes = mapa->visibleNorthWest();
+    for (const PuntoRutaMapa &p : rutaDePrueba())
+        QVERIFY2(fila(p.pos) < mapa->height() - tapado,
+                 qPrintable(QString("%1 en la fila %2").arg(p.nombre).arg(fila(p.pos))));
 
-    mapa->resize(800, 380);   // el panel de rutas, abajo
+    const QGeoCoordinate punto(23.12, -82.36);
+    m_mision->centrarEn(punto);
     QCoreApplication::processEvents();
-    QVERIFY(mapa->visibleNorthWest().distanceTo(noAntes) < 3 * mapa->metersPerPixel());
-    mapa->resize(560, 380);   // y el de capas, a la derecha
-    QCoreApplication::processEvents();
-    QVERIFY(mapa->visibleNorthWest().distanceTo(noAntes) < 3 * mapa->metersPerPixel());
-    mapa->resize(800, 600);   // se cierran los dos
-    QCoreApplication::processEvents();
-    QVERIFY(mapa->visibleNorthWest().distanceTo(noAntes) < 3 * mapa->metersPerPixel());
-
-    const QGeoCoordinate centro = mapa->center();
-    m_ventana->resize(1000, 700);   // la ventana: el mapa crece con ella
-    mapa->resize(1000, 700);
-    QCoreApplication::processEvents();
-    QVERIFY(mapa->center().distanceTo(centro) < 3 * mapa->metersPerPixel());
+    QVERIFY(qAbs(fila(punto) - (mapa->height() - tapado) / 2.0) < 3.0);
 }
 
 // El panel de capas: «Mapa base» con las dos bases (una marcada) y

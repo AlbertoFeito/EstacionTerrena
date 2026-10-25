@@ -4,7 +4,7 @@
 #include <QObject>
 #include "Mapa/MapaMision.h"
 #include "Mapa/PanelCapas.h"
-#include <QDockWidget>
+#include "Widgets/PanelFlotante.h"
 #include "Protocolo/ProyeccionMercator.h"
 #include "Protocolo/Tramas.h"
 #include "Protocolo/SeguimientoCumplidos.h"
@@ -94,7 +94,8 @@ private:
     // actualizarMenuCapas) y el interruptor del panel de capas.
     QMenu *mCapas;
     QActionGroup *aG_Capas;
-    QDockWidget *m_dockCapas = nullptr;
+    PanelFlotante *m_flotanteCapas = nullptr;
+    QAction *aPanelCapas = nullptr;
     PanelCapas *m_panelCapas = nullptr;
     void crearPanelCapas();
     void actualizarMenuCapas();
@@ -237,11 +238,12 @@ private:
     QPushButton *overlayButton;
     // Posicionamiento inicial
     void updateOverlayPosition();
-    // Panel de rutas (Widget_Puntos) abajo, en un QDockWidget.
-    QDockWidget *m_dockRuta = nullptr;
+    // Panel de rutas (Widget_Puntos) flotando abajo, encima del mapa.
+    PanelFlotante *m_flotanteRuta = nullptr;
+    void crearPanelRutas();
+    void colocarPaneles();
     // Botones de enviar fijos debajo de su pestaña, por el widget del que salieron.
     QHash<QObject *, QPushButton *> m_botonesFijos;
-    void crearPanelRutas();
 
     //rumboProximo punto
     float rumboProxPunto = 0;

@@ -61,8 +61,8 @@ tabOpciones = new QTabWidget(mPrincipal);
 
     crearMapa();
     crearPanelCapas();
-    // Los paneles de abajo y de la derecha cambian el tamano del mapa sin
-    // cambiar el de la ventana: los overlays se recolocan con el mapa.
+    // Los overlays (panel de vuelo, graficas, paneles flotantes) se recolocan
+    // cuando cambia el tamano del mapa.
     m_mapa->mapa ()->installEventFilter (this);
     initTabOpciones();
     preparaDataBase();
@@ -130,8 +130,10 @@ bool CControladora::eventFilter(QObject *obj, QEvent *event)
             b->setVisible (!w->isHidden ());
         }
     }
-    if (m_mapa && obj == m_mapa->mapa () && event->type () == QEvent::Resize)
+    if (m_mapa && obj == m_mapa->mapa () && event->type () == QEvent::Resize) {
         updateOverlayPosition ();
+        colocarPaneles ();
+    }
     return QObject::eventFilter(obj, event);
 }
 
@@ -411,8 +413,8 @@ void CControladora::createActions()
     aVerGraficaDrone->setChecked (false);
 
 
-    // Muestra u oculta el panel de rutas de abajo (se engancha a su
-    // QDockWidget en crearPanelRutas).
+    // Muestra u oculta el panel de rutas flotante de abajo (se engancha en
+    // crearPanelRutas).
     aRuta = new QAction(tr("Panel de &rutas"), mPrincipal);
     aRuta->setShortcut(QKeySequence(tr("Ctrl+R")));
     aRuta->setStatusTip(tr("Muestra u oculta el panel de rutas, abajo"));
@@ -1433,8 +1435,12 @@ void CControladora::updateOverlayPosition()
         const QRect visibleRect = m_mapa->mapa ()->rect();
         int yPos = visibleRect.top() + 8;
         m_panelVuelo->adjustSize();
-        // Centrado, pero sin salirse por la izquierda si el mapa es estrecho.
-        m_panelVuelo->move(qMax(8, (visibleRect.width() - m_panelVuelo->width())/2), yPos);
+        // Centrado en lo que deja libre el panel de capas (flota a la derecha),
+        // pero sin salirse por la izquierda si el mapa es estrecho.
+        int libre = visibleRect.width();
+        if (m_flotanteCapas && m_flotanteCapas->isVisible ())
+            libre = m_flotanteCapas->x ();
+        m_panelVuelo->move(qMax(8, (libre - m_panelVuelo->width())/2), yPos);
     }
     if(m_wGraficas && m_mapa) {
         m_wGraficas->setFixedWidth (m_mapa->mapa ()->width () * 0.95);
@@ -1450,27 +1456,57 @@ void CControladora::updateOverlayPosition()
     }
 }
 
-// Panel de rutas abajo, a todo lo ancho de la ventana (antes era una ventana
-// flotante que tapaba el mapa). Se muestra u oculta con Rutas → Panel de rutas
-// (Ctrl+R) o con su boton de cerrar, y conf.ini ([VENTANAS] rutas) recuerda
-// como se dejo.
+// Panel de rutas flotando abajo, ENCIMA del mapa, como el perfil y el editor
+// de mision de QGroundControl. El mapa no cambia de tamano al abrirlo o
+// cerrarlo: nada se mueve ni se repinta (con un QDockWidget el mapa encogia y
+// crecia y lo que se veia saltaba). Se muestra u oculta con Rutas → Panel de
+// rutas (Ctrl+R) o con su cruz, y conf.ini ([VENTANAS] rutas) lo recuerda.
 void CControladora::crearPanelRutas()
 {
-    m_dockRuta = new QDockWidget(tr("Rutas"), mPrincipal);
-    m_dockRuta->setObjectName (QStringLiteral("panelRutas"));
-    m_dockRuta->setAllowedAreas (Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
-    m_dockRuta->setFeatures (QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
-    m_dockRuta->setWidget (m_wPuntos);
-    mPrincipal->addDockWidget (Qt::BottomDockWidgetArea, m_dockRuta);
+    m_flotanteRuta = new PanelFlotante(tr("Rutas"), m_mapa->mapa ());
+    m_flotanteRuta->setContenido (m_wPuntos);
 
     const bool visible = MyQSetting().cargarSetting (Rutas::confIni (), "rutas", "VENTANAS", false).toBool ();
-    m_dockRuta->setVisible (visible);
+    m_flotanteRuta->setVisible (visible);
     aRuta->setChecked (visible);
-    connect (aRuta, &QAction::toggled, m_dockRuta, &QDockWidget::setVisible);
-    connect (m_dockRuta->toggleViewAction (), &QAction::toggled, aRuta, &QAction::setChecked);
-    connect (aRuta, &QAction::toggled, this, [](bool v) {
+    connect (aRuta, &QAction::toggled, this, [this](bool v) {
+        m_flotanteRuta->setVisible (v);
+        colocarPaneles ();
         MyQSetting().guardarSettings (Rutas::confIni (), "VENTANAS", {{"rutas", v}});
     });
+    connect (m_flotanteRuta, &PanelFlotante::cerrado, this, [this]() { aRuta->setChecked (false); });
+    colocarPaneles ();
+}
+
+// Coloca los paneles flotantes sobre el mapa: el de rutas abajo, a todo lo
+// ancho; el de capas a la derecha, encima del de rutas si esta abierto. Y le
+// dice al mapa cuanto queda tapado, para que encuadrar y centrar usen la parte
+// que se ve.
+void CControladora::colocarPaneles()
+{
+    if (!m_mapa)
+        return;
+    const QRect r = m_mapa->mapa ()->rect ();
+    const int margen = 8;
+    int abajo = 0, derecha = 0;
+    int techoRuta = r.height ();
+    if (m_flotanteRuta && m_flotanteRuta->isVisible ()) {
+        const int alto = qBound (200, m_flotanteRuta->sizeHint ().height (),
+                                 qMax (200, int(r.height () * 0.5)));
+        techoRuta = r.height () - alto - margen;
+        m_flotanteRuta->setGeometry (margen, techoRuta, r.width () - 2 * margen, alto);
+        m_flotanteRuta->raise ();
+        abajo = alto + margen;
+    }
+    if (m_flotanteCapas && m_flotanteCapas->isVisible ()) {
+        const int ancho = 290;
+        const int alto = qMax (120, techoRuta - 2 * margen);
+        m_flotanteCapas->setGeometry (r.width () - ancho - margen, margen, ancho, alto);
+        m_flotanteCapas->raise ();
+        derecha = ancho + margen;
+    }
+    m_mapa->ponerZonaTapada (abajo, derecha);
+    updateOverlayPosition ();   // el panel de vuelo se centra en lo que queda libre
 }
 
 void CControladora::loadInitialData()
@@ -1582,22 +1618,24 @@ void CControladora::crearPanelCapas()
     if (!estado.isEmpty ())
         m_mapa->restaurarCapas (estado);
 
-    m_dockCapas = new QDockWidget(tr("Capas"), mPrincipal);
-    m_dockCapas->setObjectName (QStringLiteral("panelCapas"));
-    m_dockCapas->setAllowedAreas (Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    m_panelCapas = new PanelCapas(m_mapa, m_dockCapas);
-    m_dockCapas->setWidget (m_panelCapas);
-    m_dockCapas->setMinimumWidth (240);
-    mPrincipal->addDockWidget (Qt::RightDockWidgetArea, m_dockCapas);
-    m_dockCapas->setVisible (settings.cargarSetting (ini, "capas", "VENTANAS", false).toBool ());
+    // Flotando a la derecha, encima del mapa (como el panel de rutas).
+    m_flotanteCapas = new PanelFlotante(tr("Capas"), m_mapa->mapa ());
+    m_panelCapas = new PanelCapas(m_mapa);
+    m_flotanteCapas->setContenido (m_panelCapas);
+    const bool visible = settings.cargarSetting (ini, "capas", "VENTANAS", false).toBool ();
+    m_flotanteCapas->setVisible (visible);
 
-    QAction *ver = m_dockCapas->toggleViewAction ();
-    ver->setText (tr("Panel de &capas"));
-    ver->setShortcut (QKeySequence(tr("Ctrl+L")));
-    ver->setStatusTip (tr("Muestra u oculta el panel de capas del mapa"));
-    connect (ver, &QAction::toggled, this, [](bool visible) {
-        MyQSetting().guardarSettings (Rutas::confIni (), "VENTANAS", {{"capas", visible}});
+    aPanelCapas = new QAction(tr("Panel de &capas"), mPrincipal);
+    aPanelCapas->setCheckable (true);
+    aPanelCapas->setChecked (visible);
+    aPanelCapas->setShortcut (QKeySequence(tr("Ctrl+L")));
+    aPanelCapas->setStatusTip (tr("Muestra u oculta el panel de capas del mapa"));
+    connect (aPanelCapas, &QAction::toggled, this, [this](bool v) {
+        m_flotanteCapas->setVisible (v);
+        colocarPaneles ();
+        MyQSetting().guardarSettings (Rutas::confIni (), "VENTANAS", {{"capas", v}});
     });
+    connect (m_flotanteCapas, &PanelFlotante::cerrado, this, [this]() { aPanelCapas->setChecked (false); });
 
     // En cola: el aviso puede llegar desde una accion del propio menu, que
     // actualizarMenuCapas borra al rehacerlo.
@@ -1630,8 +1668,8 @@ void CControladora::actualizarMenuCapas()
         connect (a, &QAction::triggered, this, [this, id]() { m_mapa->ponerCapaBaseId (id); });
     }
     mCapas->addSeparator ();
-    if (m_dockCapas)
-        mCapas->addAction (m_dockCapas->toggleViewAction ());
+    if (aPanelCapas)
+        mCapas->addAction (aPanelCapas);
 }
 
 // Guarda en conf.ini ([CAPAS]) como estan las capas; en otro hilo y solo si

@@ -853,3 +853,44 @@ zona sin teselas en el paquete; no viene de la estación.
   ancho de su texto: con cada cambio de cifras se recolocaba toda la barra.
   Ahora cada uno tiene un ancho fijo, el de su texto más largo con la letra
   de la pantalla.
+
+## 26. Los paneles flotan encima del mapa, como en QGroundControl
+
+Al usuario seguía sin gustarle abrir y cerrar el panel de rutas, y preguntó
+lo justo: ¿por qué hay que repintar si solo cambia el tamaño? ¿Y si el
+panel no afectara al mapa? Mirado cómo lo hacen otras estaciones:
+
+- **QGroundControl**: el mapa ocupa toda la ventana. El editor de misión
+  (plegable, a la derecha) y el perfil de terreno o las estadísticas (abajo)
+  **flotan encima del mapa**, que nunca cambia de tamaño.
+- **Mission Planner**: reparte la pantalla en zonas (HUD, pestañas, mapa).
+  Cambiar una de tamaño cambia el mapa, igual que nos pasaba con los
+  `QDockWidget`.
+
+Los dos arreglos anteriores (§24 fijaba la esquina del mapa y §25 no lo
+dejaba pintar mientras se redimensionaba) trataban el síntoma: el mapa
+cambiaba de tamaño y libmapa tenía que rehacer la vista, pedir teselas y
+repintar. Ahora **el mapa no cambia de tamaño**:
+
+- `Widgets/PanelFlotante`: un panel hijo del mapa, con título, cruz de
+  cerrar y el fondo del tema casi opaco, con las esquinas redondeadas. El
+  ratón y la rueda sobre él son suyos (no arrastran ni acercan el mapa de
+  debajo).
+- El **panel de rutas** flota abajo, a todo lo ancho del mapa, y el de
+  **capas** a la derecha, encima del de rutas. Se abren y cierran igual que
+  antes (Ctrl+R, Ctrl+L o su cruz) y `conf.ini` lo recuerda. Al cerrarlos,
+  el mapa solo vuelve a pintar el trozo que tapaban, desde la imagen que ya
+  tiene.
+- Medido a 60 fps al cerrar el panel de rutas: en los 167 fotogramas, la
+  parte del mapa que no tapa el panel no cambia ni un píxel.
+- Fuera los dos arreglos de §24 y §25 en `MapaMision` (el filtro de
+  redimensionado), que ya no hacen falta.
+- Lo que tapan los paneles se le dice al mapa (`ponerZonaTapada`), para que
+  «Ver en el mapa» encuadre la ruta en la parte visible y el doble clic en un
+  punto lo lleve al centro de lo que se ve, no debajo del panel. La prueba
+  `zonaTapadaPorLosPaneles` sustituye a la de §24.
+- El panel de vuelo se centra en lo que deja libre el panel de capas. En un
+  mapa estrecho, el perfil del panel de rutas se oculta si le quedan menos de
+  220 px, en vez de quedar aplastado.
+- Con el panel de rutas abierto, la barra de escala del mapa (abajo a la
+  izquierda) queda tapada: libmapa no deja moverla.

@@ -6,8 +6,6 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QPainter>
-#include <QResizeEvent>
-#include <QTimer>
 #include <QtMath>
 
 #include <cmath>
@@ -75,8 +73,6 @@ MapaMision::MapaMision(const QString &paquete, QWidget *padre)
     crearCapas();
     ponerCapaBase(CapaBase::Satelital);
     m_mapa->setScaleBarVisible(true);
-    // Para no desplazar lo que se ve cuando un panel le quita sitio (eventFilter).
-    m_mapa->installEventFilter(this);
 
     // Estela de los ultimos 10 minutos (a 10 tramas/s, 6000 posiciones). Antes
     // era entera y se redibujaba completa con cada trama: tras horas en
@@ -129,50 +125,6 @@ MapaMision::MapaMision(const QString &paquete, QWidget *padre)
             refrescarRotulosRuta();
         }
     });
-}
-
-// Cuando un panel (rutas abajo, capas a la derecha) quita o devuelve sitio al
-// mapa, lo que se ve se queda quieto: se recorta o se amplia por abajo y por la
-// derecha. libmapa conserva el centro, y todo se desplazaba medio panel. Si
-// cambia la ventana (maximizar, redimensionar), se conserva el centro, como
-// siempre. Llega antes que el resizeEvent del mapa; libmapa ya ha ajustado su
-// vista al tamano nuevo (center y visibleNorthWest lo sincronizan) con el
-// centro viejo.
-bool MapaMision::eventFilter(QObject *objeto, QEvent *evento)
-{
-    if (objeto != m_mapa || evento->type() != QEvent::Resize)
-        return QObject::eventFilter(objeto, evento);
-    const auto *r = static_cast<QResizeEvent *>(evento);
-    // Sin pintar hasta que libmapa haya rehecho la vista con el tamano nuevo:
-    // si no, salia un fotograma con el mapa viejo estirado al tamano nuevo
-    // (el «salto» al ocultar el panel de rutas). Dos vueltas del bucle: en la
-    // primera corren los repintados en cola de libmapa.
-    if (m_mapa->isVisible() && m_mapa->updatesEnabled()) {
-        m_mapa->setUpdatesEnabled(false);
-        QTimer::singleShot(0, this, [this]() {
-            QTimer::singleShot(0, this, [this]() { m_mapa->setUpdatesEnabled(true); });
-        });
-    }
-    const QSize ventana = m_mapa->window()->size();
-    const bool porPanel = ventana == m_tamVentana && m_mapa->isVisible()
-                          && r->oldSize().width() > 1 && r->oldSize().height() > 1;
-    m_tamVentana = ventana;
-    const int dw = r->size().width() - r->oldSize().width();
-    const int dh = r->size().height() - r->oldSize().height();
-    if (!porPanel || (dw == 0 && dh == 0) || r->size().width() <= 1 || r->size().height() <= 1)
-        return QObject::eventFilter(objeto, evento);
-
-    // En coordenadas de eje (longitud y Mercator, lineales en pantalla).
-    const QPointF c = m_mapa->toAxisCoords(m_mapa->center());
-    const QPointF no = m_mapa->toAxisCoords(m_mapa->visibleNorthWest());
-    const QPointF se = m_mapa->toAxisCoords(m_mapa->visibleSouthEast());
-    const double porPxX = (se.x() - no.x()) / r->size().width();
-    const double porPxY = (no.y() - se.y()) / r->size().height();
-    // Esquina de arriba a la izquierda fija: el centro va media diferencia
-    // hacia la derecha y hacia abajo (hacia arriba y la izquierda si crece).
-    m_mapa->setCenter(m_mapa->fromAxisCoords(QPointF(c.x() + dw / 2.0 * porPxX,
-                                                     c.y() - dh / 2.0 * porPxY)));
-    return QObject::eventFilter(objeto, evento);
 }
 
 // El widget de libmapa.
@@ -674,7 +626,9 @@ void MapaMision::refrescarRotulosRuta()
     }
 }
 
-// Ajusta la vista para que se vea la ruta entera, con un margen alrededor.
+// Ajusta la vista para que se vea la ruta entera, con un margen alrededor, en
+// la parte del mapa que no tapan los paneles flotantes: la caja se alarga por
+// abajo y por la derecha en lo que miden los paneles.
 void MapaMision::encuadrarRuta()
 {
     double norte = -90.0, sur = 90.0, este = -180.0, oeste = 180.0;
@@ -696,8 +650,22 @@ void MapaMision::encuadrarRuta()
     // los rotulos no quedan pegados al borde.
     const double mLat = std::max((norte - sur) * 0.25, 0.003);
     const double mLon = std::max((este - oeste) * 0.25, 0.003);
-    m_mapa->fitBounds(QGeoCoordinate(norte + mLat, oeste - mLon),
-                      QGeoCoordinate(sur - mLat, este + mLon));
+    // En coordenadas de eje (lineales en pantalla) para alargar la caja.
+    QPointF no = m_mapa->toAxisCoords(QGeoCoordinate(norte + mLat, oeste - mLon));
+    QPointF se = m_mapa->toAxisCoords(QGeoCoordinate(sur - mLat, este + mLon));
+    const int alto = m_mapa->height(), ancho = m_mapa->width();
+    if (m_tapadoAbajo > 0 && alto - m_tapadoAbajo > 50)
+        se.ry() -= (no.y() - se.y()) * m_tapadoAbajo / double(alto - m_tapadoAbajo);
+    if (m_tapadoDerecha > 0 && ancho - m_tapadoDerecha > 50)
+        se.rx() += (se.x() - no.x()) * m_tapadoDerecha / double(ancho - m_tapadoDerecha);
+    m_mapa->fitBounds(m_mapa->fromAxisCoords(no), m_mapa->fromAxisCoords(se));
+}
+
+// Lo que tapan los paneles flotantes por abajo y por la derecha, en pixeles.
+void MapaMision::ponerZonaTapada(int abajoPx, int derechaPx)
+{
+    m_tapadoAbajo = std::max(0, abajoPx);
+    m_tapadoDerecha = std::max(0, derechaPx);
 }
 
 // Pinta de verde un punto ya cumplido: el punto y su circulo.
@@ -786,11 +754,23 @@ void MapaMision::dibujarPoligono()
     m_mapa->setActiveTool(MapTool::DrawPolygon);
 }
 
-// Centra la vista en una posicion (doble clic en un punto de la tabla de ruta).
+// Centra en \a pos la parte del mapa que se ve (sin lo que tapan los paneles
+// flotantes): el centro del mapa va media zona tapada mas abajo y a la derecha.
 void MapaMision::centrarEn(const QGeoCoordinate &pos)
 {
-    if (pos.isValid())
+    if (!pos.isValid())
+        return;
+    if (m_tapadoAbajo == 0 && m_tapadoDerecha == 0) {
         m_mapa->setCenter(pos);
+        return;
+    }
+    const QPointF no = m_mapa->toAxisCoords(m_mapa->visibleNorthWest());
+    const QPointF se = m_mapa->toAxisCoords(m_mapa->visibleSouthEast());
+    const double porPxX = (se.x() - no.x()) / std::max(1, m_mapa->width());
+    const double porPxY = (no.y() - se.y()) / std::max(1, m_mapa->height());
+    const QPointF p = m_mapa->toAxisCoords(pos);
+    m_mapa->setCenter(m_mapa->fromAxisCoords(QPointF(p.x() + m_tapadoDerecha / 2.0 * porPxX,
+                                                     p.y() - m_tapadoAbajo / 2.0 * porPxY)));
 }
 
 // Cota del terreno del origen de elevacion del mapa (NaN si no hay).

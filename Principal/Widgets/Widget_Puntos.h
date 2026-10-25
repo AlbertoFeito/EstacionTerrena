@@ -896,6 +896,9 @@ private:
     void mostrarPuntosCriticosDetalles(const QVariantList &puntosCriticos);
     void actualizarPanelAnalisis(const QVariantMap &analisis);
 
+protected:
+    void resizeEvent(QResizeEvent *event) override;
+
 };
 
 #endif // WIDGET_PUNTOS_H
