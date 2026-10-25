@@ -113,13 +113,13 @@ void Widget_Conexion::crearSelectorEnlace()
 void Widget_Conexion::guardarEnlace()
 {
     MyQSetting settings;
-    const QString fichero = Rutas::confIni();
-    settings.guardarSetting(fichero, "tipo", m_cBEnlace->currentIndex(), "ENLACE");
-    settings.guardarSetting(fichero, "tcp_host", m_leTcpHost->text(), "ENLACE");
-    settings.guardarSetting(fichero, "tcp_puerto", m_sbTcpPuerto->value(), "ENLACE");
-    settings.guardarSetting(fichero, "udp_local", m_sbUdpLocal->value(), "ENLACE");
-    settings.guardarSetting(fichero, "udp_host", m_leUdpHost->text(), "ENLACE");
-    settings.guardarSetting(fichero, "udp_puerto", m_sbUdpPuerto->value(), "ENLACE");
+    settings.guardarSettings(Rutas::confIni(), "ENLACE", {
+        {"tipo", m_cBEnlace->currentIndex()},
+        {"tcp_host", m_leTcpHost->text()},
+        {"tcp_puerto", m_sbTcpPuerto->value()},
+        {"udp_local", m_sbUdpLocal->value()},
+        {"udp_host", m_leUdpHost->text()},
+        {"udp_puerto", m_sbUdpPuerto->value()}});
 }
 
 // Con enlace abierto no se cambia de enlace ni de datos.

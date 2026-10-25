@@ -54,13 +54,14 @@ void Widget_Mandos::on_pB_Enviar_clicked()
 
     // La trama sale de la estructura (antes se copiaban los bytes del puntero).
     emit enviaMandosDron(Tramas::mandos (*mandos));
-MyQSetting settings;
-    settings.guardarSetting (fileName,"Radio_Acercamiento",ui->dsB_Radio_Acercamiento->value (),"MANDOS");
-    settings.guardarSetting (fileName,"Distancia_Encuentro",ui->dsB_Distancia_Encuentro->value (),"MANDOS");
-    // En m/s, que es como se lee al arrancar (antes se guardaba en km/h y al
-    // leerlo se multiplicaba otra vez por 3,6: crecia en cada arranque).
-    settings.guardarSetting (fileName,"Velocidad_RTH",ui->dsB_Velocidad_RTH->value () / 3.6,"MANDOS");
-    settings.guardarSetting (fileName,"Altura_Casa",ui->dsB_Home3->value (),"MANDOS");
+    // Todo de una vez y en otro hilo: valor a valor en este hilo la pantalla se
+    // paraba 1 o 2 s. Velocidad_RTH en m/s, que es como se lee al arrancar
+    // (antes se guardaba en km/h y crecia en cada arranque).
+    settings.guardarSettings (fileName, "MANDOS", {
+        {"Radio_Acercamiento", ui->dsB_Radio_Acercamiento->value ()},
+        {"Distancia_Encuentro", ui->dsB_Distancia_Encuentro->value ()},
+        {"Velocidad_RTH", ui->dsB_Velocidad_RTH->value () / 3.6},
+        {"Altura_Casa", ui->dsB_Home3->value ()}});
 }
 
 // Ultima posicion del dron, para el boton "Usar posicion actual del dron como

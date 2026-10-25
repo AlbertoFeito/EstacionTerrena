@@ -611,3 +611,33 @@ compilándose, no usa nadie:
 
 El ejecutable pasa de 5,8 a 5,5 MB. Compilado desde cero y pasan las 83
 pruebas; el EADI se ve igual con datos en vivo.
+
+## 18. Enviar mandos ya no congela la pantalla
+
+Al pulsar «Enviar mandos», la pantalla se quedaba 1 o 2 s sin pintar la
+telemetría. La trama sale en un instante; lo que tardaba era guardar en
+`conf.ini` los valores de la pestaña, **uno a uno y en el hilo de la
+interfaz**: 4 con Mandos, 13 con Ganancias y 6 al conectar. Cada
+`QSettings` lee el fichero entero y, al escribir, crea un fichero de
+bloqueo y uno temporal y lo renombra. En Windows, con el antivirus
+revisando cada fichero nuevo, eso son decenas o cientos de ms por valor, y
+mientras tanto no se leía el enlace ni se pintaba nada.
+
+`MyQSetting` gana `guardarSettings(fichero, grupo, valores)`:
+
+- **Todo de una vez**: un solo `QSettings` y una sola escritura por grupo.
+- **En otro hilo**: un `QThreadPool` de un solo hilo, así que las
+  escrituras van en orden. `cargarSetting` espera a que acabe lo pendiente
+  para no leer un valor viejo, y al cerrar el programa se espera a que
+  termine.
+- **Solo si algo cambió**: si se mandan los mismos valores que la última
+  vez, no se toca el disco.
+
+`guardarSetting` (un valor) sigue existiendo y pasa por lo mismo. Lo usan
+Mandos, Ganancias y la conexión (`[ENLACE]`); las claves y los valores de
+`conf.ini` no cambian.
+
+De paso, Ganancias mandaba "xyz" seguido de los 8 bytes **del puntero** a
+la estructura, y sin suma: el autopiloto no podía aceptar esa trama. Ahora
+sale de `Tramas::mandos`, igual que la de la pestaña Mandos. El protocolo
+es el mismo; lo que se corrige es que antes no se cumplía.
