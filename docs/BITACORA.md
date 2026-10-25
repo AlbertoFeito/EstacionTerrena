@@ -894,3 +894,58 @@ repintar. Ahora **el mapa no cambia de tamaño**:
   220 px, en vez de quedar aplastado.
 - Con el panel de rutas abierto, la barra de escala del mapa (abajo a la
   izquierda) queda tapada: libmapa no deja moverla.
+
+## 27. La telemetría sale de CControladora
+
+Primer paso del punto 4 de la fase de mejora (partir las clases grandes).
+`CControladora` tenía tres copias casi iguales del mismo trabajo: la trama
+del ala fija, la del cuadróptero y la muestra de un vuelo grabado. Cada una
+leía campo a campo, rellenaba un vector de 25 posiciones con índices sueltos
+(`m_ParametrosValues[19]` era el primer actuador...) y repartía los datos por
+el horizonte, el panel de vuelo, el mapa, las gráficas y la grabación. Un
+cambio había que hacerlo tres veces, y ya se habían colado diferencias.
+
+Ahora:
+
+- **`Protocolo/Telemetria`** (solo Qt Core y Positioning) convierte la trama
+  en una `MuestraVuelo`, lo que se sabe del dron en un instante: la misma
+  estructura que ya se grababa y se reproducía. `desdeAlaFija` y
+  `desdeCuadroptero` llevan los mismos arreglos que antes: velocidad a km/h,
+  curso deseado en 0..360 y, en el cuadróptero, la posición en metros
+  Mercator con el desplazamiento fijo de siempre y los cuatro motores como
+  actuadores. Prueba nueva: `test_telemetria` (7 casos, campo a campo).
+- **`VistaTelemetria`** pinta una `MuestraVuelo`: horizonte, panel de vuelo
+  con su detalle (sin ganancias en el cuadróptero), el dron en el mapa del
+  color del régimen con sus rumbos, y las gráficas en vivo.
+- **`CControladora`** se queda con lo que no es pintar, en
+  `procesarTelemetria`, común a los dos tipos de dron: validar la posición,
+  fijar la casa con la primera válida, marcar los puntos cumplidos, la
+  pestaña de Mandos y grabar. Grabar es ahora `m_grabador->anotar(m)`: la
+  misma muestra que se pinta, sin copiarla otra vez campo a campo.
+- **El vuelo reproducido** usa la misma `VistaTelemetria`: lo que se ve en vivo
+  y reproducido sale del mismo código.
+- `MuestraVuelo` y `PuntoPlan` pasan a `Vuelos/MuestraVuelo.h`, para que la
+  telemetría no dependa del grabador (y de QtSql).
+- Fuera de `CControladora`: `updateParameters`, `actualizarPanel`,
+  `guardaDatosDron`, `loadInitialData`, el vector `m_ParametrosValues`, su
+  `m_detalle` y `rumboProxPunto`, que nadie leía. `CControladora.cpp` pasa de
+  unas 1.870 líneas a 1.490.
+
+Se conserva tal cual una rareza: en el cuadróptero en vivo, las líneas de
+rumbo actual y deseado se pasan al mapa cambiadas, como hacía la librería
+antigua (va a las preguntas para quien programa el autopiloto). Cambios que
+sí se ven:
+
+- al desconectar, el detalle técnico sale con guiones en vez de ceros;
+- el punto al que va el dron, en el panel, es el de la trama que acaba de
+  llegar y no el de la anterior;
+- el mensaje de la casa en el log es uno solo para los dos tipos de dron.
+
+Visto con la app contra el simulador (ala fija, automático y «Repetir»):
+
+- el horizonte, el panel con su detalle, el dron y sus rumbos en vivo;
+- el vuelo grabado con «Grabar el vuelo», cada valor en su columna;
+- la reproducción de ese vuelo, por el mismo camino.
+
+El cuadróptero queda cubierto por `test_telemetria`, pero sin verlo en
+pantalla: en la base de datos de prueba no hay un dron de ese tipo.

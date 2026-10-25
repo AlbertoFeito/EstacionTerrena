@@ -40,6 +40,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     AlturaWorker.cpp \
     CControladora.cpp \
+    VistaTelemetria.cpp \
     Iconos/Iconos.cpp \
     Vuelos/BaseDatos.cpp \
     Vuelos/GrabadorVuelo.cpp \
@@ -51,6 +52,7 @@ SOURCES += \
     Reporte/layoutcol.cpp \
     Reporte/qecsreport.cpp \
     Protocolo/ProyeccionMercator.cpp \
+    Protocolo/Telemetria.cpp \
     Protocolo/Tramas.cpp \
     Reporte/sectionclass.cpp \
     SerialPortComboBox/DeviceHotplug.cpp \
@@ -82,9 +84,11 @@ SOURCES += \
 HEADERS += \
     AlturaWorker.h \
     CControladora.h \
+    VistaTelemetria.h \
     Iconos/Iconos.h \
     Vuelos/BaseDatos.h \
     Vuelos/GrabadorVuelo.h \
+    Vuelos/MuestraVuelo.h \
     Vuelos/ReproductorVuelo.h \
     Ci_Principal.h \
     Estructuras/E_Punto.h \
@@ -99,6 +103,7 @@ HEADERS += \
     Protocolo/SeguimientoCumplidos.h \
     Rutas.h \
     Protocolo/MonitorEnlace.h \
+    Protocolo/Telemetria.h \
     Protocolo/Tramas.h \
     Reporte/sectionclass.h \
     SerialPortComboBox/DeviceHotplug.h \
