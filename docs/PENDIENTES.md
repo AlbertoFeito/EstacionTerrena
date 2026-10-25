@@ -35,7 +35,7 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
    - ~~Telemetría~~: sacada en §27 (`Protocolo/Telemetria` y `VistaTelemetria`;
      con ella se fue el vector de índices `m_ParametrosValues`).
    - Menús y paneles de `CControladora`.
-   - En `Widget_Puntos`, la validación de rutas y la base de datos, aparte de
-     la parte visual.
+   - ~~`Widget_Puntos`~~: partido en §28 (`Planificacion/RoutePlanner`,
+     `ModeloRuta` y `CaracteristicasDron`).
 5. ~~Código muerto~~: quitado en §17 (`Reporte/` se queda: lo usa «Imprimir»).
 6. ~~Rendimiento~~: los `appendLogMessage` de cada trama, quitados en §13.

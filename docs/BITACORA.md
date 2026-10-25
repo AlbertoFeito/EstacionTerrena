@@ -949,3 +949,46 @@ Visto con la app contra el simulador (ala fija, automático y «Repetir»):
 
 El cuadróptero queda cubierto por `test_telemetria`, pero sin verlo en
 pantalla: en la base de datos de prueba no hay un dron de ese tipo.
+
+## 28. Widget_Puntos partido: planificador, modelo y panel
+
+Segundo paso del punto 4 (partir las clases grandes). `Widget_Puntos.cpp`
+tenía unas 3.900 líneas con tres clases dentro: el motor que valida y analiza
+las rutas (`RoutePlanner`), el modelo de la tabla con su base de datos
+(`MiModelo`) y el panel visible (`Widget_Puntos`). Ahora cada una tiene su
+fichero, en la carpeta nueva `Principal/Planificacion/`:
+
+- **`CaracteristicasDron.h`**: `DroneCharacteristics` y `DroneType`, que
+  estaban en `dronedialog.h` junto a un diálogo. `dronedialog.h` los sigue
+  dando, porque lo incluye.
+- **`RoutePlanner.h/.cpp`** (unas 760 líneas): la validación y el análisis.
+  Solo Qt Core y Positioning, sin interfaz.
+- **`ModeloRuta.h/.cpp`** (unas 1.480 líneas): `MiModelo`, los 10 puntos y su
+  guardado en SQLite (tablas `drones`, `rutas_metadata` y una por ruta).
+- **`Widgets/Widget_Puntos`** se queda con el panel: unas 1.730 líneas.
+
+Los nombres de las clases no cambian y `Widget_Puntos.h` sigue incluyendo los
+otros dos, así que nadie más ha tenido que tocarse. La base de datos tampoco
+cambia.
+
+Lo que gana de verdad: **`RoutePlanner` ya tiene pruebas**. Hasta ahora las
+reglas con las que se acepta o rechaza una ruta antes de mandarla al dron no
+tenían ninguna. `test_planificador` (9 casos) prueba:
+
+- la distancia entre puntos (mínima y máxima);
+- la altura y la velocidad, incluida la mínima del ala fija, mientras que el
+  cuadróptero puede ir parado;
+- las aceleraciones y las tasas de subida, con cuentas a mano;
+- el radio de giro, contra la fórmula de un giro coordinado con 30° de
+  alabeo, r = v² / (g·tan 30°): 70,7 m a 20 m/s;
+- una ruta de 10 puntos válida, con su distancia total y su tiempo;
+- una ruta que se pasa de la autonomía.
+
+De paso, `RoutePlanner` usaba `abs()` sin `std::` con valores con decimales.
+Según el compilador eso puede acabar en `int abs(int)` y redondear: una
+pendiente de 30,5° pasaría por 30° y se daría por buena. Con GCC no ocurre (la
+prueba `pendienteNoSeRedondea` lo comprueba), pero ahora es `std::abs` y no
+depende del compilador.
+
+Visto con la app: el panel de rutas carga la ruta, la valida y la dibuja como
+antes.

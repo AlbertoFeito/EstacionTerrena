@@ -68,6 +68,8 @@ SOURCES += \
     Widgets/Widget_Ganancias_Control.cpp \
     Widgets/Widget_Graficas.cpp \
     Widgets/Widget_Mandos_Cuadroptero.cpp \
+    Planificacion/ModeloRuta.cpp \
+    Planificacion/RoutePlanner.cpp \
     Widgets/Widget_Puntos.cpp \
     Widgets/dronedialog.cpp \
     Widgets/widget_mandos.cpp \
@@ -119,6 +121,9 @@ HEADERS += \
     Widgets/Widget_Ganancias_Control.h \
     Widgets/Widget_Graficas.h \
     Widgets/Widget_Mandos_Cuadroptero.h \
+    Planificacion/CaracteristicasDron.h \
+    Planificacion/ModeloRuta.h \
+    Planificacion/RoutePlanner.h \
     Widgets/Widget_Puntos.h \
     Widgets/dronedialog.h \
     Widgets/widget_mandos.h \
