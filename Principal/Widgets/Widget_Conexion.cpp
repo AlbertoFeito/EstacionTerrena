@@ -107,6 +107,33 @@ void Widget_Conexion::crearSelectorEnlace()
     forLayOut->addRow(m_paginas);
     forLayOut->addRow(ui->pB_Conectar);
     ui->groupBox->setLayout(forLayOut);
+
+    ordenarPestana();
+}
+
+// Orden de la pestaña como se usa: primero que dron, luego por donde y
+// Conectar, y debajo si se graba el vuelo. Todo arriba, sin el hueco que
+// quedaba entre el puerto y el boton (el recuadro se estiraba hasta abajo).
+void Widget_Conexion::ordenarPestana()
+{
+    QGridLayout *g = ui->gridLayout_2;
+    g->removeWidget(ui->groupBox);
+    g->removeWidget(ui->chB_Guardar);
+    g->removeItem(ui->horizontalLayout);
+    ui->label_5->setText(tr("Dron"));
+    g->addLayout(ui->horizontalLayout, 0, 0);
+    g->addWidget(ui->groupBox, 1, 0);
+    ui->chB_Guardar->setText(tr("Grabar el vuelo"));
+    ui->chB_Guardar->setToolTip(tr("Guarda la telemetría para reproducir el vuelo después"));
+    g->addWidget(ui->chB_Guardar, 2, 0);
+    g->setRowStretch(0, 0);
+    g->setRowStretch(1, 0);
+    g->setRowStretch(3, 1);
+    ui->groupBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    ui->pB_Conectar->setMinimumHeight(34);
+    ui->pB_Conectar->setStyleSheet(QStringLiteral(
+        "QPushButton { font-weight: bold; }"
+        "QPushButton:checked { background-color: #2e7d32; color: white; }"));
 }
 
 // Recuerda en conf.ini el enlace elegido y sus datos.

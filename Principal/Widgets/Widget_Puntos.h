@@ -757,6 +757,7 @@ signals:
     void sI_rutaSeleccionada(const QString &routeName);        ///< Ruta seleccionada.
     void sI_visibilidadCambiada(const QString &routeName, bool visible); ///< Cambió visibilidad de una ruta.
     void sI_centrarEnPunto(const QGeoCoordinate &pos);          ///< Doble clic en un punto: centrar el mapa ahí.
+    void sI_encuadrarRuta();                                    ///< Se pidió ver la ruta: encuadrarla en el mapa.
 
 public slots:
     /**
@@ -887,6 +888,9 @@ private:
     void limpiarTodo();
     void habilitarBotonesRuta(bool habilitar);
     void refrescarBotonEnviar();
+    void refrescarPerfil();
+    void ponerEstado(const QString &texto, const QColor &color, const QString &detalle);
+    void ajustarAnchoTabla();
     QString obtenerNombreTablaLimpio(const QString &nombreTablaConFormato);
     void mostrarRecomendaciones(const QStringList &recomendaciones);
     void mostrarPuntosCriticosDetalles(const QVariantList &puntosCriticos);

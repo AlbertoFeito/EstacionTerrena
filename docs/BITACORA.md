@@ -764,3 +764,52 @@ Los paneles cambian el tamaño del mapa sin cambiar el de la ventana, así que
 el panel de vuelo y las gráficas se recolocan cuando cambia el mapa, no solo
 cuando cambia la ventana. `test_mapamision` suma tres casos: las capas del
 paquete, el panel de capas y guardar y restaurar el estado.
+
+## 23. Repaso de diseño: panel de rutas con perfil, mapa y pestaña Enlace
+
+El usuario pidió una opinión sincera sobre cómo se ve la estación, con sus
+capturas a pantalla completa (1920×1080). Lo que fallaba:
+
+- **Panel de rutas**: la tabla se estiraba a 1400 px y los números quedaban
+  a un palmo unos de otros. Había mucho hueco y nada útil en él. Las cifras
+  traían decimales que no dicen nada («300.00», «16.25») y el estado salía
+  dos veces.
+- **Mapa**: al mostrar la ruta, aparecía diminuta en mitad de La Habana y
+  había que buscarla. A esa escala, los rótulos P1…P10 se montaban unos
+  encima de otros y no se leía ninguno.
+- **Pestaña Enlace**: el dron se elegía abajo del todo, después de conectar
+  (al revés de como se usa), y entre el puerto y «Conectar» quedaba un hueco
+  enorme.
+- Detalles: el interruptor «Quitar del mapa», relleno de verde, gritaba más
+  que la acción principal («Enviar al dron»). «Válida (con advertencias)» no
+  decía cuáles.
+
+Lo que cambia:
+
+- **Perfil de altitud dentro del panel**, en el hueco que dejaba la tabla.
+  Muestra la ruta en el naranja del mapa, con P1…P10, sobre el terreno
+  relleno, y marca en rojo donde el terreno queda a menos de 10 m. Sigue el
+  tema claro u oscuro, y un clic en el perfil selecciona ese punto en la
+  tabla. «Perfil» pasa a ser «Ampliar perfil», que abre otro igual en una
+  ventana grande. De paso: la leyenda va en su fila (dentro tapaba la ruta),
+  un clic elige el punto más cercano (antes la cuenta estaba mal) y dos
+  puntos en el mismo sitio ya no dividen por cero.
+- **Tabla al ancho justo**: columnas a su medida, cabeceras cortas
+  («Dist. (m)», «Alt. (m)», «Vel. (m/s)») con el nombre largo en el tooltip,
+  números a la derecha, metros sin decimales y la velocidad con uno.
+  **Editar una celda ya trae su valor**: no había `EditRole` y el editor
+  salía vacío.
+- **Estado como pastilla** de color (verde, ámbar o rojo); el tooltip dice
+  qué hay que mirar.
+- **«Ver en el mapa» encuadra la ruta** (`MapaMision::encuadrarRuta`, con un
+  margen alrededor). Si dos puntos quedan a menos de 34 px en pantalla, solo
+  se rotula P1 (`refrescarRotulosRuta`, al cambiar el zoom o mover un
+  punto); al acercarse vuelven todos.
+- **El interruptor «Ver en el mapa»**, encendido, va con borde y texto
+  verdes, sin relleno.
+- **Pestaña Enlace en el orden de uso**: Dron, Enlace (tipo, host, puerto),
+  Conectar (más alto, y en verde mientras hay conexión) y «Grabar el vuelo»
+  (antes «Guardar»), todo arriba y sin el hueco.
+
+El rectángulo oscuro arriba a la izquierda del mapa, en la captura, es una
+zona sin teselas en el paquete; no viene de la estación.

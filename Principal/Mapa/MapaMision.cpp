@@ -9,6 +9,7 @@
 #include <QtMath>
 
 #include <cmath>
+#include <limits>
 
 using namespace libmapa;
 
@@ -29,6 +30,9 @@ const QColor kColorRumboDeseado(0, 255, 0);
 // Largo en pantalla de los vectores de rumbo (actual y deseado): fijo, como un
 // vector de rumbo, sea cual sea el zoom.
 const double kLargoRumboPx = 150.0;
+// Separacion minima en pantalla entre dos puntos de la ruta para rotularlos:
+// por debajo, «P1»...«P10» se montaban unos encima de otros.
+const double kSeparacionRotuloPx = 34.0;
 // Mas lejos que esto, el proximo punto que dice el dron no es de esta mision
 // (sin plan llega 0,0, que cae en el golfo de Guinea): no se dibuja la linea.
 const double kMaxProximoM = 100000.0;
@@ -82,7 +86,10 @@ MapaMision::MapaMision(const QString &paquete, QWidget *padre)
         return s;
     });
 
-    connect(m_mapa, &MapWidget::zoomChanged, this, [this](int) { refrescarRumbos(); });
+    connect(m_mapa, &MapWidget::zoomChanged, this, [this](int) {
+        refrescarRumbos();
+        refrescarRotulosRuta();
+    });
     connect(m_mapa, &MapWidget::mouseMoved, this, &MapaMision::posicionRaton);
     connect(m_mapa, &MapWidget::clicked, this,
             [this](const QGeoCoordinate &pos, Qt::MouseButton boton) {
@@ -113,8 +120,10 @@ MapaMision::MapaMision(const QString &paquete, QWidget *padre)
     connect(m_mapa, &MapWidget::featureDragFinished, this, [this](qint64 id) {
         const int i = m_puntos.indexOf(id);
         const auto f = m_mapa->feature(id);
-        if (i >= 0 && f && !f->geometry.isEmpty())
+        if (i >= 0 && f && !f->geometry.isEmpty()) {
             emit puntoRutaMovido(i, f->geometry.first());
+            refrescarRotulosRuta();
+        }
     });
 }
 
@@ -583,6 +592,64 @@ void MapaMision::pintarRuta(const QVector<PuntoRutaMapa> &puntos, bool visible)
     }
     m_cumplidos.fill(false, m_puntos.size());
     refrescarAnillos();
+    refrescarRotulosRuta();
+}
+
+// Rotulos de los puntos solo si caben: con dos puntos a menos de
+// kSeparacionRotuloPx en pantalla se rotula solo P1 (donde empieza); al
+// acercarse vuelven todos.
+void MapaMision::refrescarRotulosRuta()
+{
+    if (m_puntos.size() < 2)
+        return;
+    QVector<QGeoCoordinate> pos;
+    for (qint64 id : qAsConst(m_puntos)) {
+        const auto f = m_mapa->feature(id);
+        if (f && !f->geometry.isEmpty())
+            pos.append(f->geometry.first());
+    }
+    double minimo = std::numeric_limits<double>::max();
+    for (int i = 0; i < pos.size(); ++i)
+        for (int j = i + 1; j < pos.size(); ++j)
+            minimo = std::min(minimo, pos.at(i).distanceTo(pos.at(j)));
+    const double mpp = m_mapa->metersPerPixel();
+    const bool caben = mpp > 0.0 && minimo / mpp >= kSeparacionRotuloPx;
+    for (int i = 0; i < m_puntos.size(); ++i) {
+        const auto f = m_mapa->feature(m_puntos.at(i));
+        const bool quiere = caben || i == 0;
+        if (!f || f->style.labelVisible == quiere)
+            continue;
+        MapFeature punto = *f;
+        punto.style.labelVisible = quiere;
+        punto.draggable = true;   // no se persiste: hay que volver a ponerlo
+        m_mapa->updateFeature(punto);
+    }
+}
+
+// Ajusta la vista para que se vea la ruta entera, con un margen alrededor.
+void MapaMision::encuadrarRuta()
+{
+    double norte = -90.0, sur = 90.0, este = -180.0, oeste = 180.0;
+    int n = 0;
+    for (qint64 id : qAsConst(m_puntos)) {
+        const auto f = m_mapa->feature(id);
+        if (!f || f->geometry.isEmpty())
+            continue;
+        const QGeoCoordinate &c = f->geometry.first();
+        norte = std::max(norte, c.latitude());
+        sur = std::min(sur, c.latitude());
+        este = std::max(este, c.longitude());
+        oeste = std::min(oeste, c.longitude());
+        ++n;
+    }
+    if (n == 0)
+        return;
+    // Margen del 25 % (y al menos unos 300 m): los anillos de acercamiento y
+    // los rotulos no quedan pegados al borde.
+    const double mLat = std::max((norte - sur) * 0.25, 0.003);
+    const double mLon = std::max((este - oeste) * 0.25, 0.003);
+    m_mapa->fitBounds(QGeoCoordinate(norte + mLat, oeste - mLon),
+                      QGeoCoordinate(sur - mLat, este + mLon));
 }
 
 // Pinta de verde un punto ya cumplido: el punto y su circulo.

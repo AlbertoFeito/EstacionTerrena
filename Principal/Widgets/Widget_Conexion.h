@@ -44,6 +44,7 @@ public slots:
     void handlePortDisconnected(const QString &port);
 private:
     void crearSelectorEnlace();
+    void ordenarPestana();
     void guardarEnlace();
     void habilitarCampos(bool habilitar);
 

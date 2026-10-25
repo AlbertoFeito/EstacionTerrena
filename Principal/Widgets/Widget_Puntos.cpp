@@ -1788,14 +1788,28 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
         case 0: return item.id;
         case 1: return item.nombre;
         case 2: return item.modo;
+        // Con los decimales que dicen algo: metros enteros, velocidad con uno.
         case 3: return QString::number(item.pos.latitude(), 'f', 5);
         case 4: return QString::number(item.pos.longitude(), 'f', 5);
-        case 5: return QString::number(item.distanciaAnterior, 'f', 2);
-        case 6: return QString::number(item.altura, 'f', 2);
-        case 7: return QString::number(item.velocidad, 'f', 2);
-        case 8: return QString::number(item.radio, 'f', 2);
+        case 5: return QString::number(item.distanciaAnterior, 'f', 0);
+        case 6: return QString::number(item.altura, 'f', 0);
+        case 7: return QString::number(item.velocidad, 'f', 1);
+        case 8: return QString::number(item.radio, 'f', 0);
         case 9:
             return QVariant();   // el estado va como icono (DecorationRole), sin texto repetido
+        default: return QVariant();
+        }
+    }
+    // Al editar, el valor entero (antes no habia EditRole y el editor salia vacio).
+    if (role == Qt::EditRole) {
+        switch (index.column()) {
+        case 1: return item.nombre;
+        case 2: return item.modo;
+        case 3: return item.pos.latitude();
+        case 4: return item.pos.longitude();
+        case 6: return item.altura;
+        case 7: return item.velocidad;
+        case 8: return item.radio;
         default: return QVariant();
         }
     }
@@ -1894,7 +1908,10 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
             font.setBold(true);
         return font;
     }
-    if (role == Qt::TextAlignmentRole) return Qt::AlignCenter;
+    // Numeros a la derecha (se comparan de un vistazo); nombre y modo, centrados.
+    if (role == Qt::TextAlignmentRole)
+        return int(index.column() >= 3 && index.column() <= 8 ? Qt::AlignRight | Qt::AlignVCenter
+                                                              : Qt::AlignCenter);
     if (role == Qt::DecorationRole && index.column() == 9) {
         // Iconos del estilo (los :/icons/... de antes no existian en ningun .qrc).
         QStyle *estilo = QApplication::style();
@@ -1965,19 +1982,31 @@ Qt::ItemFlags MiModelo::flags(const QModelIndex &index) const
  */
 QVariant MiModelo::headerData(int section, Qt::Orientation orientation, int role) const
 {
-    if (role != Qt::DisplayRole) return QVariant();
-    if (orientation == Qt::Horizontal) {
+    if (orientation != Qt::Horizontal)
+        return QVariant();
+    // Cabeceras cortas (la tabla cabe sin estirarse) y el nombre largo en el tooltip.
+    if (role == Qt::DisplayRole) {
         switch (section) {
         case 0: return "ID";
-        case 1: return "Nombre";
+        case 1: return "Punto";
         case 2: return "Modo";
         case 3: return "Latitud";
         case 4: return "Longitud";
-        case 5: return "Distancia (m)";
-        case 6: return "Altura (m)";
-        case 7: return "Velocidad (m/s)";
+        case 5: return "Dist. (m)";
+        case 6: return "Alt. (m)";
+        case 7: return "Vel. (m/s)";
         case 8: return "Radio (m)";
-        case 9: return "Estado";
+        case 9: return "";
+        default: return QVariant();
+        }
+    }
+    if (role == Qt::ToolTipRole) {
+        switch (section) {
+        case 5: return "Distancia desde el punto anterior, en metros";
+        case 6: return "Altura de vuelo, en metros";
+        case 7: return "Velocidad en m/s, la que vuela el dron (en pantalla se ve en km/h: x 3,6)";
+        case 8: return "Radio de giro en el punto, en metros";
+        case 9: return "Estado del punto: correcto, con advertencias o con errores";
         default: return QVariant();
         }
     }
@@ -2237,12 +2266,13 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     mdb = new QSqlDatabase(QSqlDatabase::database());
     modelo->setAlturaWorker(m_alturaWorker);
 
-    // Crear widget de perfil
+    // Perfil de altitud dentro del panel: la ruta sobre el terreno siempre a la
+    // vista (antes era una ventana aparte que habia que abrir).
     m_perfilWidget = new PerfilAltitudWidget(m_alturaWorker, this);
-    m_perfilWidget->setWindowFlags(Qt::Dialog);
-    m_perfilWidget->setWindowTitle("Perfil de altitud");
-    m_perfilWidget->resize(600, 400);
-    m_perfilWidget->hide();
+    m_perfilWidget->setMinimumWidth(260);
+    connect(m_perfilWidget, &PerfilAltitudWidget::puntoSeleccionado, this, [this](int i) {
+        tw_puntosRuta->selectRow(i);
+    });
 
     // ------------------------------------------------------------
     // CREAR TODOS LOS WIDGETS DE LA INTERFAZ (antes en .ui)
@@ -2255,12 +2285,12 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     tw_puntosRuta = new QTableView(this);
     tw_puntosRuta->setModel(modelo);
     tw_puntosRuta->hideColumn(0);               // ID
-    // Nombre, modo y estado, a su medida; los numeros se reparten el resto.
-    for (int i = 1; i < modelo->columnCount(); ++i) {
-        const bool corta = i == 1 || i == 2 || i == 9;
-        tw_puntosRuta->horizontalHeader()->setSectionResizeMode(
-            i, corta ? QHeaderView::ResizeToContents : QHeaderView::Stretch);
-    }
+    // Cada columna a su medida y la tabla con el ancho justo (ajustarAnchoTabla):
+    // estirada a toda la pantalla, los numeros quedaban a un palmo unos de otros.
+    for (int i = 1; i < modelo->columnCount(); ++i)
+        tw_puntosRuta->horizontalHeader()->setSectionResizeMode(i, QHeaderView::ResizeToContents);
+    tw_puntosRuta->horizontalHeader()->setStretchLastSection(false);
+    tw_puntosRuta->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     tw_puntosRuta->verticalHeader()->setDefaultSectionSize(20);
     tw_puntosRuta->verticalHeader()->setVisible(false);
     tw_puntosRuta->setAlternatingRowColors(true);
@@ -2315,8 +2345,8 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     pB_ExportarAnalisis->setVisible(false);
 
     // Botones adicionales
-    m_btnPerfil = new QPushButton("Perfil", this);
-    m_btnPerfil->setToolTip("Mostrar perfil de altitud y terreno");
+    m_btnPerfil = new QPushButton(tr("Ampliar perfil"), this);
+    m_btnPerfil->setToolTip(tr("El perfil de altitud y terreno en una ventana grande"));
     connect(m_btnPerfil, &QPushButton::clicked, this, &Widget_Puntos::mostrarPerfil);
 
     QPushButton *btnGuia = new QPushButton("Guía", this);
@@ -2333,7 +2363,9 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
         "QPushButton { min-height: 26px; padding: 0 8px; }"
         "QPushButton#enviar { min-height: 40px; font-size: 14px; font-weight: bold; }"
         "QPushButton#enviar:enabled { background-color: #1565c0; color: white; border-radius: 4px; }"
-        "QPushButton#verMapa:checked { background-color: #2e7d32; color: white; }"));
+        // Interruptor: encendido con borde y texto verdes, sin rellenar (relleno
+        // competia con «Enviar al dron», que es la accion principal).
+        "QPushButton#verMapa:checked { border: 1px solid #43a047; color: #66bb6a; font-weight: bold; }"));
     auto seccion = [](const QString &texto) {
         auto *l = new QLabel(texto.toUpper());
         l->setProperty("rol", "seccion");
@@ -2371,8 +2403,9 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     izq->addWidget(label_PuntosFijos);
     mainLayout->addWidget(izquierda);
 
-    // ---- CENTRO: la tabla de puntos ----
-    mainLayout->addWidget(tw_puntosRuta, 1);
+    // ---- CENTRO: la tabla de puntos y, al lado, el perfil de altitud ----
+    mainLayout->addWidget(tw_puntosRuta, 0);
+    mainLayout->addWidget(m_perfilWidget, 1);
 
     // ---- DERECHA: resumen de la ruta y acciones ----
     QWidget *derecha = new QWidget(this);
@@ -2614,6 +2647,7 @@ void Widget_Puntos::actualizarComboBoxRutas()
  */
 void Widget_Puntos::mostrarMetricasRuta()
 {
+    refrescarPerfil();
     if (!modelo->isDroneConfigured() || modelo->rowCount() == 0) {
         label_Distancia->setText("0 m");
         label_AutonomiaRest->setText("0%");
@@ -2660,18 +2694,31 @@ void Widget_Puntos::mostrarMetricasRuta()
             analisis.value("num_puntos_criticos").toInt() > 0 ||
             !modelo->obtenerRecomendaciones().isEmpty();
 
-    if (valida) {
-        if (tieneAdvertencias) {
-            label_Estado->setText("Válida (con advertencias)");
-            label_Estado->setStyleSheet("color: orange; font-weight: bold;");
-        } else {
-            label_Estado->setText("Válida");
-            label_Estado->setStyleSheet("color: green; font-weight: bold;");
-        }
-    } else {
-        label_Estado->setText("Inválida");
-        label_Estado->setStyleSheet("color: red; font-weight: bold;");
-    }
+    // Que hay que mirar, a mano en el tooltip (antes solo decia «con
+    // advertencias» y habia que abrir el analisis para saber de que).
+    QStringList detalle = modelo->obtenerRecomendaciones();
+    if (!valida)
+        detalle.prepend(modelo->validarRuta().second);
+    const QString ayuda = detalle.isEmpty() ? tr("Sin observaciones")
+                                            : detalle.join(QStringLiteral("\n"));
+    if (valida && tieneAdvertencias)
+        ponerEstado(tr("Válida, con advertencias"), QColor(255, 179, 0), ayuda);
+    else if (valida)
+        ponerEstado(tr("Válida"), QColor(67, 160, 71), ayuda);
+    else
+        ponerEstado(tr("No válida"), QColor(229, 57, 53), ayuda);
+}
+
+// Estado de la ruta como una pastilla de color (verde, ambar o rojo) con lo
+// que hay que mirar en el tooltip.
+void Widget_Puntos::ponerEstado(const QString &texto, const QColor &color, const QString &detalle)
+{
+    label_Estado->setText(texto);
+    label_Estado->setToolTip(detalle + tr("\n\n(«Análisis» para el informe completo)"));
+    label_Estado->setStyleSheet(QStringLiteral(
+        "QLabel { color: %1; background: rgba(%2, %3, %4, 40); border: 1px solid %1;"
+        " border-radius: 4px; padding: 2px 6px; font-weight: bold; }")
+        .arg(color.name()).arg(color.red()).arg(color.green()).arg(color.blue()));
 }
 
 /**
@@ -3501,6 +3548,9 @@ void Widget_Puntos::on_pb_Mostrar_toggled(bool checked)
     pb_Mostrar->setToolTip(checked ? tr("Quita la ruta del mapa") : tr("Dibuja la ruta en el mapa"));
     emit sI_pintaRuta(checked);
     emit sI_visibilidadCambiada(modelo->getCurrentRouteName(), checked);
+    // Al pedir verla, el mapa va a la ruta (antes habia que buscarla).
+    if (checked)
+        emit sI_encuadrarRuta();
 }
 
 /**
@@ -3521,9 +3571,42 @@ void Widget_Puntos::mostrarPerfil()
         return;
     }
 
-    m_perfilWidget->setRuta(modelo->obtenerLista());
-    m_perfilWidget->show();
-    m_perfilWidget->raise();
+    // El del panel sigue en su sitio: este es otro, grande y en su ventana.
+    auto *ventana = new QDialog(this);
+    ventana->setAttribute(Qt::WA_DeleteOnClose);
+    ventana->setWindowTitle(tr("Perfil de altitud: %1").arg(modelo->getCurrentRouteName()));
+    auto *caja = new QVBoxLayout(ventana);
+    auto *grande = new PerfilAltitudWidget(m_alturaWorker, ventana);
+    caja->addWidget(grande);
+    grande->setRuta(modelo->obtenerLista());
+    connect(grande, &PerfilAltitudWidget::puntoSeleccionado, this, [this](int i) {
+        tw_puntosRuta->selectRow(i);
+    });
+    ventana->resize(900, 480);
+    ventana->show();
+}
+
+// Perfil del panel al dia con la ruta, y la tabla a su ancho justo.
+void Widget_Puntos::refrescarPerfil()
+{
+    const QList<E_Punto> &puntos = modelo->obtenerLista();
+    if (modelo->isDroneConfigured() && puntos.size() >= 2)
+        m_perfilWidget->setRuta(puntos);
+    else
+        m_perfilWidget->limpiar();
+    ajustarAnchoTabla();
+}
+
+// La tabla mide lo que sus columnas (mas la barra vertical): el resto
+// del ancho es para el perfil.
+void Widget_Puntos::ajustarAnchoTabla()
+{
+    tw_puntosRuta->resizeColumnsToContents();
+    // Siempre con el hueco de la barra: si el panel se encoge y aparece, no
+    // tapa la ultima columna.
+    const int ancho = tw_puntosRuta->horizontalHeader()->length() + 2 * tw_puntosRuta->frameWidth()
+                      + tw_puntosRuta->verticalScrollBar()->sizeHint().width();
+    tw_puntosRuta->setFixedWidth(ancho);
 }
 
 /**

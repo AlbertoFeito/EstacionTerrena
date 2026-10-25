@@ -122,6 +122,8 @@ public:
     //! Dibuja la ruta (linea, puntos arrastrables y circulos de acercamiento).
     //! Con \a visible = false la quita del mapa.
     void pintarRuta(const QVector<PuntoRutaMapa> &puntos, bool visible);
+    //! Ajusta la vista para que quepa la ruta entera (al pedir verla).
+    void encuadrarRuta();
     //! Pinta de verde el punto \a indice, ya cumplido por el dron.
     void marcarPuntoCumplido(int indice);
     //! Radio del circulo de acercamiento de cada punto, en metros Mercator
@@ -160,6 +162,7 @@ private:
     void crearCapas();
     void refrescarRumbos();
     void refrescarAnillos();
+    void refrescarRotulosRuta();
     double metrosEnPantalla(double px) const;
     static QPixmap simboloHome();
     static QString idCapa(CapaBase capa);
