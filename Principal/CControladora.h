@@ -77,7 +77,6 @@ private slots:
 
 private:
     Ci_Principal *mPrincipal;
-    QDir RecursosDir;
     QMenu *mMenu;
     QAction *aCerrar;
 
@@ -152,6 +151,7 @@ private:
 
     PanelVuelo::Detalle m_detalle;   // detalle tecnico de la ultima trama
     bool m_estadoDronAdoptado = false;   // la pestaña de Mandos ya tomo el regimen del dron
+    int m_posicionValida = -1;   // ultima validez avisada en el log (-1: ninguna)
 
     bool m_ControlObjetivo = false;
     bool m_Conectado = false;
@@ -182,7 +182,7 @@ private:
     PanelVuelo *m_panelVuelo = nullptr;
     QAction *aDetalleTecnico = nullptr;
     void actualizarPanel(int regimen, int mision, double distancia, double rumbo,
-                         double rumboDeseado, int satelites);
+                         double rumboDeseado, int satelites, bool enVivo = true);
     MonitorEnlace m_monitor;
     QElapsedTimer m_reloj;
     QLabel *m_lEnlace = nullptr;
@@ -224,7 +224,6 @@ private:
 
     QVector<double> m_ParametrosValues;
     QVector<double> m_currentValues;
-    QStringList listaParametros;
     void loadInitialData();
     QGeoCoordinate m_proximoPunto;
 

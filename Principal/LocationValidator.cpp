@@ -2,12 +2,13 @@
 #include "MyQSettings/myqsetting.h"
 
 #include <QDir>
+#include "Rutas.h"
 
 
 LocationValidator::LocationValidator(int threshold) : m_threshold(threshold)
 {
     MyQSetting settings;
-    QString  fileName = QDir::currentPath() + "/conf.ini";
+    QString  fileName = Rutas::confIni();
     coordenadas.MIN_LAT = settings.cargarSetting(fileName,"MIN_LAT","COORDENADAS", 17.099f).value<double>();
     coordenadas.MAX_LAT = settings.cargarSetting(fileName,"MAX_LAT","COORDENADAS", 31.541f).value<double>();
     coordenadas.MIN_LON = settings.cargarSetting(fileName,"MIN_LON","COORDENADAS",-91.846f).value<double>();

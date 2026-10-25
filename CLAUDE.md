@@ -33,8 +33,8 @@ diga este).
 - Compila y pasa los tests (`make check` en la carpeta de build;
   `QT_QPA_PLATFORM=offscreen` sin pantalla).
 - En la nube: `sudo apt-get install -y qt6-base-dev qt6-positioning-dev
-  qt6-serialport-dev qt6-svg-dev libqt6sql6-sqlite qmake6 libudev-dev
-  socat` (socat, para el test del puerto serie); compilar e instalar libmapa con
+  qt6-serialport-dev qt6-svg-dev libqt6sql6-sqlite qmake6 socat` (socat,
+  para el test del puerto serie); compilar e instalar libmapa con
   `qmake6 <repo LibMapaStatic>/qmake/libmapa/libmapa.pro PREFIX=<prefijo>` (con
   QCustomPlot 2.1.1 en su `third_party/qcustomplot/`) y luego
   `qmake6 EstacionTierra3.pro LIBMAPA_PREFIX=<prefijo>`. Un clon nuevo

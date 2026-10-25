@@ -30,15 +30,7 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 ## Fase 2: mejora del código (por orden)
 
 1. ~~Orden del repo~~: hecho en §12.
-2. **Fallos vistos**
-   - `CControladora::recibirDatos` lee `aux.at(31)` sin mirar cuántos campos
-     trae la línea: una línea corta tumba la app.
-   - En ese mismo `recibirDatos`, el rumbo del avión es el campo 6 (el
-     indicador usa el 6 como velocidad y el 8 como rumbo): parece un campo
-     cambiado. Se ha mantenido igual al pasar a libmapa.
-   - `m_ParametrosValues` tiene 25 valores para 24 nombres de `listaParametros`.
-   - Rutas que dependen del directorio de trabajo (`currentPath().cdUp()`).
-   - `usbdeviceswatcher` en Linux nunca arranca su bucle de udev.
+2. ~~Fallos vistos~~: hechos en §13.
 3. ~~Protocolo en un módulo aparte con tests~~: hecho en §4 (`Protocolo/Tramas`).
 4. **Partir las clases grandes**: `CControladora` (UI, menús, protocolo,
    gráficas y BD en una) y `Widget_Puntos` (unas 3.900 líneas). Los índices de
@@ -46,4 +38,4 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 5. **Código muerto** (no está en el `.pro`): `Indicador/`, `cSerialPort/`,
    `graficar/qtableviewprinter`, `qcheckboxcombo` y `myqbuttongroup`.
    `Reporte/` se compila pero no parece usarse: confirmarlo antes de quitarlo.
-6. **Rendimiento**: quitar los `appendLogMessage` de cada trama.
+6. ~~Rendimiento~~: los `appendLogMessage` de cada trama, quitados en §13.

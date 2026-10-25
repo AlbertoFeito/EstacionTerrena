@@ -400,3 +400,38 @@ referencia; si hace falta algún icono, lo inventas tú».
   obsoleto `CONFIG += ordered`.
 - Compilado desde cero en una carpeta de build nueva y pasan las 73 pruebas;
   visto con la app en los dos temas.
+
+## 13. Fallos conocidos y el log de cada trama
+
+El punto 2 de la fase de mejora, más lo aprovechable del PR #1 (que ya no se
+podía fusionar: tocaba `LibMapaStatic/` y `estilos.qrc`, borrados en §12).
+
+- **Reproducción de vuelos** (Control de objetivo → `recibirDatos`): leía los
+  campos de la fila sin mirar cuántos traía (una fila corta tumbaba la
+  estación), giraba el avión del mapa con la **velocidad** (campo 6) en lugar
+  del **curso** (campo 8), pasaba el curso deseado de radianes a grados aunque
+  se grabó en grados, y ponía la velocidad del indicador en m/s (en vivo va en
+  km/h). Ahora la fila la lee `Protocolo/FilaVuelo.h` (con su prueba) y la
+  reproducción se ve como en vivo: instrumentos, panel, detalle técnico y el
+  avión o el cuadróptero del color del régimen. Una fila incompleta se ignora
+  y se anota en el log.
+- `listaParametros` (24 nombres para 25 valores) no lo usaba nadie: fuera.
+- **Rutas**: `conf.ini` y `Recursos/data` se buscaban siempre respecto a la
+  carpeta de trabajo; lanzada de otra forma, la estación creaba en silencio
+  una base de datos vacía en otro sitio. Ahora `Principal/Rutas.h` elige una
+  carpeta base una vez (la de trabajo si tiene los datos, si no la del
+  ejecutable, si no la de trabajo como antes), todo pasa por ahí y el log dice
+  al arrancar cuál usa. Donde ya funcionaba, sigue igual.
+- **`usbdeviceswatcher`** se borra: en Linux no arrancaba su bucle, pero es que
+  la estación no lo usaba en ningún sistema (se enlazaba y nada lo llamaba; el
+  enchufar y desenchufar puertos lo lleva `DeviceHotplug`). Fuera también
+  `libudev`.
+- **Log**: cada trama escribía 7 líneas en la ventana del log (70 por segundo,
+  sin límite: en un vuelo largo, cientos de miles de líneas y memoria). Ahora
+  solo los sucesos (casa, posición válida o fuera del área al cambiar, enlace
+  perdido o recuperado, acuses que no llegan...) y la ventana guarda las
+  últimas 5000 líneas.
+- Del PR #1: los combos de Control de objetivo usaban
+  `currentIndexChanged(QString)`, que en Qt 6 no existe: no se llamaban nunca
+  (no se podía elegir dron ni vuelo). Pasan a `currentTextChanged`.
+- Pruebas: `test_tramas` lee una fila grabada y una incompleta. 75 en total.

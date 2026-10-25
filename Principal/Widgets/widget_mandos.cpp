@@ -9,6 +9,7 @@
 
 #include "Protocolo/ProyeccionMercator.h"
 #include "Protocolo/Tramas.h"
+#include "Rutas.h"
 
 Widget_Mandos::Widget_Mandos(sMANDOS *MANDOS, QWidget *parent) :
     QWidget(parent),
@@ -18,7 +19,7 @@ Widget_Mandos::Widget_Mandos(sMANDOS *MANDOS, QWidget *parent) :
 {
     ui->setupUi(this);
     //QSettings
-    fileName = QDir::currentPath() + "/conf.ini";
+    fileName = Rutas::confIni();
     configuraUI();
     //    qDebug()<<"LittleEndian" <<(QSysInfo::ByteOrder == QSysInfo::LittleEndian);
 

@@ -6,6 +6,7 @@
 #include "Database/ConnectionManager.h"
 
 #include "logger/LogHandler.h"
+#include "Rutas.h"
 
 int main(int argc, char *argv[])
 {
@@ -20,11 +21,9 @@ int main(int argc, char *argv[])
     Database::ConnectionManager *mgr = Database::ConnectionManager::createInstance();
     mgr->setType("QSQLITE");
 
-    QDir RecursosDir = QDir::currentPath ();
-    RecursosDir.cdUp ();
-
-    QString dirFich = RecursosDir.path ()+ "/Recursos/data";
-    RecursosDir.mkdir(dirFich);
+    const QString dirFich = Rutas::carpetaDatos();
+    logHandler.appendLogMessage("Configuración: " + Rutas::confIni());
+    logHandler.appendLogMessage("Datos: " + dirFich);
     //    if(QFile::exists(dirFich + "/DronDB.db"))
 
     mgr->setDatabaseName(dirFich + "/DronDB.db");

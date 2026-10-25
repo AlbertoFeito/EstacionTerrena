@@ -8,6 +8,7 @@
 // plan armados a mano) y la lectura a trozos, con basura, y de varias tramas
 // seguidas.
 
+#include "Protocolo/FilaVuelo.h"
 #include "Protocolo/Tramas.h"
 
 #include <QDataStream>
@@ -104,6 +105,8 @@ private slots:
     void cuadroptero();
     void cuadropteroIgnoraAcuses();
     void estacionComprobandoLaSuma();
+    void filaDeVueloGrabado();
+    void filaDeVueloIncompleta();
 };
 
 // Suma de 16 bits sin signo, con desbordamiento.
@@ -351,6 +354,40 @@ void TestTramas::estacionComprobandoLaSuma()
     QVERIFY(ev.at(1).sumaCorrecta);
     QCOMPARE(ev.at(1).puntos[3].x, 2647700.0f);
     QVERIFY(!ev.at(2).sumaCorrecta);
+}
+
+// Una fila como la arma Control de objetivo al reproducir: "=", vuelo, lat,
+// lon, cabeceo, banqueo, velocidad, altura, curso... y el tiempo al final.
+void TestTramas::filaDeVueloGrabado()
+{
+    QStringList c = {"=", "7", "23.0425", "-82.4290", "2.50", "-10.00", "15.00", "120.00",
+                     "95.00", "163.40", "100.00", "2", "3", "94.00", "12"};
+    for (int i = 0; i < 11; ++i)
+        c << QString::number(0.1 * (i + 1), 'f', 2);   // ganancias
+    c << "0.10" << "0.20" << "0.30" << "0.40"           // actuadores
+      << "0.05" << "0.06"                               // convergencias
+      << "12.5";                                        // segundos
+    const FilaVuelo f = FilaVuelo::leer(c.join(',').toLatin1());
+    QVERIFY(f.valida);
+    QCOMPARE(f.lat, 23.0425);
+    QCOMPARE(f.lon, -82.4290);
+    QCOMPARE(f.velocidad, 15.0);
+    QCOMPARE(f.curso, 95.0);            // el rumbo del avion es el campo 8, no el 6
+    QCOMPARE(f.cursoDeseado, 100.0);    // en grados, como se grabo
+    QCOMPARE(f.regimen, 2);
+    QCOMPARE(f.mision, 3);
+    QCOMPARE(f.satelites, 12);
+    QCOMPARE(f.ganancias[0], 0.1);
+    QCOMPARE(f.ganancias[10], 1.1);
+    QCOMPARE(f.actuadores[3], 0.4);
+    QCOMPARE(f.convergenciaCabeceo, 0.06);
+}
+
+// Una fila corta (o vacia) no es valida: antes tumbaba la estacion.
+void TestTramas::filaDeVueloIncompleta()
+{
+    QVERIFY(!FilaVuelo::leer(QByteArray()).valida);
+    QVERIFY(!FilaVuelo::leer("=,7,23.04,-82.42,1,2,3").valida);
 }
 
 QTEST_APPLESS_MAIN(TestTramas)

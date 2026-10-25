@@ -39,7 +39,7 @@ Por este orden:
        EstacionTerrena.exe D:/QtPro/Recursos/mapa.json
 
    En Qt Creator: *Proyectos → Ejecutar → Argumentos de la línea de órdenes*.
-2. `conf.ini` (en la carpeta de trabajo):
+2. `conf.ini` (ver *Dónde guarda sus datos*, abajo):
 
        [MAPA]
        paquete=D:/QtPro/Recursos/mapa.json
@@ -49,6 +49,14 @@ Por este orden:
 Del paquete solo se muestran las capas base (Satelital y OSM): ni mapa híbrido
 ni capas fijas, de momento. Si el paquete no trae elevación, se usa la carpeta
 de `.hgt` de siempre (`C:/CubaAlt`).
+
+## Dónde guarda sus datos
+
+`conf.ini` y las bases de datos (`Recursos/data`: drones, vuelos, rutas y
+dibujos) cuelgan de una carpeta base: la de trabajo si ahí ya hay `conf.ini` o
+`../Recursos/data` (lo de siempre), si no la del ejecutable si los tiene, y si
+no la de trabajo. El log dice al arrancar cuáles usa («Configuración: …»,
+«Datos: …»).
 
 ## Enlace con el dron: serie, TCP o UDP
 

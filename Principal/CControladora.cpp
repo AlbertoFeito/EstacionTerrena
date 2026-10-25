@@ -1,5 +1,8 @@
 #include "CControladora.h"
 #include "Iconos/Iconos.h"
+#include "Protocolo/FilaVuelo.h"
+
+#include <cmath>
 #include <QAction>
 #include <QMenuBar>
 #include <QCoreApplication>
@@ -10,6 +13,7 @@
 #include <QMessageBox>
 #include <QStatusBar>
 #include "MyQSettings/myqsetting.h"
+#include "Rutas.h"
 
 CControladora::CControladora(QObject *parent) :
     QObject(parent),
@@ -43,18 +47,11 @@ tabOpciones = new QTabWidget(mPrincipal);
     tabOpciones->setTabShape (QTabWidget::Rounded);
 
 
-RecursosDir.setPath (QDir::currentPath ());
-    RecursosDir.cdUp ();
     crearMapa();
     initTabOpciones();
     preparaDataBase();
     m_wConexion->cBDrones ()->setCurrentIndex (0);
 
-    listaParametros.append ({"Latitud","Longitud","Banqueo","Cabeceo",
-                             "ConvBanqueo","ConvCabeceo","ContEstab","ContAlero","ContMotor","ContRumbo",
-                             "DistCheck","CursoDeseado","CursoIMU",
-                             "KPCab","KICab","KPBan","KIBan","KPVel","KIVel",
-                             "KPAlt","KIAlt","KCurso","KPRumbo","KIPRumbo"});
 
     m_wGraficas = new Widget_Graficas(m_mapa->mapa ());
     m_wGraficas->raise();
@@ -257,6 +254,7 @@ void CControladora::preparaDataBase()
 void CControladora::Conectado(bool conectado)
 {
     primeraCoordenada = conectado;
+    m_posicionValida = -1;   // en cada conexion se vuelve a decir si la posicion es valida
     m_wConexion->chB_Guardar ()->setChecked (false);
     m_Conectado = conectado;
     m_monitor.setConectado (conectado, m_wConexion->serialManager ()->currentPort (),
@@ -864,63 +862,55 @@ void CControladora::conecciones()
     connect(m_wPuntos, &Widget_Puntos::sI_rutasModificadas, this, &CControladora::actualizarMenuRutas);
 }
 
+// Una fila de un vuelo grabado (Control de objetivo, reproduccion): la misma
+// vista que en vivo (instrumentos, panel, detalle y avion del color del
+// regimen). Una fila incompleta se ignora en lugar de tumbar la estacion.
 void CControladora::recibirDatos(QByteArray byteArray)
 {
-    QList<QByteArray> aux = byteArray.split(',');
-    auto lat = aux.at(2).toFloat();
-    auto lon = aux.at(3).toFloat();
-    m_ParametrosValues[0] = aux.at(2).toFloat();
-    m_ParametrosValues[1] = aux.at(3).toFloat();
-    m_ParametrosValues[2] = aux.at(9).toFloat();
-    auto cursoDeseado = qRadiansToDegrees(aux.at(10).toFloat());
-    cursoDeseado = fmodf((360.0 + cursoDeseado), 360.0);
+    const FilaVuelo f = FilaVuelo::leer(byteArray);
+    if (!f.valida) {
+        LogHandler::getInstance().appendLogMessage("Reproducción: fila incompleta, se ignora");
+        return;
+    }
+    const double cursoDeseado = std::fmod(360.0 + f.cursoDeseado, 360.0);
+    m_ParametrosValues[0] = f.lat;
+    m_ParametrosValues[1] = f.lon;
+    m_ParametrosValues[2] = f.distanciaChequeo;
     m_ParametrosValues[3] = cursoDeseado;
-    m_ParametrosValues[4] = aux.at(11).toFloat();
-    m_ParametrosValues[5] = aux.at(12).toFloat();
-    m_ParametrosValues[6] = aux.at(13).toFloat();
-    m_ParametrosValues[7] = aux.at(14).toFloat();
+    m_ParametrosValues[4] = f.regimen;
+    m_ParametrosValues[5] = f.mision;
+    m_ParametrosValues[6] = f.cursoImu;
+    m_ParametrosValues[7] = f.satelites;
+    for (int i = 0; i < 11; ++i)
+        m_ParametrosValues[8 + i] = f.ganancias[i];
+    for (int i = 0; i < 4; ++i)
+        m_ParametrosValues[19 + i] = f.actuadores[i];
+    m_ParametrosValues[23] = f.convergenciaBanqueo;
+    m_ParametrosValues[24] = f.convergenciaCabeceo;
 
-    m_ParametrosValues[8] = aux.at(15).toFloat();
-    m_ParametrosValues[9] = aux.at(16).toFloat();
-    m_ParametrosValues[10] = aux.at(17).toFloat();
-    m_ParametrosValues[11] = aux.at(18).toFloat();
-    m_ParametrosValues[12] = aux.at(19).toFloat();
-    m_ParametrosValues[13] = aux.at(20).toFloat();
-    m_ParametrosValues[14] = aux.at(21).toFloat();
-    m_ParametrosValues[15] = aux.at(22).toFloat();
-    m_ParametrosValues[16] = aux.at(23).toFloat();
-    m_ParametrosValues[17] = aux.at(24).toFloat();
-    m_ParametrosValues[18] = aux.at(25).toFloat();
-
-    m_ParametrosValues[19] = aux.at(26).toFloat();
-    m_ParametrosValues[20] = aux.at(27).toFloat();
-    m_ParametrosValues[21] = aux.at(28).toFloat();
-    m_ParametrosValues[22] = aux.at(29).toFloat();
-
-    m_ParametrosValues[23] = aux.at(30).toFloat();
-    m_ParametrosValues[24] = aux.at(31).toFloat();
+    if (f.lat != 0) {
+        geoPos.setLatitude (f.lat);
+        geoPos.setLongitude (f.lon);
+    }
     updateParameters(m_ParametrosValues);
+    actualizarPanel (f.regimen, f.mision, f.distanciaChequeo, f.curso, cursoDeseado, f.satelites,
+                     false);
 
-    indicador->setRoll ( aux.at(5).toFloat());
-    indicador->setPitch (aux.at(4).toFloat());
-    indicador->setHeading (aux.at(8).toFloat());
-    indicador->setAirspeed (aux.at(6).toFloat());
-    indicador->setAltitude (aux.at(7).toFloat());
+    indicador->setRoll (f.banqueo);
+    indicador->setPitch (f.cabeceo);
+    indicador->setHeading (f.curso);
+    indicador->setAirspeed (f.velocidad * 3.6);   // se grabo en m/s, como llega del dron
+    indicador->setAltitude (f.altura);
     indicador->redraw ();
 
-    QColor colorTraza = Qt::darkRed;
-    if (aSatelital->isChecked())
-        colorTraza = Qt::yellow;
-    const QPixmap simbolo = Iconos::avion(colorTraza);
-
-    if (lat != 0)
-    {
-        QString descripcion = QGeoCoordinate(lat,lon).toString();
-        // El rumbo es el mismo campo que usaba la libreria antigua (aux 6).
-        m_mapa->actualizarVehiculo (QGeoCoordinate(lat,lon),
-                                    aux.at(6).toFloat(),
-                                    colorTraza,
-                                    simbolo,
+    if (f.lat != 0) {
+        static const QColor colores[] = {Qt::red, Qt::yellow, Qt::green};
+        const QColor colorTraza = colores[qBound(0, f.regimen, 2)];
+        const QString descripcion = "V: " + QString::number (f.velocidad * 3.6, 'f', 2) +
+                " km/h\nH: " + QString::number (f.altura, 'f', 2) + " m";
+        m_mapa->actualizarVehiculo (geoPos, f.curso, colorTraza,
+                                    m_detalle.tipoDron == 0 ? Iconos::avion(colorTraza)
+                                                            : Iconos::cuadroptero(colorTraza),
                                     descripcion);
     }
 }
@@ -947,10 +937,8 @@ QPointF CControladora::sL_cambiaProyeccionPunto(QGeoCoordinate pos)
 void CControladora::onNewTramaConstanteReceived(const char a, const char b, const char c, const sTRAMA1 &s_28, const sTRAMA2 &s_34)
 {
     LogHandler& logHandler = LogHandler::getInstance();
-    logHandler.appendLogMessage("TramaConstante(a,b,c)");
     if (a == 'a' && b == 'b' && c == 'c' )
     {
-        logHandler.appendLogMessage("TramaConstante(a,b,c):Encabezado correcto");
         double lat = m_wConexion->serialManager ()->getS28 ().Realimentacion_Latitud;
         double lon = m_wConexion->serialManager ()->getS28 ().Realimentacion_Longitud;
 
@@ -1013,8 +1001,6 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
                              m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
                              cursoDeseado,
                              m_wConexion->serialManager ()->getS34 ().Cantidad_Satelites);
-            logHandler.appendLogMessage("TramaConstante(a,b,c):"
-                                        "Parámetros actualizados");
 
             indicador->setPitch(m_wConexion->serialManager ()->getS28 ().Realimentacion_Cabeceo);
             indicador->setRoll (m_wConexion->serialManager ()->getS28 ().Realimentacion_Banqueo);
@@ -1022,9 +1008,6 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
             indicador->setAirspeed (m_wConexion->serialManager ()->getS28 ().Realimentacion_Velocidad * 3.6);
             indicador->setAltitude (m_wConexion->serialManager ()->getS28 ().Realimentacion_Altura);
             indicador->redraw ();
-            logHandler.appendLogMessage("TramaConstante(a,b,c):"
-                                        "Indicador actualizado Cab:"+QString::number(m_wConexion->serialManager ()->getS28 ().Realimentacion_Cabeceo)+
-                                        "Ban: "+QString::number(m_wConexion->serialManager ()->getS28 ().Realimentacion_Banqueo));
 
             //color de avion y traza en dependencia del modo de trabajo manu8al automatico semiautomatico
             QColor colorTraza = Qt::red;
@@ -1076,9 +1059,6 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
                                      automatico);
                 if(automatico)
                     marcarCumplidos (QPointF(x,y), geoPos);
-
-                logHandler.appendLogMessage("TramaConstante(a,b,c):"
-                                            "Objetivo con rumbo representados");
             }
             //graficar
             double const t = start_time_.msecsTo(QTime::currentTime()) / 1000.0;
@@ -1131,7 +1111,6 @@ void CControladora::onEnviaPlan()
 void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
 {
     LogHandler& logHandler = LogHandler::getInstance();
-    logHandler.appendLogMessage("onNewCuadropteros");
 
     indicador->setRoll (s_cuadropteros.Realimentacion_Banqueo);
     indicador->setPitch (s_cuadropteros.Realimentacion_Cabeceo);
@@ -1144,9 +1123,6 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
     // este en la longitud de la trama.
     auto latlon = ProyeccionMercator::aGeo (QPointF(s_cuadropteros.Realimentacion_Longitud,
                                                     s_cuadropteros.Realimentacion_Latitud));
-    logHandler.appendLogMessage("onNewCuadropteros: "
-                                "Lat: " + QString::number (latlon.latitude()) +
-                                "  Lon: " + QString::number (latlon.longitude()));
 
     geoPos.setLatitude (latlon.latitude ()  +23.09759);
     geoPos.setLongitude (latlon.longitude ()-82.44113);
@@ -1250,8 +1226,6 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
                                  automatico);
             if(automatico)
                 marcarCumplidos (QPointF(x,y), geoPos);
-
-            logHandler.appendLogMessage("Objetivo con rumbo representados");
 
         }
         //graficar
@@ -1587,27 +1561,20 @@ void CControladora::timerEvent(QTimerEvent *event)
     // Timer functionality removed - keeping override in header
 }
 
+// Avisa en el log cuando la posicion del dron entra o sale del area de
+// trabajo (y la primera vez). Antes escribia una linea en cada trama: a 10 Hz
+// el log crecia sin fin y frenaba la estacion.
 void CControladora::updateStatus(double lat, double lon, bool isValid) {
-    QString status = QString("Coordenada actual:"
-                             "Lat: %1°"
-                             "Lon: %2°"
-                             "Estado: %3")
+    if (m_posicionValida == int(isValid))
+        return;
+    m_posicionValida = int(isValid);
+    QString status = QString("Posición del dron %1: Lat %2°, Lon %3°")
+            .arg(isValid ? "VÁLIDA" : "INVÁLIDA")
             .arg(lat, 0, 'f', 4)
-            .arg(lon, 0, 'f', 4)
-            .arg(isValid ? "VALIDA" : "INVALIDA");
-
-    if(!isValid) {
-        status += "¡ALERTA! Posición fuera del área de trabajo";
-    }
-
-    // Actualizar historial
-    QString logEntry = QString("[%1] Lat: %2° Lon: %3° - %4")
-            .arg(QTime::currentTime().toString("hh:mm:ss"))
-            .arg(lat, 0, 'f', 4)
-            .arg(lon, 0, 'f', 4)
-            .arg(isValid ? "Valida" : "Invalida");
-    LogHandler& logHandler = LogHandler::getInstance();
-    logHandler.appendLogMessage (status);
+            .arg(lon, 0, 'f', 4);
+    if(!isValid)
+        status += " ¡ALERTA! Fuera del área de trabajo";
+    LogHandler::getInstance().appendLogMessage (status);
 }
 
 // Paquete de datos del mapa: la ruta de su mapa.json (o la carpeta que lo
@@ -1623,8 +1590,8 @@ QString CControladora::dirPaqueteMapa() const
     }
 
     MyQSetting settings;
-    const QString fichero = QDir::currentPath() + "/conf.ini";
-    const QString defecto = RecursosDir.path() + "/Recursos";
+    const QString fichero = Rutas::confIni();
+    const QString defecto = Rutas::carpetaRecursos();
     return settings.cargarSetting(fichero, "paquete", "MAPA", defecto).toString();
 }
 
@@ -1744,7 +1711,7 @@ void CControladora::marcarCumplidos(const QPointF &cumplir, const QGeoCoordinate
 // El punto al que va solo tiene sentido en automatico. La pestaña de Mandos
 // muestra tambien en que regimen y mision esta el dron.
 void CControladora::actualizarPanel(int regimen, int mision, double distancia, double rumbo,
-                                    double rumboDeseado, int satelites)
+                                    double rumboDeseado, int satelites, bool enVivo)
 {
     PanelVuelo::Datos d;
     d.regimen = regimen;
@@ -1758,6 +1725,8 @@ void CControladora::actualizarPanel(int regimen, int mision, double distancia, d
     d.satelites = satelites;
     d.posicion = geoPos;
     m_panelVuelo->mostrar (d);
+    if (!enVivo)
+        return;   // un vuelo grabado no dice en que esta el dron ahora
     m_wMandos->setEstadoDron (regimen, mision, !m_estadoDronAdoptado);
     m_estadoDronAdoptado = true;
 }

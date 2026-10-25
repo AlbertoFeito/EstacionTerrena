@@ -3,12 +3,13 @@
 #include <QDir>
 #include <QMessageBox>
 #include "MyQSettings/myqsetting.h"
+#include "Rutas.h"
 Widget_Drones::Widget_Drones(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::Widget_Drones)
 {
     ui->setupUi(this);
-    QString fileName = QDir::currentPath() + "/conf.ini";
+    QString fileName = Rutas::confIni();
     MyQSetting mysettings;
 
     QVariant datosTiposDrones = mysettings.cargarSetting (
