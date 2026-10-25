@@ -9,6 +9,8 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
   que iba). Al terminar la misión **Puntos** vuelve a casa y da vueltas (lo
   decidió el usuario, §6); confirmar que el autopiloto hace lo mismo.
 - Qué significa **Distancia de encuentro** (DistEnc): el simulador no la usa.
+- En el **cuadróptero**, la estación pasa al mapa el rumbo actual y el deseado
+  cambiados (como la librería antigua, §27). ¿Es a propósito o un error?
 - Si hay una trama en la que el dron devuelve el plan (`newPlanificacionReceived`
   existe en la estación, pero nada la emite).
 - **Pérdida de enlace**: cómo la detecta el autopiloto. La estación solo
@@ -29,7 +31,11 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 2. ~~Fallos vistos~~: hechos en §13.
 3. ~~Protocolo en un módulo aparte con tests~~: hecho en §4 (`Protocolo/Tramas`).
 4. **Partir las clases grandes**: `CControladora` (UI, menús, protocolo,
-   gráficas y BD en una) y `Widget_Puntos` (unas 3.900 líneas). Los índices de
-   parámetros, a un `enum`.
+   gráficas y BD en una) y `Widget_Puntos` (unas 3.900 líneas).
+   - ~~Telemetría~~: sacada en §27 (`Protocolo/Telemetria` y `VistaTelemetria`;
+     con ella se fue el vector de índices `m_ParametrosValues`).
+   - Menús y paneles de `CControladora`.
+   - En `Widget_Puntos`, la validación de rutas y la base de datos, aparte de
+     la parte visual.
 5. ~~Código muerto~~: quitado en §17 (`Reporte/` se queda: lo usa «Imprimir»).
 6. ~~Rendimiento~~: los `appendLogMessage` de cada trama, quitados en §13.

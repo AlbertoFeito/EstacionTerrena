@@ -5,6 +5,7 @@
 #include "Mapa/MapaMision.h"
 #include "Mapa/PanelCapas.h"
 #include "Widgets/PanelFlotante.h"
+class VistaTelemetria;
 #include "Protocolo/ProyeccionMercator.h"
 #include "Protocolo/Tramas.h"
 #include "Protocolo/SeguimientoCumplidos.h"
@@ -72,7 +73,6 @@ public slots:
     void onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros);
 
     QPointF sL_cambiaProyeccionPunto(QGeoCoordinate pos);
-    void updateParameters(const QVector<double> &values);
 
 private slots:
     void on_EliminarPunto(QString s);
@@ -162,7 +162,6 @@ private:
     Widget_Puntos *m_wPuntos;
     Widget_Ganancias_Control *m_wGanancias;
 
-    PanelVuelo::Detalle m_detalle;   // detalle tecnico de la ultima trama
     bool m_estadoDronAdoptado = false;   // la pestaña de Mandos ya tomo el regimen del dron
     int m_posicionValida = -1;   // ultima validez avisada en el log (-1: ninguna)
     GrabadorVuelo *m_grabador = nullptr;   // graba el vuelo (casilla "Guardar")
@@ -198,8 +197,10 @@ private:
     // Panel de vuelo (sobre el mapa) y estado del enlace (barra de estado).
     PanelVuelo *m_panelVuelo = nullptr;
     QAction *aDetalleTecnico = nullptr;
-    void actualizarPanel(int regimen, int mision, double distancia, double rumbo,
-                         double rumboDeseado, int satelites, bool enVivo = true);
+    // Lo que dice la telemetria se pinta en VistaTelemetria; aqui solo lo que
+    // no es pintar (validar, casa, cumplidos, grabar).
+    VistaTelemetria *m_vista = nullptr;
+    void procesarTelemetria(const MuestraVuelo &m, int tipoDron, bool rumbosComoLibreriaAntigua);
     MonitorEnlace m_monitor;
     QElapsedTimer m_reloj;
     QLabel *m_lEnlace = nullptr;
@@ -212,8 +213,6 @@ private:
 
     // QObject interface
     void refrescarControlObjetivo();
-    void guardaDatosDron(double cabeceo, double banqueo, double velocidadKmh,
-                         double altura, double curso, const float *cumplirPunto);
     QVector<PuntoPlan> planConfirmado() const;
 
     // Puntos de ruta a enviar
@@ -245,12 +244,7 @@ private:
     // Botones de enviar fijos debajo de su pestaña, por el widget del que salieron.
     QHash<QObject *, QPushButton *> m_botonesFijos;
 
-    //rumboProximo punto
-    float rumboProxPunto = 0;
 
-    QVector<double> m_ParametrosValues;
-    QVector<double> m_currentValues;
-    void loadInitialData();
     QGeoCoordinate m_proximoPunto;
 
     sMANDOS mandos;
