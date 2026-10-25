@@ -1,4 +1,4 @@
-# Grabacion de vuelos (GrabadorVuelo) contra una base de datos SQLite temporal.
+# Grabacion y reproduccion de vuelos (GrabadorVuelo, ReproductorVuelo) contra una base de datos SQLite temporal.
 QT += testlib sql
 QT -= gui
 CONFIG += c++17 testcase
@@ -9,6 +9,8 @@ P = $$PWD/../../Principal
 INCLUDEPATH += $$P
 SOURCES += \
     test_grabador.cpp \
-    $$P/Vuelos/GrabadorVuelo.cpp
+    $$P/Vuelos/GrabadorVuelo.cpp \
+    $$P/Vuelos/ReproductorVuelo.cpp
 HEADERS += \
-    $$P/Vuelos/GrabadorVuelo.h
+    $$P/Vuelos/GrabadorVuelo.h \
+    $$P/Vuelos/ReproductorVuelo.h

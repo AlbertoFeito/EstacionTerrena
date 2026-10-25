@@ -1,7 +1,8 @@
 #include "CControladora.h"
 #include "Iconos/Iconos.h"
-#include "Protocolo/FilaVuelo.h"
+#include "Vuelos/BaseDatos.h"
 #include "Vuelos/GrabadorVuelo.h"
+#include "Vuelos/ReproductorVuelo.h"
 
 #include <cmath>
 #include <QAction>
@@ -191,26 +192,15 @@ QWidget *w4 = new QWidget();
 
 void CControladora::preparaDataBase()
 {
-    _aQuery = new Database::AsyncQuery(this);
-    _aQuery->setMode(Database::AsyncQuery::Mode_Parallel);
-    _aQuery->prepare ("PRAGMA foreign_keys = ON");
-    _aQuery->startExec ();
+    BaseDatos::asegurarTablaDrones ();
 
     // La tabla de vuelos (y su indice) la crea el grabador, que es quien escribe en ella.
-    m_grabador = new GrabadorVuelo(Rutas::carpetaDatos () + "/DronDB.db", this);
+    m_grabador = new GrabadorVuelo(BaseDatos::fichero (), this);
     if (!m_grabador->asegurarTabla ())
         LogHandler::getInstance ().appendLogMessage ("Vuelos: " + m_grabador->error ());
-    Database::AsyncQuery::startExecOnce(
-                "SELECT Nombre FROM DronTable",
-                [this](const Database::AsyncQueryResult& res) {
-        for (int i = 0; i < res.count(); i++) {
-            m_wConexion->cBDrones ()->addItem(res.value(i, "Nombre").toString());
-        }
-        //        if (res.count() > 0) {
-        m_wConexion->cBDrones ()->setCurrentIndex(0);
-        DronID = m_wConexion->cBDrones ()->currentText ();
-        //        }
-    });
+    m_wConexion->cBDrones ()->addItems (BaseDatos::nombresDrones ());
+    m_wConexion->cBDrones ()->setCurrentIndex(0);
+    DronID = m_wConexion->cBDrones ()->currentText ();
 }
 
 
@@ -253,18 +243,12 @@ void CControladora::Conectado(bool conectado)
             m_wGraficas->getLEdron ()->setVisible (false);
             m_wGraficas->getLEvuelo ()->setVisible (false);
             m_wGraficas->getMpBCerrar ()->setVisible (false);
-            QString queryVuelos = "SELECT Id_Dron, Tipo, Vuelos FROM DronTable WHERE Nombre = \'" +DronID+ "\'";
-
-            Database::AsyncQuery::startExecOnce(
-                        queryVuelos,
-                        [=](const Database::AsyncQueryResult& res) {
-                dronID = res.value(0, "Id_Dron").toInt () ;
-                auto tipodrone  = res.value(0, "Tipo").toString ();
-                tipoDrone = tipodrone == "Ala fija" ? 0 : 1;
-                vueloID = res.value(0, "Vuelos").toInt () ;
-                m_wConexion->serialManager ()->setTipo_dron (tipoDrone);
-                m_detalle.tipoDron = tipoDrone;
-            });
+            const BaseDatos::Dron dron = BaseDatos::dron (DronID);
+            dronID = dron.id;
+            tipoDrone = dron.tipo == "Ala fija" ? 0 : 1;
+            vueloID = dron.vuelos;
+            m_wConexion->serialManager ()->setTipo_dron (tipoDrone);
+            m_detalle.tipoDron = tipoDrone;
         }
         else
         {
@@ -491,30 +475,21 @@ void CControladora::conecciones()
         auto es = [pagina](QWidget *w) { return pagina && w && pagina->isAncestorOf (w); };
         if(es (m_wConexion))
         {
-            Database::AsyncQuery::startExecOnce(
-                        "SELECT Nombre FROM DronTable",
-                        [=](const Database::AsyncQueryResult& res) {
-                for (int i = 0; i < res.count(); i++) {
-                    auto str = res.value(i, "Nombre").toString();
-                    if(m_wConexion->cBDrones ()->findText (str) < 0)
-                        m_wConexion->cBDrones ()->addItem(str);
-                }
-                if (res.count() > 0) {
-
-                    if(DronID.isEmpty ())
-                        m_wConexion->cBDrones ()->setCurrentIndex(0);
-                    else
-                    {
-                        int index = m_wConexion->cBDrones ()->findText (DronID);
-                        m_wConexion->cBDrones ()->setCurrentIndex(index);
-                    }
-                    m_wConexion->setEnabled (true);
-                }
+            const QStringList nombres = BaseDatos::nombresDrones ();
+            for (const QString &str : nombres)
+                if(m_wConexion->cBDrones ()->findText (str) < 0)
+                    m_wConexion->cBDrones ()->addItem(str);
+            if (!nombres.isEmpty ()) {
+                if(DronID.isEmpty ())
+                    m_wConexion->cBDrones ()->setCurrentIndex(0);
                 else
-                {
-                    m_wConexion->setEnabled (false);
-                }
-            });
+                    m_wConexion->cBDrones ()->setCurrentIndex(m_wConexion->cBDrones ()->findText (DronID));
+                m_wConexion->setEnabled (true);
+            }
+            else
+            {
+                m_wConexion->setEnabled (false);
+            }
         }
 
         if(es (m_wControlObjetivo))
@@ -601,10 +576,17 @@ void CControladora::conecciones()
         }
         dronID = m_grabador->dron ();
         vueloID = m_grabador->vuelo ();
+        // El plan que el dron ya tenia (confirmado en esta sesion) va con el vuelo.
+        if (!m_planEnDron.isEmpty ())
+            m_grabador->anotarPlan (planConfirmado ());
         mPrincipal->statusBar ()->showMessage (tr("Grabando el vuelo %1 de %2").arg (vueloID).arg (DronID), 5000);
     });
 
-    connect (m_wControlObjetivo,&Widget_ControlObjetivo::datoContolObjetivo,this,&CControladora::recibirDatos);
+    // Reproduccion de un vuelo grabado: cada fotograma y el plan de cada momento.
+    connect (m_wControlObjetivo->reproductor (), &ReproductorVuelo::fotograma,
+             this, &CControladora::mostrarMuestraReproducida);
+    connect (m_wControlObjetivo->reproductor (), &ReproductorVuelo::planCambiado,
+             this, &CControladora::pintarPlanReproducido);
 
     connect (m_wControlObjetivo,&Widget_ControlObjetivo::limpiarDatoContolObjetivo,this,&CControladora::on_EliminarPunto);
 
@@ -832,67 +814,103 @@ void CControladora::refrescarControlObjetivo()
 {
     if (!m_wControlObjetivo)
         return;
-    Database::AsyncQuery::startExecOnce(
-                "SELECT Nombre FROM DronTable",
-                [=](const Database::AsyncQueryResult& res) {
-        QStringList drones;
-        for (int i = 0; i < res.count(); i++)
-            drones.append(res.value(i, "Nombre").toString());
-        m_wControlObjetivo->setDrones (drones);
-    });
+    m_wControlObjetivo->setDrones (BaseDatos::nombresDrones ());
 }
 
-// Una fila de un vuelo grabado (Control de objetivo, reproduccion): la misma
-// vista que en vivo (instrumentos, panel, detalle y avion del color del
-// regimen). Una fila incompleta se ignora en lugar de tumbar la estacion.
-void CControladora::recibirDatos(QByteArray byteArray)
+// Un instante de un vuelo grabado, mostrado como en vivo: instrumentos, panel
+// y detalle, el dron del color del regimen con su traza, las lineas de rumbo
+// (la morada al punto al que iba) y los puntos del plan que va cumpliendo.
+void CControladora::mostrarMuestraReproducida(const MuestraVuelo &m)
 {
-    const FilaVuelo f = FilaVuelo::leer(byteArray);
-    if (!f.valida) {
-        LogHandler::getInstance().appendLogMessage("Reproducción: fila incompleta, se ignora");
-        return;
-    }
-    const double cursoDeseado = std::fmod(360.0 + f.cursoDeseado, 360.0);
-    m_ParametrosValues[0] = f.lat;
-    m_ParametrosValues[1] = f.lon;
-    m_ParametrosValues[2] = f.distanciaChequeo;
+    const double cursoDeseado = std::fmod (360.0 + m.cursoDeseado, 360.0);
+    m_ParametrosValues[0] = m.lat;
+    m_ParametrosValues[1] = m.lon;
+    m_ParametrosValues[2] = m.distanciaChequeo;
     m_ParametrosValues[3] = cursoDeseado;
-    m_ParametrosValues[4] = f.regimen;
-    m_ParametrosValues[5] = f.mision;
-    m_ParametrosValues[6] = f.cursoImu;
-    m_ParametrosValues[7] = f.satelites;
+    m_ParametrosValues[4] = m.regimen;
+    m_ParametrosValues[5] = m.mision;
+    m_ParametrosValues[6] = m.cursoImu;
+    m_ParametrosValues[7] = m.satelites;
     for (int i = 0; i < 11; ++i)
-        m_ParametrosValues[8 + i] = f.ganancias[i];
+        m_ParametrosValues[8 + i] = m.ganancias[i];
     for (int i = 0; i < 4; ++i)
-        m_ParametrosValues[19 + i] = f.actuadores[i];
-    m_ParametrosValues[23] = f.convergenciaBanqueo;
-    m_ParametrosValues[24] = f.convergenciaCabeceo;
+        m_ParametrosValues[19 + i] = m.actuadores[i];
+    m_ParametrosValues[23] = m.convergenciaBanqueo;
+    m_ParametrosValues[24] = m.convergenciaCabeceo;
+    if (m.lat == 0)
+        return;
+    geoPos = QGeoCoordinate (m.lat, m.lon);
 
-    if (f.lat != 0) {
-        geoPos.setLatitude (f.lat);
-        geoPos.setLongitude (f.lon);
+    // Punto al que iba (norte, este como en el plan) y cumplidos.
+    const bool automatico = m.regimen == 2;
+    const QPointF cumplir (m.puntoNorte, m.puntoEste);
+    QGeoCoordinate proximo;
+    if (m.puntoNorte != 0.0 || m.puntoEste != 0.0)
+        proximo = ProyeccionMercator::aGeo (QPointF (m.puntoEste, m.puntoNorte));
+    m_puntoReproducido = m_planReproducido.lastIndexOf (cumplir);
+    if (automatico && !m_planReproducido.isEmpty ()) {
+        const QPointF me = ProyeccionMercator::aMetros (geoPos);
+        for (int i : m_cumplidosReproducidos.actualizar (cumplir, QPointF (me.y (), me.x ()),
+                                                         mandos.Radio_Acercamiento))
+            m_mapa->marcarPuntoCumplido (i);
     }
-    updateParameters(m_ParametrosValues);
-    actualizarPanel (f.regimen, f.mision, f.distanciaChequeo, f.curso, cursoDeseado, f.satelites,
+
+    m_detalle.tipoDron = m_wControlObjetivo->tipoDron ();
+    updateParameters (m_ParametrosValues);
+    actualizarPanel (m.regimen, m.mision, m.distanciaChequeo, m.curso, cursoDeseado, m.satelites,
                      false);
 
-    indicador->setRoll (f.banqueo);
-    indicador->setPitch (f.cabeceo);
-    indicador->setHeading (f.curso);
-    indicador->setAirspeed (f.velocidad);   // se grabo ya en km/h
-    indicador->setAltitude (f.altura);
+    indicador->setRoll (m.banqueo);
+    indicador->setPitch (m.cabeceo);
+    indicador->setHeading (m.curso);
+    indicador->setAirspeed (m.velocidadKmh);
+    indicador->setAltitude (m.altura);
     indicador->redraw ();
 
-    if (f.lat != 0) {
-        static const QColor colores[] = {Qt::red, Qt::yellow, Qt::green};
-        const QColor colorTraza = colores[qBound(0, f.regimen, 2)];
-        const QString descripcion = "V: " + QString::number (f.velocidad, 'f', 2) +
-                " km/h\nH: " + QString::number (f.altura, 'f', 2) + " m";
-        m_mapa->actualizarVehiculo (geoPos, f.curso, colorTraza,
-                                    m_detalle.tipoDron == 0 ? Iconos::avion(colorTraza)
-                                                            : Iconos::cuadroptero(colorTraza),
-                                    descripcion);
+    static const QColor colores[] = {Qt::red, Qt::yellow, Qt::green};
+    const QColor color = colores[qBound (0, m.regimen, 2)];
+    const QString descripcion = "V: " + QString::number (m.velocidadKmh, 'f', 2) +
+            " km/h\nH: " + QString::number (m.altura, 'f', 2) + " m";
+    m_mapa->actualizarVehiculo (geoPos, m.curso, color,
+                                m_detalle.tipoDron == 0 ? Iconos::avion (color) : Iconos::cuadroptero (color),
+                                descripcion);
+    m_mapa->ponerRumbos (m.curso, cursoDeseado, proximo, automatico);
+}
+
+// El plan que tenia el dron en ese momento del vuelo grabado: su ruta en el
+// mapa y la cuenta de cumplidos desde cero (vacio: el vuelo no lo guardo).
+void CControladora::pintarPlanReproducido(const QVector<PuntoPlan> &plan)
+{
+    QVector<PuntoRutaMapa> puntos;
+    m_planReproducido.clear ();
+    for (const PuntoPlan &p : plan) {
+        puntos.append ({QGeoCoordinate (p.lat, p.lon, p.altura), p.nombre});
+        m_planReproducido.append (QPointF (p.norte, p.este));
     }
+    m_cumplidosReproducidos.setPlan (m_planReproducido);
+    m_mapa->pintarRuta (puntos, !puntos.isEmpty ());
+}
+
+// Plan confirmado por el dron (el que tiene ahora), con los nombres, alturas
+// y velocidades de la ruta y los metros Mercator tal como se le mandaron.
+QVector<PuntoPlan> CControladora::planConfirmado() const
+{
+    QVector<PuntoPlan> plan;
+    if (!m_wPuntos || !m_wPuntos->getModelo ())
+        return plan;
+    const QList<E_Punto> &ruta = m_wPuntos->getModelo ()->obtenerLista ();
+    for (int i = 0; i < ruta.size () && i < m_planEnDron.size (); ++i) {
+        PuntoPlan p;
+        p.nombre = ruta.at (i).nombre;
+        p.lat = ruta.at (i).pos.latitude ();
+        p.lon = ruta.at (i).pos.longitude ();
+        p.altura = ruta.at (i).altura;
+        p.velocidad = ruta.at (i).velocidad;
+        p.norte = m_planEnDron.at (i).x ();
+        p.este = m_planEnDron.at (i).y ();
+        plan.append (p);
+    }
+    return plan;
 }
 
 QList<QPointF> CControladora::sL_cambiaProyeccion()
@@ -1055,7 +1073,8 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
                                  m_wConexion->serialManager ()->getS28 ().Realimentacion_Banqueo,
                                  m_wConexion->serialManager ()->getS28 ().Realimentacion_Velocidad * 3.6,
                                  m_wConexion->serialManager ()->getS28 ().Realimentacion_Altura,
-                                 m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso);
+                                 m_wConexion->serialManager ()->getS28 ().Realimentacion_Curso,
+                                 m_wConexion->serialManager ()->getS34 ().Cumplir_Punto);
         }
     }
 }
@@ -1228,7 +1247,8 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
         if(m_wConexion->chB_Guardar ()->isChecked ())
             guardaDatosDron (s_cuadropteros.Realimentacion_Cabeceo, s_cuadropteros.Realimentacion_Banqueo,
                              s_cuadropteros.Realimentacion_Velocidad * 3.6,
-                             s_cuadropteros.Realimentacion_Altura, s_cuadropteros.Realimentacion_Curso);
+                             s_cuadropteros.Realimentacion_Altura, s_cuadropteros.Realimentacion_Curso,
+                             s_cuadropteros.Cumplir_Punto);
     }
 }
 
@@ -1246,9 +1266,17 @@ void CControladora::on_EliminarPunto(QString s)
     limpiarVueloEnMapa();
 }
 
+// Fin de la reproduccion: fuera la ruta del vuelo grabado y vuelve la de
+// planificacion (si estaba a la vista) con sus cumplidos.
 void CControladora::on_DetenerCO()
 {
     m_ControlObjetivo = false;
+    m_planReproducido.clear ();
+    m_cumplidosReproducidos.setPlan (m_planReproducido);
+    if (m_wPuntos && m_wPuntos->isRouteVisible ())
+        pintarRutaEnMapa (true);
+    else
+        m_mapa->pintarRuta (QVector<PuntoRutaMapa>(), false);
     indicador->setRoll (0);
     indicador->setPitch (0);
     indicador->setHeading (0);
@@ -1352,7 +1380,7 @@ void CControladora::onRouteActionTriggered(QAction *action)
 // Antes leia siempre la trama de ala fija, cambiaba el cabeceo por el banqueo
 // y guardaba la posicion como texto con 4 decimales (la traza en escalones).
 void CControladora::guardaDatosDron(double cabeceo, double banqueo, double velocidadKmh,
-                                    double altura, double curso)
+                                    double altura, double curso, const float *cumplirPunto)
 {
     const QVector<double> &v = m_ParametrosValues;
     MuestraVuelo m;
@@ -1375,6 +1403,9 @@ void CControladora::guardaDatosDron(double cabeceo, double banqueo, double veloc
         m.actuadores[k] = v[19 + k];
     m.convergenciaBanqueo = v[23];
     m.convergenciaCabeceo = v[24];
+    m.puntoNorte = cumplirPunto[0];
+    m.puntoEste = cumplirPunto[1];
+    m.puntoAltura = cumplirPunto[2];
     m_grabador->anotar (m);
 }
 
@@ -1579,6 +1610,9 @@ void CControladora::crearEsperasDeAcuse()
         m_esperaAcusePlan->stop ();
         m_reintentosPlan = 0;
         m_cumplidos.setPlan (listPuntoF);
+        m_planEnDron = listPuntoF;
+        if (m_grabador->grabando ())
+            m_grabador->anotarPlan (planConfirmado ());
         if (m_wPuntos && m_wPuntos->isRouteVisible ())
             pintarRutaEnMapa (true);
         mPrincipal->statusBar ()->showMessage (tr("✓ El dron ha confirmado el plan"), 5000);
@@ -1615,9 +1649,9 @@ void CControladora::actualizarPanel(int regimen, int mision, double distancia, d
     PanelVuelo::Datos d;
     d.regimen = regimen;
     d.mision = mision;
-    d.puntoActual = regimen == 2 ? m_puntoActual : -1;
-    d.totalPuntos = listPuntoF.size ();
-    d.puntosCumplidos = m_cumplidos.cuantos ();
+    d.puntoActual = regimen != 2 ? -1 : enVivo ? m_puntoActual : m_puntoReproducido;
+    d.totalPuntos = enVivo ? listPuntoF.size () : m_planReproducido.size ();
+    d.puntosCumplidos = enVivo ? m_cumplidos.cuantos () : m_cumplidosReproducidos.cuantos ();
     d.distanciaPunto = distancia;
     d.rumbo = rumbo;
     d.rumboDeseado = rumboDeseado;

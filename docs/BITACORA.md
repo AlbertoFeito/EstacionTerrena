@@ -505,3 +505,62 @@ del protocolo, que manda latitud y longitud como `float` de 32 bits (unos
   al terminar, dron que no existe. 79 pruebas en total.
 - Probado con la app contra el simulador: 628 filas en 63 s (10 por segundo),
   la altura de 100 a 159 m, el índice creado y la reproducción del vuelo nuevo.
+
+## 15. Reproducir un vuelo como fue: ruta, cumplidos, rumbos y tiempo real
+
+Lo pidió el usuario: que la reproducción muestre la ruta del vuelo y las
+flechas del movimiento, lo más real posible, y que se borre el módulo
+`Database` si ya no se usa.
+
+**Qué se graba ahora** (`GrabadorVuelo`):
+
+- en cada muestra, el **punto al que va el dron** (`Cumplir_Punto`: columnas
+  `Punto_Norte`, `Punto_Este`, `Punto_Altura`; en una base de datos vieja se
+  añaden con `ALTER TABLE`);
+- cada **plan que confirma el dron**, punto a punto y con la hora, en la
+  tabla nueva `PlanesVuelo`: el que ya tenía al empezar a grabar (el último
+  confirmado en la sesión) y cada uno nuevo durante el vuelo.
+
+**`Vuelos/ReproductorVuelo`** (solo Qt Core + Sql, con pruebas):
+
+- el tiempo es el de la grabación (la fecha de cada muestra), por la
+  velocidad elegida (×½ a ×32); antes, una fila cada 200 ms fuera cual fuera
+  el tiempo real;
+- **interpola** entre muestras (posición, altura, velocidad, actitud; los
+  rumbos por el lado corto) a 25 fotogramas por segundo: el dron se mueve
+  suave; si hay un corte de más de 2 s, no se inventa el tramo;
+- con cada fotograma va el plan que tenía el dron en ese momento.
+
+**En el mapa**, cada fotograma se pinta como en vivo
+(`CControladora::mostrarMuestraReproducida`): la ruta del plan grabado, los
+puntos que va cumpliendo en verde, el vector de rumbo y el deseado, la línea
+morada al punto al que iba con su rótulo, el panel («P3 / 10», distancia,
+rumbos) con el detalle técnico, los instrumentos y el avión o cuadróptero del
+color del régimen con su traza. Al acabar se queda en el último momento con
+la traza entera; Stop limpia y vuelve la ruta de planificación.
+
+**Control de objetivo** se rehace sobre el reproductor: el título del grupo
+dice «Reproducir 01:23 / 03:57», el deslizador de velocidad va de ×½ a ×32
+(×1 = tiempo real) y el de avanzar salta a cualquier momento. Graficar usa las
+muestras ya leídas.
+
+**Fuera `Database/`** (AsyncQuery, AsyncQueryResult, AsyncQueryModel y
+ConnectionManager, unas 1100 líneas): lanzaban cada consulta en otro hilo y
+devolvían el resultado más tarde, lo que obligaba a encadenar callbacks y
+dejaba carreras. Lo sustituye `Vuelos/BaseDatos`, una conexión directa a
+`DronDB.db` (consultas pequeñas, en milisegundos). `Widget_Drones` usa un
+`QSqlQueryModel`. También se borra `Protocolo/FilaVuelo.h`: la reproducción
+ya no pasa por una línea de texto.
+
+- `test_grabador` (10 casos): además de la grabación, lo grabado se lee igual
+  al reproducir (con su plan), la interpolación, un plan que cambia a mitad
+  del vuelo, un vuelo de una base de datos vieja (sin ruta) y la reproducción
+  a ×16 en el tiempo que toca. 82 pruebas en total.
+- Probado con la app contra el simulador: ruta de 10 puntos creada en el
+  planificador y enviada antes de grabar, vuelo en automático grabado (2376
+  muestras, 2348 con punto a cumplir, el plan guardado al empezar) y
+  reproducido a ×32 con la ruta, la línea al próximo punto y «P3 / 10».
+
+Visto al probar (sin cambiar, pendiente de confirmar): el planificador
+muestra la velocidad de cada punto en m/s, pero al enviar el plan se divide
+por 3,6 como si fuera km/h (16,25 → 4,5 m/s). Apuntado en `PENDIENTES.md`.

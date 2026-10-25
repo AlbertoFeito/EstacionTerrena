@@ -26,7 +26,6 @@
 
 #include <QTime>
 
-#include <Database/AsyncQuery.h>
 
 #include "AlturaWorker.h"
 #include "LocationValidator.h"
@@ -37,6 +36,8 @@
 #include <Widgets/Widget_Ganancias_Control.h>
 
 #include "Estructuras/Estructuras.h"
+
+#include "Vuelos/GrabadorVuelo.h"
 
 class GrabadorVuelo;
 
@@ -57,7 +58,8 @@ signals:
 
 public slots:
     void Conectado(bool conectado);
-    void recibirDatos(QByteArray byteArray);
+    void mostrarMuestraReproducida(const MuestraVuelo &m);
+    void pintarPlanReproducido(const QVector<PuntoPlan> &plan);
 
     QList<QPointF> sL_cambiaProyeccion();
 
@@ -155,6 +157,11 @@ private:
     bool m_estadoDronAdoptado = false;   // la pestaña de Mandos ya tomo el regimen del dron
     int m_posicionValida = -1;   // ultima validez avisada en el log (-1: ninguna)
     GrabadorVuelo *m_grabador = nullptr;   // graba el vuelo (casilla "Guardar")
+    QList<QPointF> m_planEnDron;           // ultimo plan confirmado por el dron (norte, este)
+    // Reproduccion: plan del vuelo grabado en ese momento y sus cumplidos.
+    QList<QPointF> m_planReproducido;
+    SeguimientoCumplidos m_cumplidosReproducidos;
+    int m_puntoReproducido = -1;
 
     bool m_ControlObjetivo = false;
     bool m_Conectado = false;
@@ -166,8 +173,6 @@ private:
     QString DronID = "";
 
     //dataBase
-    QString query1;
-    Database::AsyncQuery *_aQuery;
 
     QGeoCoordinate geoPosOld;
     QGeoCoordinate geoPos;
@@ -198,7 +203,8 @@ private:
     // QObject interface
     void refrescarControlObjetivo();
     void guardaDatosDron(double cabeceo, double banqueo, double velocidadKmh,
-                         double altura, double curso);
+                         double altura, double curso, const float *cumplirPunto);
+    QVector<PuntoPlan> planConfirmado() const;
 
     // Puntos de ruta a enviar
     sPUNTOXYZ puntosEnviar[Tramas::kPuntosPlan];

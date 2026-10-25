@@ -41,11 +41,9 @@ SOURCES += \
     AlturaWorker.cpp \
     CControladora.cpp \
     Iconos/Iconos.cpp \
+    Vuelos/BaseDatos.cpp \
     Vuelos/GrabadorVuelo.cpp \
-    Database/AsyncQuery.cpp \
-    Database/AsyncQueryResult.cpp \
-    Database/AsynqQueryModel.cpp \
-    Database/ConnectionManager.cpp \
+    Vuelos/ReproductorVuelo.cpp \
     LocationValidator.cpp \
     Mapa/MapaMision.cpp \
     MyQSettings/myqsetting.cpp \
@@ -84,12 +82,10 @@ HEADERS += \
     AlturaWorker.h \
     CControladora.h \
     Iconos/Iconos.h \
+    Vuelos/BaseDatos.h \
     Vuelos/GrabadorVuelo.h \
+    Vuelos/ReproductorVuelo.h \
     Ci_Principal.h \
-    Database/AsyncQuery.h \
-    Database/AsyncQueryResult.h \
-    Database/AsynqQueryModel.h \
-    Database/ConnectionManager.h \
     Estructuras/E_Punto.h \
     Estructuras/Estructuras.h \
     Estructuras/Utils.h \
@@ -100,7 +96,6 @@ HEADERS += \
     Reporte/qecsreport.h \
     Protocolo/ProyeccionMercator.h \
     Protocolo/SeguimientoCumplidos.h \
-    Protocolo/FilaVuelo.h \
     Rutas.h \
     Protocolo/MonitorEnlace.h \
     Protocolo/Tramas.h \

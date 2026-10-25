@@ -2,6 +2,7 @@
 #define GRABADORVUELO_H
 
 #include <QDateTime>
+#include <QMetaType>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -21,8 +22,25 @@ struct MuestraVuelo
     double ganancias[11] = {};
     double actuadores[4] = {};   //!< estabilizadores, alerones, motor, rumbo
     double convergenciaBanqueo = 0, convergenciaCabeceo = 0;
+    //! Punto al que va el dron (Cumplir_Punto: norte, este en metros Mercator,
+    //! como se le mando en el plan; 0, 0 si no va a ninguno) y su altura.
+    double puntoNorte = 0, puntoEste = 0, puntoAltura = 0;
     QDateTime fecha;             //!< si no se da, la hora de anotar()
 };
+
+/*!
+ * \brief Un punto del plan confirmado por el dron: donde esta (para pintarlo)
+ *        y en metros Mercator tal como se le mando (para saber cuales cumple).
+ */
+struct PuntoPlan
+{
+    QString nombre;
+    double lat = 0, lon = 0, altura = 0, velocidad = 0;
+    double norte = 0, este = 0;
+};
+
+Q_DECLARE_METATYPE(MuestraVuelo)
+Q_DECLARE_METATYPE(PuntoPlan)
 
 /*!
  * \brief Graba un vuelo en la tabla DatosVuelos de la base de datos de drones.
@@ -38,7 +56,10 @@ struct MuestraVuelo
  *   guardado en DronTable.Vuelos) antes de aceptar ninguna muestra;
  * - anotar() solo guarda la muestra en memoria (nada de disco a 10 Hz);
  * - cada segundo, y al terminar, las pendientes se escriben de una vez en una
- *   transaccion con una consulta preparada, con los numeros tal cual (REAL).
+ *   transaccion con una consulta preparada, con los numeros tal cual (REAL);
+ * - cada muestra lleva el punto al que va el dron, y cada plan que confirma
+ *   se guarda en PlanesVuelo: la reproduccion pinta la ruta, los cumplidos y
+ *   la linea al proximo punto como en vivo.
  *
  * Usa su propia conexion SQLite al mismo fichero (las conexiones de Qt no se
  * comparten entre objetos que pueden ir a otro ritmo) y solo Qt Core + Sql:
@@ -58,6 +79,9 @@ public:
     bool empezar(const QString &nombreDron);
     //! Guarda una muestra del vuelo en curso (en memoria; se escribe cada segundo).
     void anotar(const MuestraVuelo &m);
+    //! Guarda el plan que el dron acaba de confirmar (o el que ya tenia al
+    //! empezar): la reproduccion lo pinta desde ese momento.
+    bool anotarPlan(const QVector<PuntoPlan> &plan, const QDateTime &fecha = QDateTime());
     //! Escribe lo pendiente y cierra el vuelo.
     void terminar();
     //! Escribe ya lo pendiente (lo hace solo cada segundo).

@@ -9,5 +9,4 @@ SOURCES += \
     test_tramas.cpp \
     $$PWD/../../Principal/Protocolo/Tramas.cpp
 HEADERS += \
-    $$PWD/../../Principal/Protocolo/Tramas.h \
-    $$PWD/../../Principal/Protocolo/FilaVuelo.h
+    $$PWD/../../Principal/Protocolo/Tramas.h

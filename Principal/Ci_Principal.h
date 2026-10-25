@@ -5,7 +5,6 @@
 
 #include <QTime>
 
-#include <Database/AsyncQuery.h>
 #include <QtWidgets/QTabWidget>
 
 QT_BEGIN_NAMESPACE
@@ -55,9 +54,6 @@ private:
     int dronID;
     QString DronID = "";
 
-    //dataBase
-    QString query1;
-    Database::AsyncQuery *_aQuery;
 
 
 

@@ -16,7 +16,10 @@ const char *kColumnas[] = {
     "KPCabeceo", "KICabeceo", "KPBanqueo", "KIBanqueo", "KPVelocidad", "KIVelocidad",
     "KPAltura", "KIAltura", "KPCurso", "KPRumbo", "KIRumbo",
     "Control_Estabilizadores", "Control_Alerones", "Control_Motor", "Control_Rumbo",
-    "Convergencia_Banqueo", "Convergencia_Cabeceo", "Fecha"};
+    "Convergencia_Banqueo", "Convergencia_Cabeceo", "Fecha",
+    "Punto_Norte", "Punto_Este", "Punto_Altura"};
+// Columnas que no estaban en la tabla original: se anaden a una base de datos vieja.
+const char *kNuevas[] = {"Punto_Norte", "Punto_Este", "Punto_Altura"};
 const char *kEnteras[] = {"Realimentacion_Regimen", "Realimentacion_ComandoMision",
                           "CantidadSatelites"};
 }
@@ -81,6 +84,30 @@ bool GrabadorVuelo::asegurarTabla()
     if (!q.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS DatosVuelos(%1)").arg(columnas.join(QStringLiteral(", "))))
         || !q.exec(QStringLiteral("CREATE INDEX IF NOT EXISTS DatosVuelos_dron_vuelo "
                                   "ON DatosVuelos(Dron_ID, Id_Vuelos)"))) {
+        m_error = q.lastError().text();
+        return false;
+    }
+    // Una base de datos de antes no tiene las columnas del punto a cumplir.
+    QStringList existentes;
+    if (q.exec(QStringLiteral("PRAGMA table_info(DatosVuelos)")))
+        while (q.next())
+            existentes << q.value(1).toString();
+    for (const char *c : kNuevas) {
+        const QString nombre = QString::fromLatin1(c);
+        if (!existentes.contains(nombre)
+            && !q.exec(QStringLiteral("ALTER TABLE DatosVuelos ADD COLUMN %1 REAL").arg(nombre))) {
+            m_error = q.lastError().text();
+            return false;
+        }
+    }
+    // Los planes que confirma el dron durante el vuelo, punto a punto.
+    if (!q.exec(QStringLiteral("CREATE TABLE IF NOT EXISTS PlanesVuelo("
+                               "Dron_ID INTEGER NOT NULL, Id_Vuelos INTEGER NOT NULL, "
+                               "Fecha DATETIME NOT NULL, Indice INTEGER NOT NULL, Nombre TEXT, "
+                               "Lat REAL, Lon REAL, Altura REAL, Velocidad REAL, "
+                               "Norte REAL, Este REAL)"))
+        || !q.exec(QStringLiteral("CREATE INDEX IF NOT EXISTS PlanesVuelo_dron_vuelo "
+                                  "ON PlanesVuelo(Dron_ID, Id_Vuelos)"))) {
         m_error = q.lastError().text();
         return false;
     }
@@ -167,6 +194,9 @@ bool GrabadorVuelo::volcar()
         q.addBindValue(m.convergenciaBanqueo);
         q.addBindValue(m.convergenciaCabeceo);
         q.addBindValue(m.fecha);
+        q.addBindValue(m.puntoNorte);
+        q.addBindValue(m.puntoEste);
+        q.addBindValue(m.puntoAltura);
         if (!q.exec()) {
             m_error = q.lastError().text();
             db.rollback();
@@ -189,4 +219,32 @@ void GrabadorVuelo::terminar()
     m_reloj.stop();
     volcar();
     m_grabando = false;
+}
+
+// El plan entero en una transaccion, con la hora a la que se confirmo.
+bool GrabadorVuelo::anotarPlan(const QVector<PuntoPlan> &plan, const QDateTime &fecha)
+{
+    if (!m_grabando || plan.isEmpty() || !abrir())
+        return false;
+    const QDateTime cuando = fecha.isValid() ? fecha : QDateTime::currentDateTime();
+    QSqlDatabase db = QSqlDatabase::database(m_conexion);
+    db.transaction();
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("INSERT INTO PlanesVuelo (Dron_ID, Id_Vuelos, Fecha, Indice, Nombre, "
+                             "Lat, Lon, Altura, Velocidad, Norte, Este) "
+                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+    for (int i = 0; i < plan.size(); ++i) {
+        const PuntoPlan &p = plan.at(i);
+        for (const QVariant &v : {QVariant(m_dron), QVariant(m_vuelo), QVariant(cuando), QVariant(i),
+                                  QVariant(p.nombre), QVariant(p.lat), QVariant(p.lon),
+                                  QVariant(p.altura), QVariant(p.velocidad), QVariant(p.norte),
+                                  QVariant(p.este)})
+            q.addBindValue(v);
+        if (!q.exec()) {
+            m_error = q.lastError().text();
+            db.rollback();
+            return false;
+        }
+    }
+    return db.commit();
 }

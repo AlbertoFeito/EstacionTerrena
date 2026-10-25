@@ -5,6 +5,11 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 
 ## Preguntas para quien programa el autopiloto
 
+- **Unidad de la velocidad del plan**: el planificador la muestra en m/s
+  (16,25 por defecto), pero `CControladora::onEnviaPlan` la divide por 3,6
+  antes de mandarla, como si fuera km/h: el dron recibe 4,5 m/s (16 km/h) y
+  el simulador vuela a eso. ¿En qué unidad la espera el autopiloto? Según la
+  respuesta, sobra la división o sobra el «(m/s)» del planificador.
 - Qué hace en **Circular** (el simulador da vueltas de 300 m sobre el punto al
   que iba). Al terminar la misión **Puntos** vuelve a casa y da vueltas (lo
   decidió el usuario, §6); confirmar que el autopiloto hace lo mismo.
