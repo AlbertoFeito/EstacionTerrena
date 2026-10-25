@@ -26,6 +26,10 @@ instaló libmapa y compilar. Si libmapa está en otra carpeta:
 Los tests (`tests/`) se lanzan con `make check` (en Linux sin pantalla,
 `QT_QPA_PLATFORM=offscreen make check`).
 
+Un clon nuevo compila tal cual: los iconos se dibujan en código
+(`Principal/Iconos`) y el tema claro u oscuro (*Tema*) son paletas de Qt, sin
+ficheros de recursos aparte. `build/` es solo donde queda lo compilado.
+
 ## Dónde busca el mapa
 
 Por este orden:

@@ -374,3 +374,29 @@ Queda una pregunta para quien programa el autopiloto (en `PENDIENTES.md`): la
 estación no manda nada periódico, así que el autopiloto real tiene que
 detectar la pérdida por la radio o por tiempo; y qué dice en la telemetría
 mientras vuelve sin enlace.
+
+## 12. Repo ordenado: fuera la librería antigua y los recursos sueltos
+
+Un clon nuevo no compilaba: `Principal.pro` pedía `build/Recursos/estilos.qrc`,
+que no estaba en el repo, y `build/` (que está en `.gitignore`) tenía 913
+ficheros commiteados: iconos, logotipos y dos juegos de hojas de estilo qss.
+El usuario no tiene `estilos.qrc` ni necesita nada de eso: «borra toda
+referencia; si hace falta algún icono, lo inventas tú».
+
+- Se borran `build/` del repo (vuelve a ser solo la salida de compilación),
+  la carpeta `LibMapaStatic/` (la librería antigua, que ya no se compilaba
+  desde §1) y `Principal.pro.user`.
+- **Iconos dibujados en código** (`Principal/Iconos`): el avión (rojo, ámbar,
+  verde según el régimen) y el cuadróptero del mapa, los de la barra (regla,
+  lupa de recuadro, acercar, alejar, polígono) y play/pausa y stop del control
+  de objetivo. Sin ficheros ni plugins de imagen, y se ven en claro y oscuro.
+  Los de avisos de la tabla de puntos usan los del estilo de Qt (los
+  `:/icons/...` que pedía no existían en ningún `.qrc`); el informe impreso
+  sale sin logotipo.
+- **Tema** (*Tema → Claro / Oscuro*): paletas de Fusion en lugar de las hojas
+  qss. Al cambiar, se repulen los widgets que llevan hoja de estilo propia (la
+  pestaña de Mandos), que si no se quedaban con la paleta anterior.
+- `EstacionTierra3.pro`: `Principal.depends = usbdeviceswatcher` en lugar del
+  obsoleto `CONFIG += ordered`.
+- Compilado desde cero en una carpeta de build nueva y pasan las 73 pruebas;
+  visto con la app en los dos temas.

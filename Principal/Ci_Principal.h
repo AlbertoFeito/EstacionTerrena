@@ -33,8 +33,7 @@ public:
 
 
 public slots:
-    void m_setStyleSheet(QString &qss);
-    void m_CurrentStyleS(bool style);
+    void ponerTema(bool claro);
 
 protected:
     void timerEvent(QTimerEvent *event);
@@ -59,10 +58,6 @@ private:
     //dataBase
     QString query1;
     Database::AsyncQuery *_aQuery;
-
-
-    QString claro;
-    QString oscuro;
 
 
 
