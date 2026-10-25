@@ -64,8 +64,18 @@ void PerfilAltitudWidget::configurarGrafico()
     if (m_plot->plotLayout()->rowCount() == 1) {
         m_plot->axisRect()->insetLayout()->take(m_plot->legend);   // antes de moverla
         m_plot->plotLayout()->insertRow(0);
-        m_plot->plotLayout()->addElement(0, 0, m_plot->legend);
+        // Centrada y con los elementos juntos: la leyenda va en la columna del
+        // medio de una fila de tres, con las de los lados estirandose por
+        // igual (sola, ocupaba todo el ancho y separaba Terreno de Ruta).
+        auto *fila = new QCPLayoutGrid;
+        m_plot->plotLayout()->addElement(0, 0, fila);
+        fila->addElement(0, 0, new QCPLayoutElement(m_plot));
+        fila->addElement(0, 1, m_plot->legend);
+        fila->addElement(0, 2, new QCPLayoutElement(m_plot));
+        fila->setColumnStretchFactors({1.0, 0.001, 1.0});
+        fila->setMargins(QMargins(0, 0, 0, 0));
         m_plot->legend->setFillOrder(QCPLegend::foColumnsFirst);
+        m_plot->legend->setColumnSpacing(18);
         m_plot->plotLayout()->setRowStretchFactor(0, 0.001);
         m_plot->legend->setMargins(QMargins(0, 0, 0, 0));
     }
