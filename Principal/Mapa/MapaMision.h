@@ -5,6 +5,7 @@
 #include <QGeoCoordinate>
 #include <QObject>
 #include <QPixmap>
+#include <QSize>
 #include <QString>
 #include <QStringList>
 #include <QVariantMap>
@@ -156,6 +157,9 @@ signals:
     //! panel y el menu de capas se pongan al dia).
     void capasCambiadas();
 
+protected:
+    bool eventFilter(QObject *objeto, QEvent *evento) override;
+
 private:
     void ocultarCapasDelPaquete();
     static bool esCapaDeLaEstacion(const QString &id);
@@ -168,6 +172,7 @@ private:
     static QString idCapa(CapaBase capa);
 
     libmapa::MapWidget *m_mapa = nullptr;
+    QSize m_tamVentana;   // para saber si el mapa cambia por un panel o por la ventana
 
     qint64 m_vehiculo = -1;
     QPixmap m_simbolo;

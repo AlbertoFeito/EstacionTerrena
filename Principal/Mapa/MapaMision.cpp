@@ -6,6 +6,7 @@
 #include <QFileInfo>
 #include <QFont>
 #include <QPainter>
+#include <QResizeEvent>
 #include <QtMath>
 
 #include <cmath>
@@ -73,6 +74,8 @@ MapaMision::MapaMision(const QString &paquete, QWidget *padre)
     crearCapas();
     ponerCapaBase(CapaBase::Satelital);
     m_mapa->setScaleBarVisible(true);
+    // Para no desplazar lo que se ve cuando un panel le quita sitio (eventFilter).
+    m_mapa->installEventFilter(this);
 
     // Estela de los ultimos 10 minutos (a 10 tramas/s, 6000 posiciones). Antes
     // era entera y se redibujaba completa con cada trama: tras horas en
@@ -125,6 +128,40 @@ MapaMision::MapaMision(const QString &paquete, QWidget *padre)
             refrescarRotulosRuta();
         }
     });
+}
+
+// Cuando un panel (rutas abajo, capas a la derecha) quita o devuelve sitio al
+// mapa, lo que se ve se queda quieto: se recorta o se amplia por abajo y por la
+// derecha. libmapa conserva el centro, y todo se desplazaba medio panel. Si
+// cambia la ventana (maximizar, redimensionar), se conserva el centro, como
+// siempre. Llega antes que el resizeEvent del mapa; libmapa ya ha ajustado su
+// vista al tamano nuevo (center y visibleNorthWest lo sincronizan) con el
+// centro viejo.
+bool MapaMision::eventFilter(QObject *objeto, QEvent *evento)
+{
+    if (objeto != m_mapa || evento->type() != QEvent::Resize)
+        return QObject::eventFilter(objeto, evento);
+    const auto *r = static_cast<QResizeEvent *>(evento);
+    const QSize ventana = m_mapa->window()->size();
+    const bool porPanel = ventana == m_tamVentana && m_mapa->isVisible()
+                          && r->oldSize().width() > 1 && r->oldSize().height() > 1;
+    m_tamVentana = ventana;
+    const int dw = r->size().width() - r->oldSize().width();
+    const int dh = r->size().height() - r->oldSize().height();
+    if (!porPanel || (dw == 0 && dh == 0) || r->size().width() <= 1 || r->size().height() <= 1)
+        return QObject::eventFilter(objeto, evento);
+
+    // En coordenadas de eje (longitud y Mercator, lineales en pantalla).
+    const QPointF c = m_mapa->toAxisCoords(m_mapa->center());
+    const QPointF no = m_mapa->toAxisCoords(m_mapa->visibleNorthWest());
+    const QPointF se = m_mapa->toAxisCoords(m_mapa->visibleSouthEast());
+    const double porPxX = (se.x() - no.x()) / r->size().width();
+    const double porPxY = (no.y() - se.y()) / r->size().height();
+    // Esquina de arriba a la izquierda fija: el centro va media diferencia
+    // hacia la derecha y hacia abajo (hacia arriba y la izquierda si crece).
+    m_mapa->setCenter(m_mapa->fromAxisCoords(QPointF(c.x() + dw / 2.0 * porPxX,
+                                                     c.y() - dh / 2.0 * porPxY)));
+    return QObject::eventFilter(objeto, evento);
 }
 
 // El widget de libmapa.

@@ -180,6 +180,7 @@ private slots:
     void soloCapasBaseConEscala();
     void capasDelPaquete();
     void panelDeCapas();
+    void panelNoDesplazaElMapa();
     void estadoDeCapasSeRestaura();
     void pintaYQuitaLaRuta();
     void radioDeAcercamientoEnMetrosMercator();
@@ -291,6 +292,32 @@ void TestMapaMision::capasDelPaquete()
     QVERIFY(m_mision->capasFijas().first().visible);
     QVERIFY(!m_mision->ponerCapaFijaVisible(QStringLiteral("ruta"), false));   // de la estacion
     QCOMPARE(cambios.count(), 3);
+}
+
+// Un panel que quita sitio al mapa (la ventana no cambia) no desplaza lo que
+// se ve: la esquina noroeste se queda y se recorta por abajo y por la derecha.
+// Si cambia la ventana, se conserva el centro.
+void TestMapaMision::panelNoDesplazaElMapa()
+{
+    auto *mapa = m_mision->mapa();
+    QCoreApplication::processEvents();
+    const QGeoCoordinate noAntes = mapa->visibleNorthWest();
+
+    mapa->resize(800, 380);   // el panel de rutas, abajo
+    QCoreApplication::processEvents();
+    QVERIFY(mapa->visibleNorthWest().distanceTo(noAntes) < 3 * mapa->metersPerPixel());
+    mapa->resize(560, 380);   // y el de capas, a la derecha
+    QCoreApplication::processEvents();
+    QVERIFY(mapa->visibleNorthWest().distanceTo(noAntes) < 3 * mapa->metersPerPixel());
+    mapa->resize(800, 600);   // se cierran los dos
+    QCoreApplication::processEvents();
+    QVERIFY(mapa->visibleNorthWest().distanceTo(noAntes) < 3 * mapa->metersPerPixel());
+
+    const QGeoCoordinate centro = mapa->center();
+    m_ventana->resize(1000, 700);   // la ventana: el mapa crece con ella
+    mapa->resize(1000, 700);
+    QCoreApplication::processEvents();
+    QVERIFY(mapa->center().distanceTo(centro) < 3 * mapa->metersPerPixel());
 }
 
 // El panel de capas: «Mapa base» con las dos bases (una marcada) y

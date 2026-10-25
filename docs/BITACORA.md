@@ -813,3 +813,20 @@ Lo que cambia:
 
 El rectángulo oscuro arriba a la izquierda del mapa, en la captura, es una
 zona sin teselas en el paquete; no viene de la estación.
+
+## 24. Abrir un panel ya no desplaza el mapa, y la tabla no crece con los errores
+
+- **El mapa no se corre.** Al abrir el panel de rutas (o el de capas), el
+  mapa encogía por abajo, pero libmapa conserva el centro: todo lo que se veía
+  subía medio panel. Ahora `MapaMision` vigila el redimensionado del mapa y,
+  si la ventana no ha cambiado (lo ha encogido o ampliado un panel, o el
+  operador arrastrando su borde), deja fija la esquina de arriba a la
+  izquierda: se recorta o se amplía por abajo y por la derecha. Al maximizar
+  o redimensionar la ventana se sigue conservando el centro. La cuenta va en
+  coordenadas de eje de libmapa (longitud y Mercator), que son lineales en
+  pantalla. Prueba: `panelNoDesplazaElMapa`.
+- **La tabla no se ensancha con filas no válidas.** Las filas con errores o
+  advertencias se pintaban en negrita, con un `QFont()` que además cambiaba
+  la letra de la tabla por la de la aplicación. Las columnas crecían y la
+  tabla le comía sitio al perfil. Fuera esa negrita: ya marcan el error el
+  fondo rojo y el icono.

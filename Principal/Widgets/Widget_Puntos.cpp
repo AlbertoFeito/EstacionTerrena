@@ -1900,14 +1900,9 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
             return QBrush(QColor(150, 100, 0));
         return QVariant();
     }
-    if (role == Qt::FontRole) {
-        QFont font;
-        if (erroresPorPunto.contains(puntoId) || item.puntoCritico)
-            font.setBold(true);
-        else if (!item.advertencias.isEmpty())
-            font.setBold(true);
-        return font;
-    }
+    // Sin FontRole: la negrita de las filas con errores (y su QFont() con la
+    // letra de la aplicacion, no la de la tabla) ensanchaba las columnas y la
+    // tabla se comia el perfil. El fondo rojo y el icono ya lo marcan.
     // Numeros a la derecha (se comparan de un vistazo); nombre y modo, centrados.
     if (role == Qt::TextAlignmentRole)
         return int(index.column() >= 3 && index.column() <= 8 ? Qt::AlignRight | Qt::AlignVCenter
