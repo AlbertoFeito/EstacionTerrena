@@ -2,6 +2,7 @@
 #include "ui_Widget_Ganancias_Control.h"
 
 #include <QDir>
+#include "Rutas.h"
 
 Widget_Ganancias_Control::Widget_Ganancias_Control(sMANDOS *MANDOS, QWidget *parent) :
     QWidget(parent),
@@ -10,7 +11,7 @@ Widget_Ganancias_Control::Widget_Ganancias_Control(sMANDOS *MANDOS, QWidget *par
 
 {
     ui->setupUi(this);
-    fileName = QDir::currentPath() + "/conf.ini";
+    fileName = Rutas::confIni();
     configuraUI();
 
     m_originalStyle = ui->pB_Enviar->styleSheet(); // Guardar estilo inicial

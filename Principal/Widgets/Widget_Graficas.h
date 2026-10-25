@@ -32,6 +32,8 @@ public:
     void setVelocidad(const QVector<double> &value);
 
     void pintar();
+    void redibujar();
+    void colocarLeyenda();
     void preparaGraficas();
 
     QVector<double> getTiempo() const;
@@ -59,6 +61,8 @@ public slots:
     double Alt,
     double Vel,
     double tiem);
+protected:
+    void showEvent(QShowEvent *event) override;
 protected slots:
     void slotMousePress(QMouseEvent *event);
     void slotMouseMove(QMouseEvent *event);

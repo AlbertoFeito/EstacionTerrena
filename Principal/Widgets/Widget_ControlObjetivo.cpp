@@ -1,39 +1,72 @@
 #include "Widget_ControlObjetivo.h"
 #include "ui_Widget_ControlObjetivo.h"
 #include "Iconos/Iconos.h"
-#include <QDebug>
-#include <QTableView>
-#include <QHeaderView>
-#include <QScrollBar>
-#include <QGridLayout>
+#include "Vuelos/BaseDatos.h"
 #include "header/ColumnHeaderLengthAdapter.h"
 
+#include <QGridLayout>
+#include <QHeaderView>
+#include <QSqlQuery>
+#include <QSqlQueryModel>
+#include <QTableView>
+
+namespace {
+// Velocidades de reproduccion del deslizador (indice 1 = tiempo real).
+const double kFactores[] = {0.5, 1, 2, 4, 8, 16, 32};
+
+// "mm:ss" de unos milisegundos.
+QString reloj(qint64 ms)
+{
+    const qint64 s = qMax<qint64>(0, ms / 1000);
+    return QStringLiteral("%1:%2").arg(s / 60, 2, 10, QLatin1Char('0')).arg(s % 60, 2, 10, QLatin1Char('0'));
+}
+}
+
+// Pestaña de Control de objetivo: elegir dron y vuelo grabado, reproducirlo
+// (ReproductorVuelo), ver sus datos en tabla o en graficas.
 Widget_ControlObjetivo::Widget_ControlObjetivo(QWidget *parent) :
     QWidget(parent),
-    ui(new Ui::Widget_ControlObjetivo)
+    ui(new Ui::Widget_ControlObjetivo),
+    m_reproductor(new ReproductorVuelo(this))
 {
     ui->setupUi(this);
     ui->pB_Play->setIcon(Iconos::reproducir());
     ui->pB_Stop->setIcon(Iconos::parar());
+    ui->pB_Stop->setEnabled(false);
+    ui->hS_Velocidad->setRange(0, int(sizeof(kFactores) / sizeof(kFactores[0])) - 1);
+    ui->hS_Velocidad->setValue(1);
+    ui->hS_Velocidad->setToolTip(tr("Velocidad de reproducción (×1 = tiempo real)"));
+    {
+        const QSignalBlocker sinSenales(ui->hS_Avanzar);
+        ui->hS_Avanzar->setRange(0, 0);
+    }
+    ui->hS_Avanzar->setToolTip(tr("Ir a un momento del vuelo"));
+    on_hS_Velocidad_valueChanged(ui->hS_Velocidad->value());
+    actualizarReloj(0);
 
+    // Cada fotograma mueve el deslizador y el reloj (sin volver a saltar).
+    connect(m_reproductor, &ReproductorVuelo::fotograma, this, [this](const MuestraVuelo &, qint64 ms) {
+        const QSignalBlocker sinSenales(ui->hS_Avanzar);
+        ui->hS_Avanzar->setValue(int(ms / 100));
+        actualizarReloj(ms);
+    });
+    // Al acabar se queda en el ultimo momento, con la traza entera; Stop limpia.
+    connect(m_reproductor, &ReproductorVuelo::terminado, this, [this]() {
+        const QSignalBlocker sinSenales(ui->pB_Play);
+        ui->pB_Play->setChecked(false);
+    });
 
     wGraficas = new Widget_Graficas;
-
     wDatos = new QWidget;
-
     tV = new QTableView;
-
-    _queryModel = new Database::AsyncQueryModel(this);
-    tV->setModel(_queryModel);
+    m_modeloDatos = new QSqlQueryModel(this);
+    tV->setModel(m_modeloDatos);
     tV->verticalHeader ()->hide ();
-    //    tV->setVerticalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
     tV->setHorizontalScrollBarPolicy (Qt::ScrollBarAsNeeded);
 
     FlexibleHeaderView *headerView = new FlexibleHeaderView(Qt::Horizontal);
     tV->setHorizontalHeader (headerView);
-
     headerView->setSectionProportion(32, 0.4);
-
     tV->setSizeAdjustPolicy (QAbstractScrollArea::AdjustToContents);
     tV->setSizePolicy (QSizePolicy::Expanding,QSizePolicy::Expanding);
 
@@ -101,431 +134,236 @@ Widget_ControlObjetivo::Widget_ControlObjetivo(QWidget *parent) :
     });
     auto layoutV = new QVBoxLayout(wDatos);
     auto layoutH = new QHBoxLayout;   // sin padre: entra en layoutV con addLayout
-
     layoutH->addStretch ();
     layoutH->addWidget (pB_Imprimir);
     layoutH->addWidget (pB_Cerrar);
-
     layoutV->addWidget (tV);
     layoutV->addLayout (layoutH);
     wDatos->setLayout (layoutV);
     wDatos->setFixedSize (1000,600);
     wDatos->setWindowTitle ("Reporte de vuelo");
     wDatos->setWindowFlags (Qt::FramelessWindowHint);
-
-
-    estadoSimulacion = false;
-    posDatoActual = 0;
-    clkVelocidad = new QTimer(this);
-    connect(clkVelocidad,&QTimer::timeout,this,[&](){
-        if(ui->hS_Avanzar->value() < ui->hS_Avanzar->maximum())
-        {
-
-            posDatoActual = ui->hS_Avanzar->value();
-            prepara_envia_datos(posDatoActual++);
-            ui->hS_Avanzar->setValue(posDatoActual);
-        }
-        else
-        {
-            ui->pB_Play->clicked(false);
-            ui->pB_Play->setChecked (false);
-            ui->hS_Avanzar->setValue(0);
-            emit limpiarDatoContolObjetivo(dronActivo);
-            emit detenerDatoContolObjetivo ();
-        }
-
-    });
 }
 
-void Widget_ControlObjetivo::prepara_envia_datos(int pos)
-{
-    if(pos < listDatosVuelos.size ())
-    {
-        QByteArray aux;
-        aux.append("=");
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Id_Vuelos));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Lat,'f',4));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Lon,'f',4));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Realimentacion_Cabeceo,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Realimentacion_Banqueo,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Realimentacion_Velocidad,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Realimentacion_Altura,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Realimentacion_Curso,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Distancia_Chequeo,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Curso_Deseado,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Realimentacion_Regimen));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Realimentacion_ComandoMision));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Realimentacion_CursoIMO,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).CantidadSatelites));
-        aux.append(",");
-
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KPCabeceo,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KICabeceo,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KPBanqueo,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KIBanqueo,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KPVelocidad,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KIVelocidad,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KPAltura,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KIAltura,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KPCurso,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KPRumbo,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).KIRumbo,'f',2));
-        aux.append(",");
-
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Control_Estabilizadores,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Control_Alerones,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Control_Motor,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Control_Rumbo,'f',2));
-        aux.append(",");
-
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Convergencia_Banqueo,'f',2));
-        aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Convergencia_Cabeceo,'f',2));
-        aux.append(",");
-        auto timeFin = listDatosVuelos.at(pos).Fecha;
-        auto timeIni = listDatosVuelos.at(0).Fecha;
-        auto t = timeIni.time ().msecsTo (timeFin.time ())/1000.0;
-
-        aux.append(QByteArray::number (t));//32
-        emit datoContolObjetivo(aux);
-    }
-}
-
+// Libera la interfaz y las ventanas sueltas.
 Widget_ControlObjetivo::~Widget_ControlObjetivo()
 {
+    delete wGraficas;
+    delete wDatos;
     delete ui;
 }
 
+// El reproductor (CControladora pinta lo que emite).
+ReproductorVuelo *Widget_ControlObjetivo::reproductor() const
+{
+    return m_reproductor;
+}
 
+// Dron elegido.
 QString Widget_ControlObjetivo::getDronActivo() const
 {
     return dronActivo;
 }
 
-void Widget_ControlObjetivo::setDronActivo(const QString &value)
-{
-    dronActivo = value;
-}
-
-QStringList Widget_ControlObjetivo::getDrones() const
-{
-    return drones;
-}
-
-void Widget_ControlObjetivo::setDrones(const QStringList &value)
-{
-    ui->cB_Drones->clear ();
-    drones = value;
-    ui->cB_Drones->addItems (drones);
-}
-
-void Widget_ControlObjetivo::on_pB_Ver_ControlObjetivo_clicked()
-{
-    int col = _queryModel->asyncQuery ()->result ().headRecord().count ();
-    int rows = _queryModel->asyncQuery ()->result ().count ();
-
-    wDatos->setWindowTitle (QString("Datos del vuelo %1, del dron %2").arg (Vuelo).arg (dronActivo));
-    if(col > 0 && rows > 0)
-        wDatos->show ();
-}
-
+// Vuelo elegido.
 QString Widget_ControlObjetivo::getVuelo() const
 {
     return Vuelo;
 }
 
-void Widget_ControlObjetivo::setVuelo(const QString &value)
+// 0 ala fija, 1 cuadroptero (el del vuelo elegido).
+int Widget_ControlObjetivo::tipoDron() const
 {
-    Vuelo = value;
+    return m_tipoDron;
 }
 
+// Pone la lista de drones sin perder el elegido (si sigue en la lista) y
+// vuelve a pedir sus vuelos una sola vez.
+void Widget_ControlObjetivo::setDrones(const QStringList &value)
+{
+    const QString elegido = ui->cB_Drones->currentText ();
+    {
+        const QSignalBlocker sinSenales(ui->cB_Drones);
+        ui->cB_Drones->clear ();
+        ui->cB_Drones->addItems (value);
+        const int i = ui->cB_Drones->findText (elegido);
+        ui->cB_Drones->setCurrentIndex (i >= 0 ? i : 0);
+    }
+    if (m_enReproduccion && ui->cB_Drones->currentText () == elegido)
+        refrescarVuelos ();   // reproduciendo: solo la lista, sin tocar lo que se ve
+    else
+        on_cB_Drones_currentTextChanged (ui->cB_Drones->currentText ());
+}
 
+// Otro dron: su tipo y sus vuelos.
+void Widget_ControlObjetivo::on_cB_Drones_currentTextChanged(const QString &arg1)
+{
+    if (m_enReproduccion)
+        on_pB_Stop_clicked ();
+    dronActivo = arg1;
+    const BaseDatos::Dron dron = BaseDatos::dron (dronActivo);
+    m_idDron = dron.id;
+    m_tipoDron = dron.tipo == QLatin1String("Ala fija") ? 0 : 1;
+    refrescarVuelos ();
+}
+
+// Los vuelos grabados del dron. Se elige el mas reciente, salvo durante una
+// reproduccion (de Play a Stop, tambien en pausa): entonces se queda el que
+// se ve y la lista solo gana los nuevos.
+void Widget_ControlObjetivo::refrescarVuelos()
+{
+    const QString anterior = ui->cB_Vuelos->currentText ();
+    const QSignalBlocker sinSenales(ui->cB_Vuelos);
+    ui->cB_Vuelos->clear ();
+    QSqlQuery q(BaseDatos::drones ());
+    q.prepare (QStringLiteral("SELECT DISTINCT Id_Vuelos FROM DatosVuelos WHERE Dron_ID = ? ORDER BY Id_Vuelos"));
+    q.addBindValue (m_idDron);
+    if (q.exec ())
+        while (q.next ())
+            ui->cB_Vuelos->addItem (q.value (0).toString ());
+    const int previo = ui->cB_Vuelos->findText (anterior);
+    if (m_enReproduccion && previo >= 0) {
+        ui->cB_Vuelos->setCurrentIndex (previo);
+        return;
+    }
+    ui->cB_Vuelos->setCurrentIndex (ui->cB_Vuelos->count () - 1);
+    cargarVuelo (ui->cB_Vuelos->currentText ());
+}
+
+// El operador elige otro vuelo.
+void Widget_ControlObjetivo::on_cB_Vuelos_currentTextChanged(const QString &arg1)
+{
+    if (m_enReproduccion)
+        on_pB_Stop_clicked ();
+    cargarVuelo (arg1);
+}
+
+// Lee el vuelo en el reproductor y prepara el deslizador y el reloj.
+void Widget_ControlObjetivo::cargarVuelo(const QString &vuelo)
+{
+    Vuelo = vuelo;
+    if (vuelo.isEmpty () || m_idDron < 0)
+        m_reproductor->cargar (QVector<MuestraVuelo>(), QVector<PlanGrabado>());
+    else
+        m_reproductor->cargar (BaseDatos::drones (), m_idDron, vuelo.toInt ());
+    {
+        const QSignalBlocker sinSenales(ui->hS_Avanzar);   // si no, saltaria y empezaria a reproducir
+        ui->hS_Avanzar->setRange (0, int(m_reproductor->duracionMs () / 100));
+        ui->hS_Avanzar->setValue (0);
+    }
+    actualizarReloj (0);
+}
+
+// "Reproducir  01:23 / 05:40" en el titulo del grupo.
+void Widget_ControlObjetivo::actualizarReloj(qint64 ms)
+{
+    ui->groupBox->setTitle (tr("Reproducir  %1 / %2").arg (reloj (ms), reloj (m_reproductor->duracionMs ())));
+}
+
+// Tabla con todos los datos del vuelo elegido.
+void Widget_ControlObjetivo::on_pB_Ver_ControlObjetivo_clicked()
+{
+    if (Vuelo.isEmpty ())
+        return;
+    QSqlQuery q(BaseDatos::drones ());
+    q.prepare (QStringLiteral("SELECT * FROM DatosVuelos WHERE Dron_ID = ? AND Id_Vuelos = ? ORDER BY Fecha"));
+    q.addBindValue (m_idDron);
+    q.addBindValue (Vuelo.toInt ());
+    q.exec ();
+    m_modeloDatos->setQuery (std::move (q));
+    wDatos->setWindowTitle (QString("Datos del vuelo %1, del dron %2").arg (Vuelo).arg (dronActivo));
+    if (m_modeloDatos->rowCount () > 0)
+        wDatos->show ();
+}
+
+// Graficas del vuelo elegido, con los datos ya leidos.
 void Widget_ControlObjetivo::on_pB_Graficar_clicked()
 {
-    if(ui->pB_Play->isChecked ())
-    {
-         wGraficas->show ();
+    const QVector<MuestraVuelo> &m = m_reproductor->muestras ();
+    if (m.isEmpty ())
+        return;
+    QVector<double> banqueo, cabeceo, motor, altura, velocidad, tiempo;
+    for (int i = 0; i < m.size (); ++i) {
+        banqueo.append (m.at (i).banqueo);
+        cabeceo.append (m.at (i).cabeceo);
+        motor.append (m.at (i).actuadores[2]);
+        altura.append (m.at (i).altura);
+        velocidad.append (m.at (i).velocidadKmh);
+        tiempo.append (m_reproductor->tiempos ().at (i) / 1000.0);
     }
-    else
-    {
-
-        QVector<double> Banqueo;
-        QVector<double> Cabeceo;
-        QVector<double> RPM;
-        QVector<double> Altura;
-        QVector<double> Velocidad;
-        QVector<double> tiempo;
-        double t = 0;
-        bool accion = false;
-
-
-        Database::AsyncQueryResult res = _queryModel->asyncQuery ()->result ();
-        for (int i = 0; i < res.count(); i++) {
-            accion = true;
-
-            auto aux = res.value(i, "Cabeceo").toDouble ();
-            Cabeceo.append (Map (aux,-90,90,0,1000));
-
-            aux = res.value(i, "Banqueo").toDouble ();
-            Banqueo.append (Map (aux,-20,20,0,1000));
-
-            aux = res.value(i, "RPM").toDouble ();
-            RPM.append (Map (aux,0,1000,0,1000));
-
-            aux = res.value(i, "Velocidad").toDouble ();
-            Velocidad.append (Map (aux,0,320,0,1000));
-
-            aux = res.value(i, "Altura").toDouble ();
-            Altura.append (Map (aux,0,5000,0,1000));
-
-            auto timeFin = res.value (i,"Fecha").toDateTime ();
-            auto timeIni = res.value (0,"Fecha").toDateTime ();
-            t = timeIni.time ().msecsTo (timeFin.time ())/1000.0;
-            tiempo.append (t);
-//            t+=0.2;
-        }
-
-        if(accion)
-        {
-            wGraficas->setCabeceo (Cabeceo);
-            wGraficas->setBanqueo (Banqueo);
-            wGraficas->setRPM (RPM);
-            wGraficas->setVelocidad (Velocidad);
-            wGraficas->setAltura (Altura);
-            wGraficas->setTiempo (tiempo);
-            wGraficas->pintar();
-            wGraficas->setWindowTitle (QString("Gráficas del vuelo %1, del dron %2").arg (Vuelo).arg (dronActivo));
-            wGraficas->setVuelo (Vuelo);
-            wGraficas->setDronActivo (dronActivo);
-            wGraficas->show ();
-        }
-    }
+    wGraficas->setBanqueo (banqueo);
+    wGraficas->setCabeceo (cabeceo);
+    wGraficas->setRPM (motor);
+    wGraficas->setAltura (altura);
+    wGraficas->setVelocidad (velocidad);
+    wGraficas->setTiempo (tiempo);
+    wGraficas->pintar ();
+    wGraficas->setWindowTitle (QString("Gráficas del vuelo %1, del dron %2").arg (Vuelo).arg (dronActivo));
+    wGraficas->setVuelo (Vuelo);
+    wGraficas->setDronActivo (dronActivo);
+    wGraficas->show ();
 }
 
-
-
-float Widget_ControlObjetivo::Map(float x, float in_min, float in_max, float out_min, float out_max)
-{
-    return (x-in_min)*(out_max - out_min)/(in_max-in_min)+out_min;
-}
-
-void Widget_ControlObjetivo::on_cB_Drones_currentIndexChanged(const QString &arg1)
-{
-    ui->cB_Vuelos->clear ();
-    listDatosVuelos.clear();
-
-    dronActivo = arg1;
-
-    QString queryVuelos = "SELECT DISTINCT Id_Vuelos "
-                          "FROM DatosVuelos "
-                          "INNER JOIN DronTable ON DronTable.Id_Dron = DatosVuelos.Dron_ID "
-                          "WHERE DronTable.Nombre = \'" + dronActivo +"\'";
-
-    Database::AsyncQuery::startExecOnce(queryVuelos,
-                                        [=](const Database::AsyncQueryResult& res)
-    {
-        for (int i = 0; i < res.count(); i++) {
-            ui->cB_Vuelos->addItem(res.value(i, "Id_Vuelos").toString());
-        }
-        ui->cB_Vuelos->setCurrentIndex(0);
-        Vuelo = ui->cB_Vuelos->currentText();
-    });
-}
-
-void Widget_ControlObjetivo::on_cB_Vuelos_currentIndexChanged(const QString &arg1)
-{
-    Vuelo = arg1;
-    dronActivo = ui->cB_Drones->currentText();
-
-    QString queryDatos = "SELECT DatosVuelos.Lat, "
-                         "DatosVuelos.Lon, "
-                         "DatosVuelos.Realimentacion_Cabeceo, "
-                         "DatosVuelos.Realimentacion_Banqueo, "
-                         "DatosVuelos.Realimentacion_Velocidad, "
-                         "DatosVuelos.Realimentacion_Altura, "
-                         "DatosVuelos.Realimentacion_Curso, "
-                         "DatosVuelos.Distancia_Chequeo, "
-                         "DatosVuelos.Curso_Deseado, "
-                         "DatosVuelos.Realimentacion_Regimen, "
-                         "DatosVuelos.Realimentacion_ComandoMision, "
-                         "DatosVuelos.Realimentacion_CursoIMU, "
-                         "DatosVuelos.CantidadSatelites, "
-
-                         "DatosVuelos.KPCabeceo, "
-                         "DatosVuelos.KICabeceo, "
-                         "DatosVuelos.KPBanqueo, "
-                         "DatosVuelos.KIBanqueo, "
-                         "DatosVuelos.KPVelocidad, "
-                         "DatosVuelos.KIVelocidad, "
-                         "DatosVuelos.KPAltura, "
-                         "DatosVuelos.KIAltura, "
-                         "DatosVuelos.KPCurso, "
-                         "DatosVuelos.KPRumbo, "
-                         "DatosVuelos.KIRumbo, "
-
-                         "DatosVuelos.Control_Estabilizadores, "
-                         "DatosVuelos.Control_Alerones, "
-                         "DatosVuelos.Control_Motor, "
-                         "DatosVuelos.Control_Rumbo, "
-
-                         "DatosVuelos.Convergencia_Banqueo, "
-                         "DatosVuelos.Convergencia_Cabeceo, "
-                         "DatosVuelos.Fecha "
-                         "FROM DatosVuelos "
-                         "INNER JOIN DronTable ON DronTable.Id_Dron = DatosVuelos.Dron_ID "
-                         "WHERE DronTable.Nombre = \'" + dronActivo +"\'"
-                                                                     "AND DatosVuelos.Id_Vuelos = " + Vuelo;
-
-    listDatosVuelos.clear();
-
-    Database::AsyncQuery::startExecOnce(queryDatos,
-                                        [=](const Database::AsyncQueryResult& res)
-    {
-        for (int i = 0; i < res.count(); i++) {
-            listDatosVuelos.append( s_datosVuelos(
-                                        res.value(i,"Id_Vuelos").toInt (),
-                                        res.value(i,"Dron_ID").toInt (),
-                                        res.value(i,"Lat").toDouble(),
-                                        res.value(i,"Lon").toDouble (),
-                                        res.value(i,"Realimentacion_Cabeceo").toDouble (),
-                                        res.value(i,"Realimentacion_Banqueo").toDouble (),
-                                        res.value(i,"Realimentacion_Velocidad").toDouble (),
-                                        res.value(i,"Realimentacion_Altura").toDouble (),
-                                        res.value(i,"Realimentacion_Curso").toDouble (),
-                                        res.value(i,"Distancia_Chequeo").toDouble (),
-                                        res.value(i,"Curso_Deseado").toDouble (),
-                                        res.value(i,"Realimentacion_Regimen").toInt (),
-                                        res.value(i,"Realimentacion_ComandoMision").toInt (),
-                                        res.value(i,"Realimentacion_CursoIMU").toDouble (),
-                                        res.value(i,"CantidadSatelites").toDouble (),
-
-                                        res.value(i,"KPCabeceo").toDouble (),
-                                        res.value(i,"KICabeceo").toDouble (),
-                                        res.value(i,"KPBanqueo").toDouble (),
-                                        res.value(i,"KIBanqueo").toDouble (),
-                                        res.value(i,"KPVelocidad").toDouble (),
-                                        res.value(i,"KIVelocidad").toDouble (),
-                                        res.value(i,"KPAltura").toDouble (),
-                                        res.value(i,"KIAltura").toDouble (),
-                                        res.value(i,"KPCurso").toDouble (),
-                                        res.value(i,"KPRumbo").toDouble (),
-                                        res.value(i,"KIRumbo").toDouble (),
-
-                                        res.value(i,"Control_Estabilizadores").toDouble (),
-                                        res.value(i,"Control_Alerones").toDouble (),
-                                        res.value(i,"Control_Motor").toDouble (),
-                                        res.value(i,"Control_Rumbo").toDouble (),
-
-                                        res.value(i,"Convergencia_Banqueo").toDouble (),
-                                        res.value(i,"Convergencia_Cabeceo").toDouble (),
-
-                                        res.value(i,"Fecha").toDateTime()));
-        }
-        _queryModel->startExec (queryDatos);
-        configuraComponentesPlay();
-    });
-}
-
-void Widget_ControlObjetivo::configuraComponentesPlay()
-{
-    ui->hS_Avanzar->setMaximum(listDatosVuelos.size());
-}
-
+// Velocidad de reproduccion: x0,5 ... x32.
 void Widget_ControlObjetivo::on_hS_Velocidad_valueChanged(int value)
 {
-    if(estadoSimulacion)
-        clkVelocidad->start(TIME_BASE/value);
+    const int n = int(sizeof(kFactores) / sizeof(kFactores[0]));
+    const double f = kFactores[qBound(0, value, n - 1)];
+    m_reproductor->setVelocidad (f);
+    ui->label_4->setText (f < 1.0 ? tr("Velocidad ×½") : tr("Velocidad ×%1").arg (f));
 }
 
+// Para, limpia el mapa y vuelve al principio.
 void Widget_ControlObjetivo::on_pB_Stop_clicked()
 {
-    ui->hS_Avanzar->setValue (0);
-    ui->hS_Velocidad->setValue (0);
+    m_reproductor->parar ();
+    {
+        const QSignalBlocker a(ui->pB_Play), b(ui->hS_Avanzar);
+        ui->pB_Play->setChecked (false);
+        ui->hS_Avanzar->setValue (0);
+    }
     ui->pB_Stop->setEnabled (false);
-    ui->pB_Play->setChecked (false);
+    actualizarReloj (0);
+    m_enReproduccion = false;
     emit limpiarDatoContolObjetivo(dronActivo);
     emit detenerDatoContolObjetivo ();
 }
 
+// Play / pausa. La primera vez limpia el mapa y avisa de que empieza.
 void Widget_ControlObjetivo::on_pB_Play_toggled(bool checked)
 {
-    if(checked)
-    {
-        wGraficas->preparaGraficas ();
-        estadoSimulacion = true;
+    if (!checked) {
+        m_reproductor->pausar ();
+        return;
+    }
+    if (m_reproductor->muestras ().isEmpty ()) {
+        const QSignalBlocker sinSenal(ui->pB_Play);
+        ui->pB_Play->setChecked (false);
+        return;
+    }
+    if (!m_enReproduccion) {
+        m_enReproduccion = true;
         ui->pB_Stop->setEnabled (true);
         emit limpiarDatoContolObjetivo(dronActivo);
         emit iniciarDatoContolObjetivo ();
-        clkVelocidad->start(TIME_BASE/ui->hS_Velocidad->value());
-        setControlObjetivoTime (QTime::currentTime ());
     }
-    else
-    {
-        clkVelocidad->stop();
-        estadoSimulacion = false;
-    }
+    m_reproductor->reproducir ();
 }
 
+// Ir a otro momento del vuelo (arrastrando o pinchando en el deslizador).
 void Widget_ControlObjetivo::on_hS_Avanzar_valueChanged(int value)
 {
-    //    emit limpiarDatoContolObjetivo(dronActivo);
-    if(ui->pB_Play->isChecked ())
-        prepara_envia_datos(value);
+    if (!m_enReproduccion) {
+        m_enReproduccion = true;
+        ui->pB_Stop->setEnabled (true);
+        emit limpiarDatoContolObjetivo(dronActivo);
+        emit iniciarDatoContolObjetivo ();
+    }
+    m_reproductor->irA (qint64(value) * 100);
 }
 
-void Widget_ControlObjetivo::on_hS_Avanzar_sliderPressed()
-{
-    emit limpiarDatoContolObjetivo(dronActivo);
-}
-
-void Widget_ControlObjetivo::on_hS_Avanzar_sliderReleased()
-{
-    // Slider released - position is handled by valueChanged
-}
-
-QTime Widget_ControlObjetivo::getControlObjetivoTime() const
-{
-    return controlObjetivoTime;
-}
-
-void Widget_ControlObjetivo::setControlObjetivoTime(const QTime &value)
-{
-    controlObjetivoTime = value;
-}
-
+// Ventana de graficas (la usa tambien la estacion en vivo).
 Widget_Graficas *Widget_ControlObjetivo::getWGraficas() const
 {
     return wGraficas;
-}
-
-void Widget_ControlObjetivo::setWGraficas(Widget_Graficas *value)
-{
-    wGraficas = value;
 }

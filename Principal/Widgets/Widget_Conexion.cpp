@@ -8,6 +8,7 @@
 #include <QDebug>
 #include <QThread>
 #include "MyQSettings/myqsetting.h"
+#include "Rutas.h"
 
 
 Widget_Conexion::Widget_Conexion(QWidget *parent) :
@@ -50,7 +51,7 @@ Widget_Conexion::Widget_Conexion(QWidget *parent) :
 void Widget_Conexion::crearSelectorEnlace()
 {
     MyQSetting settings;
-    const QString fichero = QDir::currentPath() + "/conf.ini";
+    const QString fichero = Rutas::confIni();
     auto valor = [&](const QString &clave, const QVariant &defecto) {
         return settings.cargarSetting(fichero, clave, "ENLACE", defecto);
     };
@@ -112,7 +113,7 @@ void Widget_Conexion::crearSelectorEnlace()
 void Widget_Conexion::guardarEnlace()
 {
     MyQSetting settings;
-    const QString fichero = QDir::currentPath() + "/conf.ini";
+    const QString fichero = Rutas::confIni();
     settings.guardarSetting(fichero, "tipo", m_cBEnlace->currentIndex(), "ENLACE");
     settings.guardarSetting(fichero, "tcp_host", m_leTcpHost->text(), "ENLACE");
     settings.guardarSetting(fichero, "tcp_puerto", m_sbTcpPuerto->value(), "ENLACE");

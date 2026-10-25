@@ -400,3 +400,192 @@ referencia; si hace falta algún icono, lo inventas tú».
   obsoleto `CONFIG += ordered`.
 - Compilado desde cero en una carpeta de build nueva y pasan las 73 pruebas;
   visto con la app en los dos temas.
+
+## 13. Fallos conocidos y el log de cada trama
+
+El punto 2 de la fase de mejora, más lo aprovechable del PR #1 (que ya no se
+podía fusionar: tocaba `LibMapaStatic/` y `estilos.qrc`, borrados en §12).
+
+- **Reproducción de vuelos** (Control de objetivo → `recibirDatos`): leía los
+  campos de la fila sin mirar cuántos traía (una fila corta tumbaba la
+  estación), giraba el avión del mapa con la **velocidad** (campo 6) en lugar
+  del **curso** (campo 8), pasaba el curso deseado de radianes a grados aunque
+  se grabó en grados. Ahora la fila la lee `Protocolo/FilaVuelo.h` (con su prueba) y la
+  reproducción se ve como en vivo: instrumentos, panel, detalle técnico y el
+  avión o el cuadróptero del color del régimen. Una fila incompleta se ignora
+  y se anota en el log.
+- `listaParametros` (24 nombres para 25 valores) no lo usaba nadie: fuera.
+- **Rutas**: `conf.ini` y `Recursos/data` se buscaban siempre respecto a la
+  carpeta de trabajo; lanzada de otra forma, la estación creaba en silencio
+  una base de datos vacía en otro sitio. Ahora `Principal/Rutas.h` elige una
+  carpeta base una vez (la de trabajo si tiene los datos, si no la del
+  ejecutable, si no la de trabajo como antes), todo pasa por ahí y el log dice
+  al arrancar cuál usa. Donde ya funcionaba, sigue igual.
+- **`usbdeviceswatcher`** se borra: en Linux no arrancaba su bucle, pero es que
+  la estación no lo usaba en ningún sistema (se enlazaba y nada lo llamaba; el
+  enchufar y desenchufar puertos lo lleva `DeviceHotplug`). Fuera también
+  `libudev`.
+- **Log**: cada trama escribía 7 líneas en la ventana del log (70 por segundo,
+  sin límite: en un vuelo largo, cientos de miles de líneas y memoria). Ahora
+  solo los sucesos (casa, posición válida o fuera del área al cambiar, enlace
+  perdido o recuperado, acuses que no llegan...) y la ventana guarda las
+  últimas 5000 líneas.
+- Del PR #1: los combos de Control de objetivo usaban
+  `currentIndexChanged(QString)`, que en Qt 6 no existe: no se llamaban nunca
+  (no se podía elegir dron ni vuelo). Pasan a `currentTextChanged`.
+- **Pestañas**: al acortar sus nombres (§9) dejaron de cumplirse las
+  comparaciones con el texto de la pestaña que cargan datos al abrirla:
+  Control de objetivo no llenaba los combos de dron y vuelo (lo vio el
+  usuario), Enlace no refrescaba la lista de drones, Drones no refrescaba la
+  tabla y Ganancias no se activaba con el enlace. Ahora cada pestaña se
+  reconoce por el widget que contiene. Probado con la app: vuelo guardado con
+  el simulador, combos llenos y reproducción.
+- **Lo que se graba** (casilla «Guardar»): el cabeceo se guardaba en la
+  columna del banqueo y al revés, la posición con 4 decimales (unos 11 m) y,
+  con cuadróptero, los datos de la última trama de ala fija. Ahora cada
+  manejador de trama le da a `guardaDatosDron` lo suyo. Los vuelos grabados
+  antes de esto tienen el cabeceo y el banqueo cambiados.
+- **Gráficas de un vuelo grabado**: pedían columnas que no existen
+  («Cabeceo», «Altura»...), así que todo salía a cero (la línea plana a 500
+  que vio el usuario: cabeceo y banqueo a 0 en la escala de 0 a 1000). Y aun
+  con datos, todas las series compartían una escala fija (la altura de 0 a
+  5000 m): 100 m de diferencia no se veían. Ahora cada serie va en su franja
+  (altura, velocidad, motor, cabeceo y banqueo, de arriba abajo) estirada entre
+  su mínimo y su máximo, con el rango real en la leyenda («Altura 100–162 m»),
+  que va debajo de la gráfica y en blanco. «RPM», que el dron no manda, pasa a
+  ser el control del motor. La gráfica en vivo usa lo mismo, y la del
+  cuadróptero ya grafica sus datos y no los de ala fija.
+- **Combo de vuelos**: un vuelo recién grabado no salía hasta reiniciar.
+  Solo se refrescaba al abrir la pestaña, y nunca si se había empezado una
+  reproducción y se había dejado en pausa. Ahora se refresca también al
+  desconectar y al dejar de grabar, elige el vuelo más reciente y, durante una
+  reproducción, se queda con el que se ve. Las respuestas que llegan tarde (de
+  un dron o vuelo que ya no es el elegido) se descartan: el combo podía salir
+  con vuelos repetidos.
+- Probado con la app: vuelo grabado con alturas de 100 y 250 m, un segundo
+  vuelo grabado con el primero en pausa (aparece sin reiniciar y no se pierde
+  el que se veía) y la gráfica con la altura subiendo y bajando.
+- Pruebas: `test_tramas` lee una fila grabada y una incompleta. 75 en total.
+
+## 14. Grabación de vuelos nueva: sin escalones y sin perder el principio
+
+La traza de un vuelo reproducido salía en escalones. Venía de redondear la
+posición a 4 decimales (unos 11 m en latitud y 10 m en longitud) en dos
+sitios: al guardar (como texto) y al reproducir, porque Control de objetivo
+vuelve a escribir cada fila con `QByteArray::number(Lat, 'f', 4)`. Además, la
+grabación tenía otros defectos:
+
+- el número de vuelo se pedía y se apuntaba en `DronTable` de forma
+  asíncrona: las primeras tramas tras marcar «Guardar» iban al vuelo
+  anterior;
+- cada trama lanzaba un `INSERT` asíncrono con la consulta compartida
+  `_aQuery`, preparada y con los valores pasados a texto cada vez;
+- `DatosVuelos` no tenía índice, y todas las consultas de Control de objetivo
+  buscan por dron y vuelo.
+
+Por eso se sustituye por **`Principal/Vuelos/GrabadorVuelo`** (solo Qt Core +
+Sql, con su propia conexión SQLite al mismo fichero):
+
+- `empezar(dron)` da de alta el vuelo en el momento (número del dron + 1,
+  guardado en `DronTable.Vuelos`), antes de aceptar ninguna muestra; si el
+  dron no existe, «Guardar» se desmarca y la barra de estado dice por qué;
+- `anotar()` solo guarda la muestra en memoria (a 10 Hz no se toca el disco);
+- cada segundo, y al terminar, las pendientes se escriben de una vez en una
+  transacción con una consulta preparada, con los números tal cual (REAL, sin
+  pasar por texto), y la fecha con milisegundos;
+- crea `DatosVuelos` (las mismas columnas de siempre) y el índice
+  `DatosVuelos_dron_vuelo` si no existen.
+
+La reproducción pasa la posición con 7 decimales. La precisión que queda es la
+del protocolo, que manda latitud y longitud como `float` de 32 bits (unos
+0,2 m en latitud y 0,8 m en longitud a esta latitud): no se ve en el mapa.
+
+- `test_grabador` (4 casos, base de datos temporal): vuelo nuevo al empezar,
+  muestras sin redondear y cada una en su columna, escritura solo al volcar y
+  al terminar, dron que no existe. 79 pruebas en total.
+- Probado con la app contra el simulador: 628 filas en 63 s (10 por segundo),
+  la altura de 100 a 159 m, el índice creado y la reproducción del vuelo nuevo.
+
+## 15. Reproducir un vuelo como fue: ruta, cumplidos, rumbos y tiempo real
+
+Lo pidió el usuario: que la reproducción muestre la ruta del vuelo y las
+flechas del movimiento, lo más real posible, y que se borre el módulo
+`Database` si ya no se usa.
+
+**Qué se graba ahora** (`GrabadorVuelo`):
+
+- en cada muestra, el **punto al que va el dron** (`Cumplir_Punto`: columnas
+  `Punto_Norte`, `Punto_Este`, `Punto_Altura`; en una base de datos vieja se
+  añaden con `ALTER TABLE`);
+- cada **plan que confirma el dron**, punto a punto y con la hora, en la
+  tabla nueva `PlanesVuelo`: el que ya tenía al empezar a grabar (el último
+  confirmado en la sesión) y cada uno nuevo durante el vuelo.
+
+**`Vuelos/ReproductorVuelo`** (solo Qt Core + Sql, con pruebas):
+
+- el tiempo es el de la grabación (la fecha de cada muestra), por la
+  velocidad elegida (×½ a ×32); antes, una fila cada 200 ms fuera cual fuera
+  el tiempo real;
+- **interpola** entre muestras (posición, altura, velocidad, actitud; los
+  rumbos por el lado corto) a 25 fotogramas por segundo: el dron se mueve
+  suave; si hay un corte de más de 2 s, no se inventa el tramo;
+- con cada fotograma va el plan que tenía el dron en ese momento.
+
+**En el mapa**, cada fotograma se pinta como en vivo
+(`CControladora::mostrarMuestraReproducida`): la ruta del plan grabado, los
+puntos que va cumpliendo en verde, el vector de rumbo y el deseado, la línea
+morada al punto al que iba con su rótulo, el panel («P3 / 10», distancia,
+rumbos) con el detalle técnico, los instrumentos y el avión o cuadróptero del
+color del régimen con su traza. Al acabar se queda en el último momento con
+la traza entera; Stop limpia y vuelve la ruta de planificación.
+
+**Control de objetivo** se rehace sobre el reproductor: el título del grupo
+dice «Reproducir 01:23 / 03:57», el deslizador de velocidad va de ×½ a ×32
+(×1 = tiempo real) y el de avanzar salta a cualquier momento. Graficar usa las
+muestras ya leídas.
+
+**Fuera `Database/`** (AsyncQuery, AsyncQueryResult, AsyncQueryModel y
+ConnectionManager, unas 1100 líneas): lanzaban cada consulta en otro hilo y
+devolvían el resultado más tarde, lo que obligaba a encadenar callbacks y
+dejaba carreras. Lo sustituye `Vuelos/BaseDatos`, una conexión directa a
+`DronDB.db` (consultas pequeñas, en milisegundos). `Widget_Drones` usa un
+`QSqlQueryModel`. También se borra `Protocolo/FilaVuelo.h`: la reproducción
+ya no pasa por una línea de texto.
+
+- `test_grabador` (10 casos): además de la grabación, lo grabado se lee igual
+  al reproducir (con su plan), la interpolación, un plan que cambia a mitad
+  del vuelo, un vuelo de una base de datos vieja (sin ruta) y la reproducción
+  a ×16 en el tiempo que toca. 82 pruebas en total.
+- Probado con la app contra el simulador: ruta de 10 puntos creada en el
+  planificador y enviada antes de grabar, vuelo en automático grabado (2376
+  muestras, 2348 con punto a cumplir, el plan guardado al empezar) y
+  reproducido a ×32 con la ruta, la línea al próximo punto y «P3 / 10».
+
+Visto al probar (sin cambiar, pendiente de confirmar): el planificador
+muestra la velocidad de cada punto en m/s, pero al enviar el plan se divide
+por 3,6 como si fuera km/h (16,25 → 4,5 m/s). Apuntado en `PENDIENTES.md`.
+
+## 16. Grabar sin frenar la pantalla
+
+Aviso del usuario: grabando un vuelo (al menos en debug) el dron «se detiene y
+luego acelera». Cada segundo, `GrabadorVuelo` escribía las muestras
+pendientes en el hilo de la interfaz, y cerrar la transacción espera al disco.
+Aquí (Linux, en un contenedor) son 1–2 ms, pero en Windows cada `COMMIT` hace
+varias esperas al disco (diario y base de datos) que, en debug o con el
+antivirus mirando el fichero, llegan a decenas o cientos de ms. En ese rato
+no se pinta nada, las tramas se acumulan y luego salen todas de golpe.
+
+- La escritura pasa a un **hilo propio** (`GrabadorVuelo`): `volcar()` solo
+  entrega el lote y vuelve; el hilo lo escribe en una transacción, en orden
+  con los planes. `terminar()` espera a que todo esté en disco (la lista de
+  vuelos lo lee justo después), y `esperar()` lo hace a petición.
+- Esa conexión usa **WAL con `synchronous=NORMAL`**: una espera al disco por
+  transacción en lugar de varias, y sigue a salvo si se cae la estación (solo
+  se perdería lo del último segundo si se va la luz). El fichero de la base de
+  datos pasa a tener al lado `DronDB.db-wal` y `DronDB.db-shm`, que son suyos.
+- `test_grabador::volcarNoEsperaAlDisco`: con la base de datos bloqueada por
+  otra conexión (como un disco lento), `volcar()` vuelve en menos de 100 ms y,
+  al soltarse el bloqueo, se escribe todo. Antes esperaba hasta 5 s en el
+  hilo de la interfaz. 83 pruebas en total.
+- Visto con la app grabando: todas las esperas al disco (`fsync`) las hace el
+  hilo «GrabadorVuelo» y el de la interfaz lee la telemetría trama a trama.

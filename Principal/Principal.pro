@@ -41,10 +41,9 @@ SOURCES += \
     AlturaWorker.cpp \
     CControladora.cpp \
     Iconos/Iconos.cpp \
-    Database/AsyncQuery.cpp \
-    Database/AsyncQueryResult.cpp \
-    Database/AsynqQueryModel.cpp \
-    Database/ConnectionManager.cpp \
+    Vuelos/BaseDatos.cpp \
+    Vuelos/GrabadorVuelo.cpp \
+    Vuelos/ReproductorVuelo.cpp \
     LocationValidator.cpp \
     Mapa/MapaMision.cpp \
     MyQSettings/myqsetting.cpp \
@@ -83,11 +82,10 @@ HEADERS += \
     AlturaWorker.h \
     CControladora.h \
     Iconos/Iconos.h \
+    Vuelos/BaseDatos.h \
+    Vuelos/GrabadorVuelo.h \
+    Vuelos/ReproductorVuelo.h \
     Ci_Principal.h \
-    Database/AsyncQuery.h \
-    Database/AsyncQueryResult.h \
-    Database/AsynqQueryModel.h \
-    Database/ConnectionManager.h \
     Estructuras/E_Punto.h \
     Estructuras/Estructuras.h \
     Estructuras/Utils.h \
@@ -98,6 +96,7 @@ HEADERS += \
     Reporte/qecsreport.h \
     Protocolo/ProyeccionMercator.h \
     Protocolo/SeguimientoCumplidos.h \
+    Rutas.h \
     Protocolo/MonitorEnlace.h \
     Protocolo/Tramas.h \
     Reporte/sectionclass.h \
@@ -144,11 +143,6 @@ qnx: target.path = /tmp/$${TARGET}/bin
 else: unix:!android: target.path = /opt/$${TARGET}/bin
 !isEmpty(target.path): INSTALLS += target
 
-win32:LIBS += -L$$DESTDIR -lUsbDevicesWatcher
-else:LIBS += -L$$DESTDIR -lUsbDevicesWatcher
-
-INCLUDEPATH += $$PWD/../usbdeviceswatcher
-DEPENDPATH += $$PWD/../usbdeviceswatcher
 
 # libmapa INSTALADA (docs/DESPLIEGUE.md de LibMapaStatic). Por defecto la del Qt
 # del kit: C:/libmapa/qt5 o C:/libmapa/qt6. Otra:  qmake LIBMAPA_PREFIX=D:/otra/carpeta

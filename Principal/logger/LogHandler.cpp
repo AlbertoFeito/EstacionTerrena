@@ -230,9 +230,11 @@ void LogHandlerPrivate::messageHandler(QtMsgType type, const QMessageLogContext 
  *                                               LogHandler                                                 *
  *                                                                                                          *
  ***********************************************************************************************************/
+// Ventana del log. Guarda como mucho las ultimas 5000 lineas, para que en un
+// vuelo largo no crezca sin fin.
 LogHandler::LogHandler(QWidget *parent) : QPlainTextEdit(parent), d(new LogHandlerPrivate) {
-    // Configuración inicial de QPlainTextEdit si es necesario
-//    show ();
+    setMaximumBlockCount(5000);
+    setReadOnly(true);
 }
 
 

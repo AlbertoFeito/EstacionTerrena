@@ -39,7 +39,7 @@ Por este orden:
        EstacionTerrena.exe D:/QtPro/Recursos/mapa.json
 
    En Qt Creator: *Proyectos → Ejecutar → Argumentos de la línea de órdenes*.
-2. `conf.ini` (en la carpeta de trabajo):
+2. `conf.ini` (ver *Dónde guarda sus datos*, abajo):
 
        [MAPA]
        paquete=D:/QtPro/Recursos/mapa.json
@@ -49,6 +49,14 @@ Por este orden:
 Del paquete solo se muestran las capas base (Satelital y OSM): ni mapa híbrido
 ni capas fijas, de momento. Si el paquete no trae elevación, se usa la carpeta
 de `.hgt` de siempre (`C:/CubaAlt`).
+
+## Dónde guarda sus datos
+
+`conf.ini` y las bases de datos (`Recursos/data`: drones, vuelos, rutas y
+dibujos) cuelgan de una carpeta base: la de trabajo si ahí ya hay `conf.ini` o
+`../Recursos/data` (lo de siempre), si no la del ejecutable si los tiene, y si
+no la de trabajo. El log dice al arrancar cuáles usa («Configuración: …»,
+«Datos: …»).
 
 ## Enlace con el dron: serie, TCP o UDP
 
@@ -94,6 +102,20 @@ Automático · Puntos», en ámbar si no es lo elegido; al conectar, la pestaña
 toma lo que diga el dron). *Usar posición actual del dron como casa* copia la
 última posición recibida a la casa, y **Enviar mandos** lo manda todo. Cuando
 el dron confirma, la «H» del mapa pasa a la casa enviada.
+
+## Grabar y reproducir vuelos
+
+Con **Guardar** marcado (pestaña *Enlace*, conectado) se graba el vuelo: el
+número de vuelo se da en el momento; las muestras (10 por segundo, sin
+redondear, con el punto al que va el dron) se escriben cada segundo en
+`Recursos/data/DronDB.db`, y también el plan que tenga el dron y cada uno que
+confirme durante el vuelo.
+
+En *Objetivo* se elige dron y vuelo (sale el más reciente) y se reproduce
+como fue: a tiempo real o más rápido (×½ a ×32), saltando a cualquier
+momento con *Avanzar*, con la ruta del plan, los puntos cumplidos en verde,
+las líneas de rumbo, el panel y los instrumentos. **Graficar** muestra cada
+variable en su franja, con su rango real en la leyenda.
 
 ## Simulador (sin dron)
 

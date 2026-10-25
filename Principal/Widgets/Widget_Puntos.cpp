@@ -24,6 +24,7 @@
 #include <QApplication>
 #include <QProgressDialog>
 #include <limits>
+#include "Rutas.h"
 
 // ============================================================================
 // IMPLEMENTACIÓN DE RoutePlanner (SIN OPTIMIZACIÓN)
@@ -2098,10 +2099,7 @@ QList<QPair<double, double>> MiModelo::obtenerCoordenadasRuta()
 void MiModelo::inicializarBaseDeDatos()
 {
     QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE");
-    QDir RecursosDir = QDir::currentPath();
-    RecursosDir.cdUp();
-    QString dirFich = RecursosDir.path() + "/Recursos/data";
-    RecursosDir.mkdir(dirFich);
+    const QString dirFich = Rutas::carpetaDatos();
     db.setDatabaseName(dirFich + "/rutas.sqlite");
 
     if (!db.open()) {

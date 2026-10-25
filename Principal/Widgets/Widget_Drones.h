@@ -2,9 +2,8 @@
 #define WIDGET_DRONES_H
 
 #include <QWidget>
-#include "Database/ConnectionManager.h"
-#include "Database/AsyncQuery.h"
-#include "Database/AsynqQueryModel.h"
+
+class QSqlQueryModel;
 
 namespace Ui {
 class Widget_Drones;
@@ -17,11 +16,7 @@ class Widget_Drones : public QWidget
 public:
     explicit Widget_Drones(QWidget *parent = nullptr);
     ~Widget_Drones();
-    Database::AsyncQueryModel *tableModel() const;
-    void setTableModel(Database::AsyncQueryModel *tableModel);
-
-    Database::AsyncQuery *aQuery() const;
-    void setAQuery(Database::AsyncQuery *aQuery);
+    QSqlQueryModel *tableModel() const;
 
     void actualizaTabla();
     bool createTable();
@@ -36,9 +31,7 @@ private slots:
 private:
     Ui::Widget_Drones *ui;
 
-    QString query1;
-    Database::AsyncQuery *_aQuery;
-    Database::AsyncQueryModel *_tableModel;
+    QSqlQueryModel *_tableModel = nullptr;
 
     // QWidget
 
