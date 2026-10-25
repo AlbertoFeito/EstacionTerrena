@@ -15,6 +15,7 @@
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
+#include <QStyle>
 #include <QListWidget>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -1897,10 +1898,13 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
     }
     if (role == Qt::TextAlignmentRole) return Qt::AlignCenter;
     if (role == Qt::DecorationRole && index.column() == 9) {
-        if (erroresPorPunto.contains(puntoId)) return QIcon(":/icons/error.png");
-        if (item.puntoCritico) return QIcon(":/icons/critical.png");
-        if (!item.advertencias.isEmpty()) return QIcon(":/icons/warning.png");
-        return QIcon(":/icons/ok.png");
+        // Iconos del estilo (los :/icons/... de antes no existian en ningun .qrc).
+        QStyle *estilo = QApplication::style();
+        if (erroresPorPunto.contains(puntoId) || item.puntoCritico)
+            return estilo->standardIcon(QStyle::SP_MessageBoxCritical);
+        if (!item.advertencias.isEmpty())
+            return estilo->standardIcon(QStyle::SP_MessageBoxWarning);
+        return estilo->standardIcon(QStyle::SP_DialogApplyButton);
     }
     return QVariant();
 }

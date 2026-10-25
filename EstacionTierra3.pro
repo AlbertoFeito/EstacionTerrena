@@ -1,13 +1,9 @@
+# Estacion, simulador y pruebas. La estacion enlaza con UsbDevicesWatcher, asi
+# que se compila despues (en lugar del obsoleto CONFIG += ordered).
 TEMPLATE = subdirs
-CONFIG += ordered \
-    qt \
-    qt \
-    qt
 SUBDIRS += \
     usbdeviceswatcher \
     Principal \
     simulador \
     tests
-QT += widgets
-
-
+Principal.depends = usbdeviceswatcher

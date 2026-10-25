@@ -35,11 +35,12 @@ diga este).
 - En la nube: `sudo apt-get install -y qt6-base-dev qt6-positioning-dev
   qt6-serialport-dev qt6-svg-dev libqt6sql6-sqlite qmake6 libudev-dev
   socat` (socat, para el test del puerto serie); compilar e instalar libmapa con
-  `qmake6 LibMapaStatic/qmake/libmapa/libmapa.pro PREFIX=<prefijo>` (con
+  `qmake6 <repo LibMapaStatic>/qmake/libmapa/libmapa.pro PREFIX=<prefijo>` (con
   QCustomPlot 2.1.1 en su `third_party/qcustomplot/`) y luego
-  `qmake6 EstacionTierra3.pro LIBMAPA_PREFIX=<prefijo>`. Falta
-  `build/Recursos/estilos.qrc` en el repo: para compilar en la nube basta uno
-  vacío (`<RCC></RCC>`), sin commitearlo.
+  `qmake6 EstacionTierra3.pro LIBMAPA_PREFIX=<prefijo>`. Un clon nuevo
+  compila tal cual: no hay ficheros de recursos externos.
+- Iconos nuevos: se dibujan en código en `Principal/Iconos` (nada de PNG ni
+  `.qrc` sueltos). `build/` es solo la salida de compilación (ignorada).
 
 ## Documentación
 - Cada cambio, en `docs/BITACORA.md` (siguiente `## N.`), explicando el porqué.

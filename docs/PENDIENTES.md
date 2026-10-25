@@ -3,11 +3,6 @@
 Lo que queda por hacer, con lo que ya se sabe para no repetir el análisis. Al
 hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 
-## Siguiente PR: borrar la librería antigua
-
-Cuando se haya probado el cambio a libmapa (§1) con el dron y el mapa real:
-borrar la carpeta `LibMapaStatic/` (ya no se compila).
-
 ## Preguntas para quien programa el autopiloto
 
 - Qué hace en **Circular** (el simulador da vueltas de 300 m sobre el punto al
@@ -34,14 +29,7 @@ borrar la carpeta `LibMapaStatic/` (ya no se compila).
 
 ## Fase 2: mejora del código (por orden)
 
-1. **Orden del repo**
-   - `build/` está en `.gitignore`, pero tiene 911 ficheros commiteados (21 MB):
-     ahí viven los `Recursos` (iconos, estilos, `.qrc`). Pasarlos a `Recursos/` en la raíz.
-   - **Falta `build/Recursos/estilos.qrc` en el repo** (`Principal.pro` lo pide):
-     un clon nuevo no compila. Hay que subirlo, o quitarlo si no se usa (ningún
-     `:/` del código apunta a él, salvo quizá `:/icons/…` de `Widget_Puntos`).
-   - `Principal/Principal.pro.user` está commiteado.
-   - `CONFIG += ordered` está obsoleto: usar `.depends`.
+1. ~~Orden del repo~~: hecho en §12.
 2. **Fallos vistos**
    - `CControladora::recibirDatos` lee `aux.at(31)` sin mirar cuántos campos
      trae la línea: una línea corta tumba la app.

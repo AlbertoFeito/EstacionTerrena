@@ -40,6 +40,7 @@ DEFINES += QT_DEPRECATED_WARNINGS
 SOURCES += \
     AlturaWorker.cpp \
     CControladora.cpp \
+    Iconos/Iconos.cpp \
     Database/AsyncQuery.cpp \
     Database/AsyncQueryResult.cpp \
     Database/AsynqQueryModel.cpp \
@@ -81,6 +82,7 @@ SOURCES += \
 HEADERS += \
     AlturaWorker.h \
     CControladora.h \
+    Iconos/Iconos.h \
     Ci_Principal.h \
     Database/AsyncQuery.h \
     Database/AsyncQueryResult.h \
@@ -162,11 +164,6 @@ include($$LIBMAPA_PREFIX/libmapa.pri)
 
 include (qfi/qfi.pri)
 
-RESOURCES += \
-    ../build/Recursos/estilos.qrc \
-    ../build/Recursos/estilosnuevos/dark/darkstyle.qrc \
-    ../build/Recursos/estilosnuevos/light/lightstyle.qrc \
-    ../build/Recursos/res.qrc
 
 
 DISTFILES +=

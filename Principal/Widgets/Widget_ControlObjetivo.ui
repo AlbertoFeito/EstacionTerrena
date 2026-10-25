@@ -61,11 +61,6 @@
           <property name="text">
            <string/>
           </property>
-          <property name="icon">
-           <iconset>
-            <normaloff>../../build/Recursos/Iconos/play.ico</normaloff>
-            <normalon>../../build/Recursos/Iconos/pause.ico</normalon>../../build/Recursos/Iconos/play.ico</iconset>
-          </property>
           <property name="checkable">
            <bool>true</bool>
           </property>
@@ -75,10 +70,6 @@
          <widget class="QPushButton" name="pB_Stop">
           <property name="text">
            <string/>
-          </property>
-          <property name="icon">
-           <iconset>
-            <normaloff>../../build/Recursos/Iconos/stop.ico</normaloff>../../build/Recursos/Iconos/stop.ico</iconset>
           </property>
          </widget>
         </item>

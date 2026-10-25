@@ -1,5 +1,6 @@
 #include "Widget_ControlObjetivo.h"
 #include "ui_Widget_ControlObjetivo.h"
+#include "Iconos/Iconos.h"
 #include <QDebug>
 #include <QTableView>
 #include <QHeaderView>
@@ -12,6 +13,8 @@ Widget_ControlObjetivo::Widget_ControlObjetivo(QWidget *parent) :
     ui(new Ui::Widget_ControlObjetivo)
 {
     ui->setupUi(this);
+    ui->pB_Play->setIcon(Iconos::reproducir());
+    ui->pB_Stop->setIcon(Iconos::parar());
 
 
     wGraficas = new Widget_Graficas;
@@ -44,7 +47,6 @@ Widget_ControlObjetivo::Widget_ControlObjetivo(QWidget *parent) :
         tV->setSizeAdjustPolicy (QAbstractScrollArea::AdjustToContents);
         QEcsReport ecsRep(tV); // QEcsReport ecsRep(ui->tableView);
         ecsRep.Reset();
-        ecsRep.setLogo(":/logos/Logos/LOGOS/03.png", Qt::AlignRight, 60, 130); // // optional  >>  Default = Null
         ecsRep.setHeaderCBackColor(0xD4FFDC); // optional  >>  Default = 0xEDEDED >> Grey
         ecsRep.setPageSize(QPageSize::A4); // optional  >>  Default = A4
         ecsRep.setOrientation(QPageLayout::Landscape); // optional  >>  Default = Portrait
@@ -482,14 +484,12 @@ void Widget_ControlObjetivo::on_pB_Play_toggled(bool checked)
         emit limpiarDatoContolObjetivo(dronActivo);
         emit iniciarDatoContolObjetivo ();
         clkVelocidad->start(TIME_BASE/ui->hS_Velocidad->value());
-//        ui->pB_Play->setStyleSheet ("image: url(:/iconos/Recursos/Iconos/pause.ico);");
         setControlObjetivoTime (QTime::currentTime ());
     }
     else
     {
         clkVelocidad->stop();
         estadoSimulacion = false;
-//        ui->pB_Play->setStyleSheet ("image: url(:/iconos/Recursos/Iconos/play.ico);");
     }
 }
 

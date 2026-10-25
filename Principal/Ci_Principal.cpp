@@ -1,7 +1,9 @@
 #include "Ci_Principal.h"
 #include "ui_Ci_Principal.h"
 
-#include <QFile>
+#include <QApplication>
+#include <QPalette>
+#include <QStyle>
 
 Ci_Principal::Ci_Principal(QWidget *parent)
     : QMainWindow(parent)
@@ -9,10 +11,7 @@ Ci_Principal::Ci_Principal(QWidget *parent)
 {
     ui->setupUi(this);
 
-    claro = ":/qdarkstyle/light/lightstyle.qss";
-    oscuro = ":/qdarkstyle/dark/darkstyle.qss";
-
-    m_setStyleSheet(oscuro);
+    ponerTema(false);
 }
 
 Ci_Principal::~Ci_Principal()
@@ -31,27 +30,50 @@ void Ci_Principal::setWMapa(QWidget *wMapa)
     m_wMapa = wMapa;
 }
 
-void Ci_Principal::m_setStyleSheet(QString &qss)
+// Tema claro u oscuro con la paleta de Fusion (antes, hojas de estilo qss de
+// una carpeta de recursos que ya no esta). Los paneles sobre el mapa llevan su
+// propio estilo y no cambian.
+void Ci_Principal::ponerTema(bool claro)
 {
-    QFile f(qss);
-    if (!f.exists())
-    {
+    // Los widgets con hoja de estilo propia (p. ej. la pestaña de Mandos) no
+    // recogen la paleta nueva hasta que se repulen.
+    auto repulir = []() {
+        for (QWidget *w : QApplication::allWidgets()) {
+            w->style()->unpolish(w);
+            w->style()->polish(w);
+            w->update();
+        }
+    };
+    if (claro) {
+        qApp->setPalette(qApp->style()->standardPalette());
+        repulir();
+        return;
     }
-    else
-    {
-        f.open(QFile::ReadOnly | QFile::Text);
-        QTextStream ts(&f);
-
-        qApp->setStyleSheet(ts.readAll());
-    }
-}
-
-void Ci_Principal::m_CurrentStyleS(bool style)
-{
-    if(style )
-        m_setStyleSheet(claro);
-    else
-        m_setStyleSheet(oscuro);
+    QPalette p;
+    const QColor fondo(0x26, 0x2b, 0x33), base(0x1b, 0x1f, 0x25), texto(0xe0, 0xe0, 0xe0);
+    const QColor apagado(0x7a, 0x80, 0x88), resalte(0x2f, 0x80, 0xed);
+    p.setColor(QPalette::Window, fondo);
+    p.setColor(QPalette::WindowText, texto);
+    p.setColor(QPalette::Base, base);
+    p.setColor(QPalette::AlternateBase, fondo);
+    p.setColor(QPalette::ToolTipBase, base);
+    p.setColor(QPalette::ToolTipText, texto);
+    p.setColor(QPalette::Text, texto);
+    p.setColor(QPalette::Button, QColor(0x33, 0x3a, 0x44));
+    p.setColor(QPalette::ButtonText, texto);
+    p.setColor(QPalette::BrightText, Qt::white);
+    p.setColor(QPalette::Link, resalte);
+    p.setColor(QPalette::Highlight, resalte);
+    p.setColor(QPalette::HighlightedText, Qt::white);
+    p.setColor(QPalette::Light, QColor(0x3d, 0x45, 0x50));
+    p.setColor(QPalette::Mid, QColor(0x20, 0x24, 0x2a));
+    p.setColor(QPalette::Dark, QColor(0x15, 0x18, 0x1d));
+    p.setColor(QPalette::Shadow, Qt::black);
+    for (auto rol : {QPalette::WindowText, QPalette::Text, QPalette::ButtonText})
+        p.setColor(QPalette::Disabled, rol, apagado);
+    p.setColor(QPalette::Disabled, QPalette::Highlight, QColor(0x44, 0x4a, 0x52));
+    qApp->setPalette(p);
+    repulir();
 }
 
 void Ci_Principal::resizeEvent(QResizeEvent *event)

@@ -1,4 +1,5 @@
 #include "CControladora.h"
+#include "Iconos/Iconos.h"
 #include <QAction>
 #include <QMenuBar>
 #include <QCoreApplication>
@@ -396,7 +397,7 @@ void CControladora::createActions()
     aClaro->setChecked (false);
     connect (aClaro,&QAction::triggered,[this]()
     {
-        mPrincipal->m_CurrentStyleS (true);
+        mPrincipal->ponerTema (true);
     });
     aOscuro = new QAction(tr("&Oscuro"),mPrincipal);
     aOscuro->setShortcut (QKeySequence(tr("Ctrl+T+O")));
@@ -405,7 +406,7 @@ void CControladora::createActions()
     aOscuro->setChecked (true);
     connect (aOscuro,&QAction::triggered,[this]()
     {
-        mPrincipal->m_CurrentStyleS (false);
+        mPrincipal->ponerTema (false);
     });
 
     aG_Tema= new QActionGroup(mPrincipal);
@@ -499,19 +500,19 @@ void CControladora::createToolBar()
     toolBar = mPrincipal->addToolBar ("Barra de Herramientas");
     toolBar->setMovable (false);
 
-    aDistancia =  toolBar->addAction (QIcon(":/Iconos/Iconos/regla.png"),"Distancia");
+    aDistancia =  toolBar->addAction (Iconos::regla(),"Distancia");
     aDistancia->setCheckable (true);
     aDistancia->setChecked (false);
     toolBar->addSeparator ();
 
-    aLupa =  toolBar->addAction (QIcon(":/Iconos/Iconos/Start Menu Search.png"),"ZoomArea");
+    aLupa =  toolBar->addAction (Iconos::lupaArea(),"ZoomArea");
     aLupa->setCheckable (true);
     aLupa->setChecked (false);
-    aLupaMas =  toolBar->addAction (QIcon(":/Iconos/Iconos/Start Menu Search+.png"),"ZoomMas");
-    aLupaMen =  toolBar->addAction (QIcon(":/Iconos/Iconos/Start Menu Search1-.png"),"ZoomMen");
+    aLupaMas =  toolBar->addAction (Iconos::lupaMas(),"ZoomMas");
+    aLupaMen =  toolBar->addAction (Iconos::lupaMenos(),"ZoomMen");
     toolBar->addSeparator ();
 
-    aPoligono =  toolBar->addAction (QIcon(":/Iconos/Iconos/poligono.png"),"Polígono");
+    aPoligono =  toolBar->addAction (Iconos::poligono(),"Polígono");
 
 }
 
@@ -908,12 +909,9 @@ void CControladora::recibirDatos(QByteArray byteArray)
     indicador->redraw ();
 
     QColor colorTraza = Qt::darkRed;
-    QPixmap simbolo = QPixmap(RecursosDir.path ()+ "/Recursos/Iconos/avionComercialOSM4.png");
     if (aSatelital->isChecked())
-    {
         colorTraza = Qt::yellow;
-        simbolo = QPixmap(RecursosDir.path ()+ "/Recursos/Iconos/avionComercialSat4.png");
-    }
+    const QPixmap simbolo = Iconos::avion(colorTraza);
 
     if (lat != 0)
     {
@@ -1030,23 +1028,23 @@ void CControladora::onNewTramaConstanteReceived(const char a, const char b, cons
 
             //color de avion y traza en dependencia del modo de trabajo manu8al automatico semiautomatico
             QColor colorTraza = Qt::red;
-            QPixmap simbolo = QPixmap(":/Iconos/AvionRojo.png");
+            QPixmap simbolo = Iconos::avion(Qt::red);
             QString descripcion = "V: "+ QString::number (m_wConexion->serialManager ()->getS28 ().Realimentacion_Velocidad * 3.6,'f',2) +
                     " km/h\nH: " + QString::number(m_wConexion->serialManager ()->getS28 ().Realimentacion_Altura,'f',2) + " m";
             if(m_wConexion->serialManager ()->getS34().Realimentacion_Regimen == 0)
             {
                 colorTraza = Qt::red;
-                simbolo = QPixmap(":/Iconos/AvionRojo.png");
+                simbolo = Iconos::avion(Qt::red);
             }
             if(m_wConexion->serialManager ()->getS34().Realimentacion_Regimen == 1)
             {
                 colorTraza = Qt::yellow;
-                simbolo = QPixmap(":/Iconos/AvionAmarillo.png");
+                simbolo = Iconos::avion(Qt::yellow);
             }
             if(m_wConexion->serialManager ()->getS34().Realimentacion_Regimen == 2)
             {
                 colorTraza = Qt::green;
-                simbolo = QPixmap(":/Iconos/AvionVerde.png");
+                simbolo = Iconos::avion(Qt::green);
             }
 
             if (geoPos.latitude() != 0)
@@ -1205,23 +1203,23 @@ void CControladora::onNewCuadropteros(const sCUADROPTEROS &s_cuadropteros)
 
         //color de avion y traza en dependencia del modo de trabajo manu8al automatico semiautomatico
         QColor colorTraza = Qt::red;
-        QPixmap simbolo = QPixmap(":/Iconos/Iconos/rojo1.png");
+        QPixmap simbolo = Iconos::cuadroptero(Qt::red);
         QString descripcion = "V: "+ QString::number (s_cuadropteros.Realimentacion_Velocidad * 3.6,'f',2) +
                 " km/h\nH: " + QString::number(s_cuadropteros.Realimentacion_Altura,'f',2) + " m";
         if(s_cuadropteros.Realimentacion_Regimen == 0)
         {
             colorTraza = Qt::red;
-            simbolo = QPixmap(":/Iconos/Iconos/rojo1.png");
+            simbolo = Iconos::cuadroptero(Qt::red);
         }
         if(s_cuadropteros.Realimentacion_Regimen == 1)
         {
             colorTraza = Qt::yellow;
-            simbolo = QPixmap(":/Iconos/Iconos/amarillo1.png");
+            simbolo = Iconos::cuadroptero(Qt::yellow);
         }
         if(s_cuadropteros.Realimentacion_Regimen == 2)
         {
             colorTraza = Qt::green;
-            simbolo = QPixmap(":/Iconos/Iconos/verde1.png");
+            simbolo = Iconos::cuadroptero(Qt::green);
         }
 
         //
