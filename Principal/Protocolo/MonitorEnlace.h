@@ -29,8 +29,11 @@ public:
     static constexpr qint64 kVentana = 2000;   //!< ms para contar tramas/s
 
     //! Enlace abierto (\a descripcion: "tcp 127.0.0.1:5760", "COM5"...) o cerrado.
+    //! Al cerrarlo, se queda lo que duro (duracionUltima()).
     void setConectado(bool conectado, const QString &descripcion, qint64 ahoraMs)
     {
+        if (m_conectado && !conectado)
+            m_duracionUltima = ahoraMs - m_desde;
         m_conectado = conectado;
         m_descripcion = conectado ? descripcion : QString();
         m_desde = ahoraMs;
@@ -78,6 +81,36 @@ public:
         return ahoraMs - (m_ultima >= 0 ? m_ultima : m_desde);
     }
 
+    //! Ms que lleva abierto el enlace, -1 sin enlace.
+    qint64 msConectado(qint64 ahoraMs) const
+    {
+        return m_conectado ? ahoraMs - m_desde : -1;
+    }
+
+    //! Ms que duro la ultima conexion ya cerrada, -1 si aun no hubo ninguna.
+    qint64 duracionUltima() const { return m_duracionUltima; }
+
+    //! Una duracion como "00:12:34" (horas, minutos y segundos).
+    static QString formatoDuracion(qint64 ms)
+    {
+        const qint64 s = qMax<qint64>(0, ms) / 1000;
+        return QStringLiteral("%1:%2:%3")
+            .arg(s / 3600, 2, 10, QLatin1Char('0'))
+            .arg(s / 60 % 60, 2, 10, QLatin1Char('0'))
+            .arg(s % 60, 2, 10, QLatin1Char('0'));
+    }
+
+    //! Rotulo del tiempo de conexion: "Conectado 00:12:34" con enlace,
+    //! "Última conexión 00:12:34" despues, vacio si no se ha conectado nunca.
+    QString textoTiempo(qint64 ahoraMs) const
+    {
+        if (m_conectado)
+            return QStringLiteral("Conectado %1").arg(formatoDuracion(msConectado(ahoraMs)));
+        if (m_duracionUltima >= 0)
+            return QStringLiteral("Última conexión %1").arg(formatoDuracion(m_duracionUltima));
+        return QString();
+    }
+
     //! Ya ha llegado alguna trama desde que se conecto.
     bool hayTramas() const { return m_ultima >= 0; }
     //! Por donde se habla ("tcp 127.0.0.1:5760", "COM5"...), vacia sin enlace.
@@ -116,6 +149,7 @@ private:
     QString m_descripcion;
     qint64 m_desde = 0;
     qint64 m_ultima = -1;
+    qint64 m_duracionUltima = -1;
     QQueue<qint64> m_tramas;
 };
 

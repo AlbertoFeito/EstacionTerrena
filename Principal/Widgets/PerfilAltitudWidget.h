@@ -21,6 +21,9 @@ public:
 signals:
     void puntoSeleccionado(int indice); // opcional, para sincronizar con la tabla
 
+protected:
+    void changeEvent(QEvent *event) override;
+
 private slots:
     void onGraphClicked(QMouseEvent *event);
 

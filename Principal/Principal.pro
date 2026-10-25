@@ -46,6 +46,7 @@ SOURCES += \
     Vuelos/ReproductorVuelo.cpp \
     LocationValidator.cpp \
     Mapa/MapaMision.cpp \
+    Mapa/PanelCapas.cpp \
     MyQSettings/myqsetting.cpp \
     Reporte/layoutcol.cpp \
     Reporte/qecsreport.cpp \
@@ -55,6 +56,7 @@ SOURCES += \
     SerialPortComboBox/DeviceHotplug.cpp \
     SerialPortComboBox/SerialManager.cpp \
     SerialPortComboBox/SerialPortComboBox.cpp \
+    Widgets/PanelFlotante.cpp \
     Widgets/PanelVuelo.cpp \
     Widgets/PerfilAltitudWidget.cpp \
     Widgets/Widget_Conexion.cpp \
@@ -67,7 +69,6 @@ SOURCES += \
     Widgets/Widget_Puntos.cpp \
     Widgets/dronedialog.cpp \
     Widgets/widget_mandos.cpp \
-#    cSerialPort/cserialport.cpp \
     graficar/XxwTracer.cpp \
     graficar/customplot.cpp \
     header/ColumnHeaderLengthAdapter.cpp \
@@ -88,9 +89,9 @@ HEADERS += \
     Ci_Principal.h \
     Estructuras/E_Punto.h \
     Estructuras/Estructuras.h \
-    Estructuras/Utils.h \
     LocationValidator.h \
     Mapa/MapaMision.h \
+    Mapa/PanelCapas.h \
     MyQSettings/myqsetting.h \
     Reporte/layoutcol.h \
     Reporte/qecsreport.h \
@@ -103,6 +104,7 @@ HEADERS += \
     SerialPortComboBox/DeviceHotplug.h \
     SerialPortComboBox/SerialManager.h \
     SerialPortComboBox/SerialPortComboBox.h \
+    Widgets/PanelFlotante.h \
     Widgets/PanelVuelo.h \
     Widgets/PerfilAltitudWidget.h \
     Widgets/Widget_Conexion.h \
@@ -115,7 +117,6 @@ HEADERS += \
     Widgets/Widget_Puntos.h \
     Widgets/dronedialog.h \
     Widgets/widget_mandos.h \
-#    cSerialPort/cserialport.h \
     graficar/XxwTracer.h \
     graficar/customplot.h \
     header/ColumnHeaderLengthAdapter.h \

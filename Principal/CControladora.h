@@ -3,6 +3,8 @@
 
 #include <QObject>
 #include "Mapa/MapaMision.h"
+#include "Mapa/PanelCapas.h"
+#include "Widgets/PanelFlotante.h"
 #include "Protocolo/ProyeccionMercator.h"
 #include "Protocolo/Tramas.h"
 #include "Protocolo/SeguimientoCumplidos.h"
@@ -88,9 +90,16 @@ private:
     QActionGroup *aG_Tema;
     QAction *aClaro, *aOscuro;
 
+    // Menu Capas: una accion por capa base del paquete (se rehace con
+    // actualizarMenuCapas) y el interruptor del panel de capas.
     QMenu *mCapas;
     QActionGroup *aG_Capas;
-    QAction *aSatelital, *aOSM;
+    PanelFlotante *m_flotanteCapas = nullptr;
+    QAction *aPanelCapas = nullptr;
+    PanelCapas *m_panelCapas = nullptr;
+    void crearPanelCapas();
+    void actualizarMenuCapas();
+    void guardarCapas();
 
     QMenu *mTrayectoria;
     QAction *a10, *a20, *a100, *a500, *a1000, *aTodas;
@@ -149,7 +158,7 @@ private:
     Widget_Mandos *m_wMandos;
     Widget_Mandos_Cuadroptero *m_wMandosCuadroptero;
     Widget_Conexion *m_wConexion;
-    Widget_Graficas *m_wGraficas;
+    Widget_Graficas *m_wGraficas = nullptr;
     Widget_Puntos *m_wPuntos;
     Widget_Ganancias_Control *m_wGanancias;
 
@@ -194,6 +203,7 @@ private:
     MonitorEnlace m_monitor;
     QElapsedTimer m_reloj;
     QLabel *m_lEnlace = nullptr;
+    QLabel *m_lTiempoConexion = nullptr;   //!< "Conectado 00:12:34" en la barra de estado
     QTimer *m_timerEnlace = nullptr;
     MonitorEnlace::Estado m_estadoEnlace = MonitorEnlace::Estado::Desconectado;
     qint64 m_ultimoPitido = 0;
@@ -228,7 +238,12 @@ private:
     QPushButton *overlayButton;
     // Posicionamiento inicial
     void updateOverlayPosition();
-    void updateRutaPosition();
+    // Panel de rutas (Widget_Puntos) flotando abajo, encima del mapa.
+    PanelFlotante *m_flotanteRuta = nullptr;
+    void crearPanelRutas();
+    void colocarPaneles();
+    // Botones de enviar fijos debajo de su pestaña, por el widget del que salieron.
+    QHash<QObject *, QPushButton *> m_botonesFijos;
 
     //rumboProximo punto
     float rumboProxPunto = 0;

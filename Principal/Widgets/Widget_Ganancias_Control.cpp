@@ -2,6 +2,7 @@
 #include "ui_Widget_Ganancias_Control.h"
 
 #include <QDir>
+#include "Protocolo/Tramas.h"
 #include "Rutas.h"
 
 Widget_Ganancias_Control::Widget_Ganancias_Control(sMANDOS *MANDOS, QWidget *parent) :
@@ -42,10 +43,6 @@ void Widget_Ganancias_Control::configuraUI()
 }
 void Widget_Ganancias_Control::on_pB_Enviar_clicked()
 {
-    QByteArray sendMando;
-    //    sendMando = "xyz";
-    sendMando.append ("xyz");
-
     mandos->Sintonizacion_Cabeceo = ui->cHB_Sintonizacion_Cabeceo->isChecked () ? 1 : 0 ;
     mandos->Sintonizacion_Banqueo = ui->cHB_Sintonizacion_banqueo->isChecked () ? 1 : 0 ;
 
@@ -72,24 +69,25 @@ void Widget_Ganancias_Control::on_pB_Enviar_clicked()
     mandos->Ganancias_Rumbo_Manual2 = ui->dsB_Ganancias_Rumbo_Manual2->value ();
     mandos->Actualizar_Ganancias_Rumbo = ui->cHB_Actualizar_Ganancias_Rumbo->isChecked () ?  1 : 0  ;
 
-    sendMando.append (reinterpret_cast<const char*>(&mandos),sizeof (sMANDOS));
+    // La trama sale de la estructura, como en Widget_Mandos (antes se copiaban
+    // los bytes del puntero, no los de la estructura).
+    emit enviaMandosDron(Tramas::mandos (*mandos));
 
-    emit enviaMandosDron(sendMando);
-
-    settings.guardarSetting (fileName,"KpC",ui->dsB_Ganancias_Cabeceo_Manual1->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KiC",ui->dsB_Ganancias_Cabeceo_Manual2->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KpB",ui->dsB_Ganancias_Banqueo_Manual1->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KiB",ui->dsB_Ganancias_Banqueo_Manual2->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KpA",ui->dsB_Ganancias_Altura_Manual1->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KiA",ui->dsB_Ganancias_Altura_Manual2->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KpV",ui->dsB_Ganancias_Velocidad_Manual1->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KiV",ui->dsB_Ganancias_Velocidad_Manual2->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KpR",ui->dsB_Ganancias_Rumbo_Manual1->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KiR",ui->dsB_Ganancias_Rumbo_Manual2->value (),"MANDOS");
-    settings.guardarSetting (fileName,"KCu",ui->dsB_Ganancias_Curso_Manual->value (),"MANDOS");
-    settings.guardarSetting (fileName,"AsC",ui->dsB_ASc->value (),"MANDOS");
-    settings.guardarSetting (fileName,"AsB",ui->dsB_ASb->value (),"MANDOS");
-
+    // Todo de una vez y en otro hilo (valor a valor paraba la pantalla).
+    settings.guardarSettings (fileName, "MANDOS", {
+        {"KpC", ui->dsB_Ganancias_Cabeceo_Manual1->value ()},
+        {"KiC", ui->dsB_Ganancias_Cabeceo_Manual2->value ()},
+        {"KpB", ui->dsB_Ganancias_Banqueo_Manual1->value ()},
+        {"KiB", ui->dsB_Ganancias_Banqueo_Manual2->value ()},
+        {"KpA", ui->dsB_Ganancias_Altura_Manual1->value ()},
+        {"KiA", ui->dsB_Ganancias_Altura_Manual2->value ()},
+        {"KpV", ui->dsB_Ganancias_Velocidad_Manual1->value ()},
+        {"KiV", ui->dsB_Ganancias_Velocidad_Manual2->value ()},
+        {"KpR", ui->dsB_Ganancias_Rumbo_Manual1->value ()},
+        {"KiR", ui->dsB_Ganancias_Rumbo_Manual2->value ()},
+        {"KCu", ui->dsB_Ganancias_Curso_Manual->value ()},
+        {"AsC", ui->dsB_ASc->value ()},
+        {"AsB", ui->dsB_ASb->value ()}});
 
 }
 
@@ -108,11 +106,3 @@ void Widget_Ganancias_Control::on_restoreStyle()
     ui->pB_Enviar->setStyleSheet(m_originalStyle);
 }
 
-quint16 Widget_Ganancias_Control::calculateChecksum(const QByteArray &data)
-{
-    quint16 checksum = 0;
-    for (char byte : data) {
-        checksum += static_cast<quint8>(byte);
-    }
-    return checksum;
-}

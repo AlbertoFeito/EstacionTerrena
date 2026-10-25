@@ -13,6 +13,8 @@ include($$LIBMAPA_PREFIX/libmapa.pri)
 INCLUDEPATH += $$PWD/../../Principal $$PWD/../../Principal/graficar
 SOURCES += \
     test_mapamision.cpp \
-    $$PWD/../../Principal/Mapa/MapaMision.cpp
+    $$PWD/../../Principal/Mapa/MapaMision.cpp \
+    $$PWD/../../Principal/Mapa/PanelCapas.cpp
 HEADERS += \
-    $$PWD/../../Principal/Mapa/MapaMision.h
+    $$PWD/../../Principal/Mapa/MapaMision.h \
+    $$PWD/../../Principal/Mapa/PanelCapas.h

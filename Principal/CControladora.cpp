@@ -9,6 +9,7 @@
 #include <QMenuBar>
 #include <QCoreApplication>
 #include <QDir>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <logger/LogHandler.h>
 #include <libmapa/MapWidget.h>   // solo para usar MapaMision::mapa() como QWidget
@@ -16,6 +17,15 @@
 #include <QStatusBar>
 #include "MyQSettings/myqsetting.h"
 #include "Rutas.h"
+
+// Ancho en pixeles de \a muestra con la letra de \a w (en negrita si lo pide),
+// mas un pequeno margen: para fijar el ancho de los rotulos de la barra de estado.
+static int anchoTexto(const QWidget *w, const QString &muestra, bool negrita = false)
+{
+    QFont f = w->font ();
+    f.setBold (negrita);
+    return QFontMetrics(f).horizontalAdvance (muestra) + 12;
+}
 
 CControladora::CControladora(QObject *parent) :
     QObject(parent),
@@ -50,6 +60,10 @@ tabOpciones = new QTabWidget(mPrincipal);
 
 
     crearMapa();
+    crearPanelCapas();
+    // Los overlays (panel de vuelo, graficas, paneles flotantes) se recolocan
+    // cuando cambia el tamano del mapa.
+    m_mapa->mapa ()->installEventFilter (this);
     initTabOpciones();
     preparaDataBase();
     m_wConexion->cBDrones ()->setCurrentIndex (0);
@@ -95,7 +109,7 @@ tabOpciones = new QTabWidget(mPrincipal);
 
     // Crear widget de puntos con el worker de alturas
     m_wPuntos = new Widget_Puntos(alturaWorkerPTR.get(), mPrincipal);
-    m_wPuntos->setVisible(false);
+    crearPanelRutas();
 
     actualizarMenuRutas();
     conecciones ();
@@ -107,14 +121,18 @@ tabOpciones = new QTabWidget(mPrincipal);
 
 bool CControladora::eventFilter(QObject *obj, QEvent *event)
 {
-    if (obj == mPrincipal) {
-        if (event->type() == QEvent::Move || event->type() == QEvent::Resize) {
-            if(m_wPuntos && m_wPuntos->isVisible()) {
-                QTimer::singleShot(50, this, [this]() {
-                    updateRutaPosition();
-                });
-            }
+    // Botones de enviar sacados de su widget (initTabOpciones): copian su estado.
+    if (QPushButton *b = m_botonesFijos.value (obj)) {
+        const auto tipo = event->type ();
+        if (tipo == QEvent::EnabledChange || tipo == QEvent::Show || tipo == QEvent::Hide) {
+            auto *w = static_cast<QWidget *> (obj);
+            b->setEnabled (w->isEnabled ());
+            b->setVisible (!w->isHidden ());
         }
+    }
+    if (m_mapa && obj == m_mapa->mapa () && event->type () == QEvent::Resize) {
+        updateOverlayPosition ();
+        colocarPaneles ();
     }
     return QObject::eventFilter(obj, event);
 }
@@ -182,8 +200,42 @@ QWidget *w4 = new QWidget();
         {w4, "Ganancias", "Ganancias del control"},
         {w2, "Objetivo", "Control de objetivo"},
     };
+    // Cada pagina, con barra de desplazamiento si no cabe: sin ella la pagina
+    // mas alta obligaba a la ventana a medir 800 px de alto y, en una pantalla
+    // de 768 (o con la escala de Windows al 125-150 %), no se podia maximizar.
     for (const auto &p : pestanas) {
-        const int i = tabOpciones->addTab (p.pagina, tr(p.nombre));
+        auto *desplazable = new QScrollArea;
+        desplazable->setWidget (p.pagina);
+        desplazable->setWidgetResizable (true);
+        desplazable->setFrameShape (QFrame::NoFrame);
+        desplazable->setHorizontalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
+        // El boton de enviar (Mandos, Ganancias) va fijo debajo, fuera de lo
+        // que se desplaza: con el panel de rutas abierto quedaba fuera de la
+        // vista y habia que bajar para mandar.
+        QWidget *pestana = desplazable;
+        const auto enviar = p.pagina->findChildren<QPushButton *> (QStringLiteral("pB_Enviar"));
+        if (!enviar.isEmpty ()) {
+            pestana = new QWidget;
+            auto *caja = new QVBoxLayout(pestana);
+            caja->setContentsMargins (0, 0, 0, 4);
+            caja->setSpacing (4);
+            caja->addWidget (desplazable, 1);
+            for (QPushButton *b : enviar) {
+                // Su widget de origen (hijo directo de la pagina): el boton sigue
+                // su estado, activo sin enlace o no, y oculto si se oculta.
+                QWidget *duenio = b;
+                while (duenio->parentWidget () && duenio->parentWidget () != p.pagina)
+                    duenio = duenio->parentWidget ();
+                for (QLayout *l : p.pagina->findChildren<QLayout *> ())
+                    l->removeWidget (b);
+                caja->addWidget (b);
+                m_botonesFijos.insert (duenio, b);
+                duenio->installEventFilter (this);
+                b->setEnabled (duenio->isEnabled ());
+                b->setVisible (!duenio->isHidden ());
+            }
+        }
+        const int i = tabOpciones->addTab (pestana, tr(p.nombre));
         tabOpciones->setTabToolTip (i, tr(p.ayuda));
     }
 
@@ -211,8 +263,18 @@ void CControladora::Conectado(bool conectado)
     m_posicionValida = -1;   // en cada conexion se vuelve a decir si la posicion es valida
     m_wConexion->chB_Guardar ()->setChecked (false);
     m_Conectado = conectado;
+    const QString descripcionEnlace = m_monitor.descripcion ();
+    const bool estabaConectado = m_monitor.msConectado (0) != -1;
     m_monitor.setConectado (conectado, m_wConexion->serialManager ()->currentPort (),
                             m_reloj.isValid () ? m_reloj.elapsed () : 0);
+    // Cuanto duro el enlace queda en la ventana del log, en log.txt y en la
+    // barra de estado.
+    if (!conectado && estabaConectado) {
+        const QString nota = "Enlace cerrado (" + descripcionEnlace + ") tras "
+            + MonitorEnlace::formatoDuracion (m_monitor.duracionUltima ()) + " conectado";
+        LogHandler::getInstance ().appendLogMessage (nota);
+        qInfo ().noquote () << nota;
+    }
     if (!conectado && m_panelVuelo) {
         m_panelVuelo->limpiar ();
         m_puntoActual = -1;
@@ -275,9 +337,7 @@ void CControladora::createMenus()
     mMenu = mPrincipal->menuBar ()->addMenu (tr("&Menu"));
     mMenu->addAction (aCerrar);
 
-    mCapas = mPrincipal->menuBar ()->addMenu (tr("&Capas"));
-    mCapas->addAction (aSatelital);
-    mCapas->addAction (aOSM);
+    mCapas = mPrincipal->menuBar ()->addMenu (tr("&Capas"));   // lo llena actualizarMenuCapas
 
     mTema = mPrincipal->menuBar ()->addMenu (tr("&Tema"));
     mTema->addAction (aClaro);
@@ -314,29 +374,8 @@ void CControladora::createActions()
     });
 
 
-    aSatelital = new QAction(tr("&Satelital"),mPrincipal);
-    aSatelital->setShortcut (QKeySequence(tr("Ctrl+S")));
-    aSatelital->setStatusTip(tr("Seleciona capa satelital"));
-    aSatelital->setCheckable (true);
-    aSatelital->setChecked (true);
-    connect (aSatelital,&QAction::triggered,[this]()
-    {
-        m_mapa->ponerCapaBase(MapaMision::CapaBase::Satelital);
-    });
-
-    aOSM = new QAction(tr("&OSM"),mPrincipal);
-    aOSM->setShortcut (QKeySequence(tr("Ctrl+O")));
-    aOSM->setStatusTip(tr("Seleciona capa Open Street Map (OSM)"));
-    aOSM->setCheckable (true);
-    aOSM->setChecked (false);
-    connect (aOSM,&QAction::triggered,[this]()
-    {
-        m_mapa->ponerCapaBase(MapaMision::CapaBase::OSM);
-    });
-
+    // Las capas base salen del paquete: sus acciones las pone actualizarMenuCapas.
     aG_Capas= new QActionGroup(mPrincipal);
-    aG_Capas->addAction (aSatelital);
-    aG_Capas->addAction (aOSM);
 
     aClaro = new QAction(tr("&Claro"),mPrincipal);
     aClaro->setShortcut (QKeySequence(tr("Ctrl+T+C")));
@@ -374,21 +413,12 @@ void CControladora::createActions()
     aVerGraficaDrone->setChecked (false);
 
 
-    // En createActions(), define aRuta:
-    aRuta = new QAction(tr("&Configuración de Rutas"), mPrincipal);
+    // Muestra u oculta el panel de rutas flotante de abajo (se engancha en
+    // crearPanelRutas).
+    aRuta = new QAction(tr("Panel de &rutas"), mPrincipal);
     aRuta->setShortcut(QKeySequence(tr("Ctrl+R")));
-    aRuta->setStatusTip(tr("Abre la ventana de configuración de rutas"));
-    aRuta->setCheckable(true);  // Para que se mantenga marcado cuando está visible
-
-    connect(aRuta, &QAction::triggered, [this](bool checked) {
-        if (checked) {
-            m_wPuntos->show();
-            m_wPuntos->raise();
-            updateRutaPosition();   // posicionar en esquina inferior derecha
-        } else {
-            m_wPuntos->hide();
-        }
-    });   
+    aRuta->setStatusTip(tr("Muestra u oculta el panel de rutas, abajo"));
+    aRuta->setCheckable(true);
 
     aGestionarDrones = new QAction(tr("&Gestionar Drones..."), this);
     aGestionarDrones->setStatusTip(tr("Abrir el gestor de drones"));
@@ -682,20 +712,6 @@ void CControladora::conecciones()
 
     connect(mPrincipal,&Ci_Principal::resize,[this](){
         updateOverlayPosition();
-        // Solo actualizar posición de ruta si está visible
-        if(m_wPuntos && m_wPuntos->isVisible()) {
-            QTimer::singleShot(50, this, [this]() {
-                updateRutaPosition();
-            });
-        }
-    });
-
-    connect(mPrincipal,&Ci_Principal::move, [this]() {
-        if(m_wPuntos && m_wPuntos->isVisible()) {
-            QTimer::singleShot(50, this, [this]() {
-                updateRutaPosition();
-            });
-        }
     });
 
     ////acciones mapa en barra de herramientas
@@ -757,13 +773,12 @@ void CControladora::conecciones()
     });
 
     // Cerrar ventana → desmarcar acción de menú
-    connect(m_wPuntos, &Widget_Puntos::closed, [this]() {
-        if (aRuta) aRuta->setChecked(false);
+    // Doble clic en un punto de la tabla: el mapa se centra en el.
+    connect(m_wPuntos, &Widget_Puntos::sI_centrarEnPunto, this, [this](const QGeoCoordinate &pos) {
+        m_mapa->centrarEn (pos);
     });
-
-    // También, si se destruye (poco probable), desmarcar
-    connect(m_wPuntos, &Widget_Puntos::destroyed, [this]() {
-        if (aRuta) aRuta->setChecked(false);
+    connect(m_wPuntos, &Widget_Puntos::sI_encuadrarRuta, this, [this]() {
+        m_mapa->encuadrarRuta ();
     });
 
     connect(m_wPuntos, &Widget_Puntos::sI_iniciarSeleccionPuntoInicial, [this]() {
@@ -1103,7 +1118,10 @@ void CControladora::onEnviaPlan()
         punto.x = listPuntoF.at(i).x();
         punto.y = listPuntoF.at(i).y();
         punto.z = puntos.at(i).altura;          // antes era m_ListPuntos, ahora bien
-        punto.velocidad = puntos.at(i).velocidad / 3.6;
+        // En m/s, como en el planificador: es lo que vuela el autopiloto (antes
+        // se dividia por 3,6 y con 16,5 m/s en la ruta el dron iba a 4,6 m/s).
+        // En km/h solo se muestra (la telemetria x 3,6).
+        punto.velocidad = puntos.at(i).velocidad;
         puntosEnviar[i] = punto;
     }
 
@@ -1417,8 +1435,12 @@ void CControladora::updateOverlayPosition()
         const QRect visibleRect = m_mapa->mapa ()->rect();
         int yPos = visibleRect.top() + 8;
         m_panelVuelo->adjustSize();
-        // Centrado, pero sin salirse por la izquierda si el mapa es estrecho.
-        m_panelVuelo->move(qMax(8, (visibleRect.width() - m_panelVuelo->width())/2), yPos);
+        // Centrado en lo que deja libre el panel de capas (flota a la derecha),
+        // pero sin salirse por la izquierda si el mapa es estrecho.
+        int libre = visibleRect.width();
+        if (m_flotanteCapas && m_flotanteCapas->isVisible ())
+            libre = m_flotanteCapas->x ();
+        m_panelVuelo->move(qMax(8, (libre - m_panelVuelo->width())/2), yPos);
     }
     if(m_wGraficas && m_mapa) {
         m_wGraficas->setFixedWidth (m_mapa->mapa ()->width () * 0.95);
@@ -1434,45 +1456,57 @@ void CControladora::updateOverlayPosition()
     }
 }
 
-void CControladora::updateRutaPosition()
+// Panel de rutas flotando abajo, ENCIMA del mapa, como el perfil y el editor
+// de mision de QGroundControl. El mapa no cambia de tamano al abrirlo o
+// cerrarlo: nada se mueve ni se repinta (con un QDockWidget el mapa encogia y
+// crecia y lo que se veia saltaba). Se muestra u oculta con Rutas → Panel de
+// rutas (Ctrl+R) o con su cruz, y conf.ini ([VENTANAS] rutas) lo recuerda.
+void CControladora::crearPanelRutas()
 {
-    if(!m_wPuntos || !m_mapa || !m_wPuntos->isVisible()) {
+    m_flotanteRuta = new PanelFlotante(tr("Rutas"), m_mapa->mapa ());
+    m_flotanteRuta->setContenido (m_wPuntos);
+
+    const bool visible = MyQSetting().cargarSetting (Rutas::confIni (), "rutas", "VENTANAS", false).toBool ();
+    m_flotanteRuta->setVisible (visible);
+    aRuta->setChecked (visible);
+    connect (aRuta, &QAction::toggled, this, [this](bool v) {
+        m_flotanteRuta->setVisible (v);
+        colocarPaneles ();
+        MyQSetting().guardarSettings (Rutas::confIni (), "VENTANAS", {{"rutas", v}});
+    });
+    connect (m_flotanteRuta, &PanelFlotante::cerrado, this, [this]() { aRuta->setChecked (false); });
+    colocarPaneles ();
+}
+
+// Coloca los paneles flotantes sobre el mapa: el de rutas abajo, a todo lo
+// ancho; el de capas a la derecha, encima del de rutas si esta abierto. Y le
+// dice al mapa cuanto queda tapado, para que encuadrar y centrar usen la parte
+// que se ve.
+void CControladora::colocarPaneles()
+{
+    if (!m_mapa)
         return;
+    const QRect r = m_mapa->mapa ()->rect ();
+    const int margen = 8;
+    int abajo = 0, derecha = 0;
+    int techoRuta = r.height ();
+    if (m_flotanteRuta && m_flotanteRuta->isVisible ()) {
+        const int alto = qBound (200, m_flotanteRuta->sizeHint ().height (),
+                                 qMax (200, int(r.height () * 0.5)));
+        techoRuta = r.height () - alto - margen;
+        m_flotanteRuta->setGeometry (margen, techoRuta, r.width () - 2 * margen, alto);
+        m_flotanteRuta->raise ();
+        abajo = alto + margen;
     }
-
-    //Usar el widget del mapa como referencia de pantalla
-    QWidget *mapWidget = m_mapa->mapa();
-
-    // 1. Obtener esquina inferior derecha del mapa en coordenadas GLOBALES
-    QPoint mapBottomRightGlobal = mapWidget->mapToGlobal(
-                QPoint(mapWidget->width(), mapWidget->height()));
-
-    // 2. Calcular posición global para m_wPuntos
-    int globalX = mapBottomRightGlobal.x() - m_wPuntos->width() - 20;
-    int globalY = mapBottomRightGlobal.y() - m_wPuntos->height() - 40;
-
-    // 3. Asegurar que esté en la misma pantalla que el mapa
-    QScreen *mapScreen = QGuiApplication::screenAt(mapWidget->mapToGlobal(QPoint(0, 0)));
-    if (mapScreen) {
-        QRect screenGeometry = mapScreen->availableGeometry();
-
-        // Ajustar si se sale de la pantalla
-        if (globalX + m_wPuntos->width() > screenGeometry.right()) {
-            globalX = screenGeometry.right() - m_wPuntos->width() - 20;
-        }
-        if (globalX < screenGeometry.left()) {
-            globalX = screenGeometry.left() + 20;
-        }
-        if (globalY + m_wPuntos->height() > screenGeometry.bottom()) {
-            globalY = screenGeometry.bottom() - m_wPuntos->height() - 40;
-        }
-        if (globalY < screenGeometry.top()) {
-            globalY = screenGeometry.top() + 40;
-        }
+    if (m_flotanteCapas && m_flotanteCapas->isVisible ()) {
+        const int ancho = 290;
+        const int alto = qMax (120, techoRuta - 2 * margen);
+        m_flotanteCapas->setGeometry (r.width () - ancho - margen, margen, ancho, alto);
+        m_flotanteCapas->raise ();
+        derecha = ancho + margen;
     }
-
-    // 4. Mover a posición global
-    m_wPuntos->move(globalX, globalY);
+    m_mapa->ponerZonaTapada (abajo, derecha);
+    updateOverlayPosition ();   // el panel de vuelo se centra en lo que queda libre
 }
 
 void CControladora::loadInitialData()
@@ -1534,6 +1568,10 @@ void CControladora::crearMapa()
     alturaWorkerPTR->setMapa(m_mapa);
 
     m_lPosicionRaton = new QLabel(mPrincipal);
+    // Ancho fijo (el del texto mas largo): con el raton moviendose, el numero de
+    // cifras cambia y la barra de estado entera se recolocaba sin parar.
+    m_lPosicionRaton->setFixedWidth (anchoTexto (m_lPosicionRaton,
+        QStringLiteral("Lat: -90.000000  Lon: -180.000000  Alt: -99999 m")));
     mPrincipal->statusBar()->addPermanentWidget(m_lPosicionRaton);
 
     LogHandler& logHandler = LogHandler::getInstance();
@@ -1549,6 +1587,100 @@ void CControladora::crearMapa()
     }
     for (const QString &aviso : m_mapa->avisos())
         logHandler.appendLogMessage("Mapa: " + aviso);
+}
+
+// Claves de [CAPAS] en conf.ini que son listas de ids: se guardan unidas con
+// ';' para distinguir "ninguno" (cadena vacia) de "nunca guardado" (sin clave).
+static bool esListaDeCapas(const QString &clave)
+{
+    return clave != QLatin1String("base") && clave != QLatin1String("hibrido");
+}
+
+// Panel de capas a la derecha, como en la demo de libmapa, y menu Capas con las
+// capas base del paquete. Recupera de conf.ini ([CAPAS]) las capas que se
+// dejaron puestas y ([VENTANAS] capas) si el panel estaba abierto.
+void CControladora::crearPanelCapas()
+{
+    MyQSetting settings;
+    const QString ini = Rutas::confIni();
+    QStringList claves = {"base", "hibrido", "hibrido_ocultos", "fijas"};
+    for (const CapaMapa &b : m_mapa->capasBase())
+        claves.append("ocultos_" + b.id);
+    QVariantMap estado;
+    for (const QString &clave : claves) {
+        const QVariant v = settings.cargarSetting (ini, clave, "CAPAS");
+        if (!v.isValid ())
+            continue;
+        estado.insert (clave, esListaDeCapas (clave)
+                                  ? QVariant(v.toString ().split (';', Qt::SkipEmptyParts))
+                                  : v);
+    }
+    if (!estado.isEmpty ())
+        m_mapa->restaurarCapas (estado);
+
+    // Flotando a la derecha, encima del mapa (como el panel de rutas).
+    m_flotanteCapas = new PanelFlotante(tr("Capas"), m_mapa->mapa ());
+    m_panelCapas = new PanelCapas(m_mapa);
+    m_flotanteCapas->setContenido (m_panelCapas);
+    const bool visible = settings.cargarSetting (ini, "capas", "VENTANAS", false).toBool ();
+    m_flotanteCapas->setVisible (visible);
+
+    aPanelCapas = new QAction(tr("Panel de &capas"), mPrincipal);
+    aPanelCapas->setCheckable (true);
+    aPanelCapas->setChecked (visible);
+    aPanelCapas->setShortcut (QKeySequence(tr("Ctrl+L")));
+    aPanelCapas->setStatusTip (tr("Muestra u oculta el panel de capas del mapa"));
+    connect (aPanelCapas, &QAction::toggled, this, [this](bool v) {
+        m_flotanteCapas->setVisible (v);
+        colocarPaneles ();
+        MyQSetting().guardarSettings (Rutas::confIni (), "VENTANAS", {{"capas", v}});
+    });
+    connect (m_flotanteCapas, &PanelFlotante::cerrado, this, [this]() { aPanelCapas->setChecked (false); });
+
+    // En cola: el aviso puede llegar desde una accion del propio menu, que
+    // actualizarMenuCapas borra al rehacerlo.
+    connect (m_mapa, &MapaMision::capasCambiadas, this, &CControladora::actualizarMenuCapas,
+             Qt::QueuedConnection);
+    connect (m_mapa, &MapaMision::capasCambiadas, this, &CControladora::guardarCapas);
+    actualizarMenuCapas ();
+}
+
+// Menu Capas: una accion por capa base del paquete (la activa marcada) y, al
+// final, el panel de capas. Se conservan los atajos de siempre para la
+// satelital (Ctrl+S) y OSM (Ctrl+O); el resto, Ctrl+1, Ctrl+2...
+void CControladora::actualizarMenuCapas()
+{
+    mCapas->clear ();
+    int n = 0;
+    for (const CapaMapa &b : m_mapa->capasBase()) {
+        QAction *a = mCapas->addAction (b.nombre);
+        a->setCheckable (true);
+        a->setChecked (b.visible);
+        a->setStatusTip (tr("Mapa base: %1").arg (b.nombre));
+        aG_Capas->addAction (a);
+        if (b.id == QLatin1String("satelital"))
+            a->setShortcut (QKeySequence(tr("Ctrl+S")));
+        else if (b.id == QLatin1String("osm"))
+            a->setShortcut (QKeySequence(tr("Ctrl+O")));
+        else if (++n <= 9)
+            a->setShortcut (QKeySequence(QStringLiteral("Ctrl+%1").arg (n)));
+        const QString id = b.id;
+        connect (a, &QAction::triggered, this, [this, id]() { m_mapa->ponerCapaBaseId (id); });
+    }
+    mCapas->addSeparator ();
+    if (aPanelCapas)
+        mCapas->addAction (aPanelCapas);
+}
+
+// Guarda en conf.ini ([CAPAS]) como estan las capas; en otro hilo y solo si
+// algo cambio (MyQSetting).
+void CControladora::guardarCapas()
+{
+    QVariantMap valores = m_mapa->estadoCapas ();
+    for (auto it = valores.begin (); it != valores.end (); ++it)
+        if (esListaDeCapas (it.key ()))
+            it.value () = it.value ().toStringList ().join (';');
+    MyQSetting().guardarSettings (Rutas::confIni (), "CAPAS", valores);
 }
 
 // Pinta (u oculta) en el mapa la ruta del modelo de Widget_Puntos.
@@ -1671,8 +1803,18 @@ void CControladora::crearIndicadorEnlace()
 {
     m_reloj.start ();
     m_lEnlace = new QLabel(mPrincipal);
-    m_lEnlace->setMinimumWidth (330);
+    // Ancho fijo, como el resto de la barra: el texto cambia cuatro veces por
+    // segundo («última hace 0,1 s», tramas/s) y la barra no debe bailar.
+    m_lEnlace->setFixedWidth (anchoTexto (m_lEnlace,
+        QStringLiteral("tcp 255.255.255.255:65535 · 100 tramas/s · última hace 10,0 s"), true) + 16);
     mPrincipal->statusBar ()->insertPermanentWidget (0, m_lEnlace);
+    // Al lado, cuanto lleva abierto el enlace (y, al cerrarlo, cuanto duro).
+    m_lTiempoConexion = new QLabel(mPrincipal);
+    m_lTiempoConexion->setToolTip (tr("Tiempo que lleva abierto el enlace con el dron"));
+    m_lTiempoConexion->setStyleSheet (QStringLiteral("QLabel { padding: 1px 8px; font-weight: bold; }"));
+    m_lTiempoConexion->setFixedWidth (anchoTexto (m_lTiempoConexion,
+        QStringLiteral("Última conexión 000:00:00"), true) + 16);
+    mPrincipal->statusBar ()->insertPermanentWidget (1, m_lTiempoConexion);
 
     SerialManager *enlace = m_wConexion->serialManager ();
     connect (enlace, &SerialManager::newTramaConstanteReceived, this,
@@ -1703,6 +1845,7 @@ void CControladora::refrescarIndicadorEnlace()
     case MonitorEnlace::Estado::Perdido: fondo = QStringLiteral("#c62828"); break;
     }
     m_lEnlace->setText (m_monitor.texto (ahora));
+    m_lTiempoConexion->setText (m_monitor.textoTiempo (ahora));
     m_lEnlace->setStyleSheet (QStringLiteral("QLabel { background: %1; color: %2; padding: 1px 8px;"
                                              " border-radius: 3px; font-weight: bold; }")
                                   .arg (fondo, letra));

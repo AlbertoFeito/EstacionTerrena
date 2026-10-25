@@ -25,7 +25,6 @@ public:
 
     SerialManager *serialManager() const;
 
-    quint16 calculateChecksum(const QByteArray &data);
 signals:
     void datosRecibidos(QByteArray);
     void conectado(bool);
@@ -45,6 +44,7 @@ public slots:
     void handlePortDisconnected(const QString &port);
 private:
     void crearSelectorEnlace();
+    void ordenarPestana();
     void guardarEnlace();
     void habilitarCampos(bool habilitar);
 

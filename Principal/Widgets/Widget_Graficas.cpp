@@ -1,6 +1,12 @@
 #include "Widget_Graficas.h"
 #include "ui_Widget_Graficas.h"
 
+#include <algorithm>
+
+namespace {
+// Segundos que guardan las graficas en vivo (la ultima media hora).
+const double kVentanaGraficas = 30 * 60;
+}
 
 Widget_Graficas::Widget_Graficas(QWidget *parent) :
     QWidget(parent),
@@ -223,6 +229,19 @@ void Widget_Graficas::datosTiempoReal(double Banq, double Cab, double rpm, doubl
     Altura.append (Alt);
     Velocidad.append (Vel);
     tiempo.append (tiem);
+    // En vivo se queda la ultima media hora: antes se guardaba todo desde que
+    // se conecto y, con las graficas abiertas, cada trama redibujaba horas de
+    // datos. Se recorta de minuto en minuto, no en cada trama.
+    if (tiempo.first () < tiem - kVentanaGraficas - 60.0) {
+        // Lineal y no binaria: al reconectar el tiempo vuelve a 0 y la serie
+        // deja de estar ordenada.
+        const double limite = tiem - kVentanaGraficas;
+        const auto viejo = std::find_if (tiempo.cbegin (), tiempo.cend (),
+                                         [limite](double t) { return t >= limite; });
+        const int n = int(viejo - tiempo.cbegin ());
+        for (QVector<double> *v : {&Banqueo, &Cabeceo, &RPM, &Altura, &Velocidad, &tiempo})
+            v->remove (0, qMin (n, int(v->size ())));
+    }
     if (isVisible ())
         redibujar ();
 }
@@ -266,11 +285,6 @@ void Widget_Graficas::setDronActivo(const QString &value)
 {
     dronActivo = value;
     ui->dronLineEdit->setText (dronActivo);
-}
-
-float Widget_Graficas::Map(float x, float in_min, float in_max, float out_min, float out_max)
-{
-    return (x-in_min)*(out_max - out_min)/(in_max-in_min)+out_min;
 }
 
 QString Widget_Graficas::getVuelo() const

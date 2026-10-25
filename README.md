@@ -46,9 +46,13 @@ Por este orden:
 
 3. `<carpeta de trabajo>/../Recursos`, como siempre.
 
-Del paquete solo se muestran las capas base (Satelital y OSM): ni mapa híbrido
-ni capas fijas, de momento. Si el paquete no trae elevación, se usa la carpeta
-de `.hgt` de siempre (`C:/CubaAlt`).
+Las capas son las que trae el `mapa.json` del paquete: en el menú *Capas*, las
+capas base (Satelital Ctrl+S, OSM Ctrl+O...) y el **panel de capas** (Ctrl+L, flota a la derecha,
+como el de la demo de libmapa) con la base, el mapa híbrido (calles y nombres
+encima, con sus grupos) y las capas fijas. El híbrido y las capas fijas
+arrancan ocultos; lo que se deja puesto se recuerda en `conf.ini` ([CAPAS]).
+Si el paquete no trae elevación, se usa la carpeta de `.hgt` de siempre
+(`C:/CubaAlt`).
 
 ## Dónde guarda sus datos
 
@@ -140,9 +144,11 @@ de 10 puntos en *Rutas*; para que la siga, *Mandos* en régimen automático.
 
 1. `simulador_dron` y, en la estación, **Conectar** (ala fija, TCP). La primera
    posición que llega fija la casa (la «H»).
-2. *Rutas → Configuración de Rutas* → **Nueva**: elegir el dron y el nombre de
-   la ruta; después, clic derecho en el mapa en el punto inicial (se generan
-   los 10 puntos, que se pueden arrastrar o editar en la tabla) y **Enviar**. Cuando el dron confirma, el botón se pone verde y
+2. *Rutas → Panel de rutas* (Ctrl+R; flota abajo, encima del mapa, y se recuerda si se dejó
+   abierto) → **Nueva**: elegir el dron y el nombre de la ruta; después, clic
+   derecho en el mapa en el punto inicial (se generan los 10 puntos, que se
+   pueden arrastrar o editar en la tabla; doble clic en uno centra el mapa en
+   él) y **Enviar al dron**. Cuando el dron confirma, el botón se pone verde y
    la barra de estado dice «✓ El dron ha confirmado el plan». Sin respuesta en
    3 s, aviso; si lo rechaza, se reenvía hasta 3 veces.
 3. Con la ruta en el dron, este sigue dando vueltas a casa: solo la cumple en

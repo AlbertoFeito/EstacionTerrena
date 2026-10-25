@@ -589,3 +589,308 @@ no se pinta nada, las tramas se acumulan y luego salen todas de golpe.
   hilo de la interfaz. 83 pruebas en total.
 - Visto con la app grabando: todas las esperas al disco (`fsync`) las hace el
   hilo «GrabadorVuelo» y el de la interfaz lee la telemetría trama a trama.
+
+## 17. Fuera el código muerto
+
+Punto 5 de la fase de mejora. Se buscó lo que no se compila y lo que, aun
+compilándose, no usa nadie:
+
+- **Sin compilar**: `Indicador/` (instrumentos antiguos con sus 61 imágenes; el
+  que se usa es `qfi/`), `cSerialPort/` (comentado en el `.pro`; el enlace lo
+  lleva `SerialManager`) y, en `graficar/`, `qtableviewprinter`,
+  `qcheckboxcombo` y `myqbuttongroup`.
+- **Compilado sin uso**:
+  - de `qfi/` solo se usa el EADI (el horizonte artificial con velocidad,
+    altura y rumbo); fuera los otros siete instrumentos (EHSI, AI, HI, VSI,
+    ASI, ALT y TC) y sus imágenes, que iban metidas en el ejecutable;
+  - `Estructuras/Utils.h` (una suma de comprobación que ya está en
+    `Protocolo/Tramas` y que nadie incluía);
+  - tres copias de `calculateChecksum` (Conexión, Ganancias y Mandos) que
+    nadie llamaba, y `Widget_Graficas::Map`, que dejó de usarse en §13.
+- `Reporte/` se queda: lo usa el botón «Imprimir» de los datos de un vuelo.
+
+El ejecutable pasa de 5,8 a 5,5 MB. Compilado desde cero y pasan las 83
+pruebas; el EADI se ve igual con datos en vivo.
+
+## 18. Enviar mandos ya no congela la pantalla
+
+Al pulsar «Enviar mandos», la pantalla se quedaba 1 o 2 s sin pintar la
+telemetría. La trama sale en un instante; lo que tardaba era guardar en
+`conf.ini` los valores de la pestaña, **uno a uno y en el hilo de la
+interfaz**: 4 con Mandos, 13 con Ganancias y 6 al conectar. Cada
+`QSettings` lee el fichero entero y, al escribir, crea un fichero de
+bloqueo y uno temporal y lo renombra. En Windows, con el antivirus
+revisando cada fichero nuevo, eso son decenas o cientos de ms por valor, y
+mientras tanto no se leía el enlace ni se pintaba nada.
+
+`MyQSetting` gana `guardarSettings(fichero, grupo, valores)`:
+
+- **Todo de una vez**: un solo `QSettings` y una sola escritura por grupo.
+- **En otro hilo**: un `QThreadPool` de un solo hilo, así que las
+  escrituras van en orden. `cargarSetting` espera a que acabe lo pendiente
+  para no leer un valor viejo, y al cerrar el programa se espera a que
+  termine.
+- **Solo si algo cambió**: si se mandan los mismos valores que la última
+  vez, no se toca el disco.
+
+`guardarSetting` (un valor) sigue existiendo y pasa por lo mismo. Lo usan
+Mandos, Ganancias y la conexión (`[ENLACE]`); las claves y los valores de
+`conf.ini` no cambian.
+
+De paso, Ganancias mandaba "xyz" seguido de los 8 bytes **del puntero** a
+la estructura, y sin suma: el autopiloto no podía aceptar esa trama. Ahora
+sale de `Tramas::mandos`, igual que la de la pestaña Mandos. El protocolo
+es el mismo; lo que se corrige es que antes no se cumplía.
+
+## 19. Ventana maximizada de verdad y tiempo de conexión
+
+**Maximizada.** La ventana ya se abría con `showMaximized()`, pero en el PC
+no salía maximizada. Medido: la ventana pedía **799 px de alto como
+mínimo**, porque la pestaña más alta de la izquierda (Mandos, Ganancias…)
+iba debajo del horizonte artificial, que mide 300 px fijos. En una pantalla
+de 768 px, o en una de 1080 con la escala de Windows al 125–150 %, no cabe;
+Windows no puede maximizar una ventana más alta que la pantalla y la deja
+como está. Ahora cada pestaña va dentro de un `QScrollArea` (con barra
+vertical si no cabe y sin horizontal, porque el ancho es fijo) y el mínimo
+baja a 515 px. Las pestañas se siguen reconociendo por el widget que
+contienen (`isAncestorOf`), así que el desplazable no las confunde.
+
+**Tiempo de conexión.** En la barra de estado, junto al indicador del
+enlace, se muestra «Conectado 00:12:34» mientras el enlace está abierto y,
+al cerrarlo, «Última conexión 00:12:34». Además se anota en la ventana del
+log y en `log.txt`: «Enlace cerrado (tcp 127.0.0.1:5760) tras 00:12:34
+conectado». Lo calcula `MonitorEnlace` (`msConectado`, `duracionUltima`,
+`textoTiempo`), que recibe la hora como parámetro, así que `test_estado`
+lo prueba sin esperar (caso `tiempoDeConexion`).
+
+## 20. La velocidad del plan llega en m/s
+
+Respondida la pregunta de la unidad (estaba en `PENDIENTES.md`): **la
+velocidad va siempre en m/s** y solo se pasa a km/h para mostrarla. Si la
+ruta dice 16,5 m/s, eso es lo que tiene que volar el dron, y en pantalla
+se ve 59,4 km/h.
+
+`CControladora::onEnviaPlan` dividía la velocidad de cada punto por 3,6
+antes de mandarla, como si el planificador estuviera en km/h: con 16,5 m/s
+en la ruta, el dron recibía 4,6 m/s, y el simulador volaba a eso. Ahora se
+manda tal cual. El resto ya era coherente:
+
+- la telemetría (`Realimentacion_Velocidad`) llega en m/s, y el horizonte,
+  el rótulo del avión en el mapa y la grabación la multiplican por 3,6;
+- la velocidad de vuelta a casa (V.RTH) se escribe en km/h en la pestaña
+  Mandos y se manda dividida por 3,6, es decir, en m/s;
+- el simulador usa la velocidad del plan en m/s, sin convertir.
+
+## 21. Horas en «Repetir misión» sin que se vuelva lenta
+
+Pregunta del usuario: ¿cuánto aguanta la estación recibiendo y pintando una
+ruta en «Repetir misión»? Para medirlo, el simulador en automático y
+«Repetir» a 100 tramas/s (diez veces el dron real) y la estación 10 minutos
+contra él: unas 42.000 tramas, como unos 70 minutos de vuelo de verdad. La
+memoria pasó de 78 a 85 MB, unos 6 MB por hora de vuelo. Eso no tumba nada,
+pero había dos cosas que crecían sin tope y que cada trama recorría entera:
+
+- **La estela del dron en el mapa** era entera (`setTargetTrailLength(-1)`)
+  y se redibujaba completa en cada repintado: 36.000 puntos por hora,
+  860.000 en un día. Ahora es de **10 minutos** (6000 posiciones a 10
+  tramas/s). La ruta completa la sigue guardando libmapa aparte
+  (`targetHistory`, con 5000 puntos como mucho y aclarando los
+  intermedios), y los puntos cumplidos siguen marcados en el plan.
+- **Las gráficas en vivo** guardaban todo desde la conexión y, abiertas,
+  lo redibujaban con cada trama. Ahora guardan la **última media hora**; se
+  recorta de minuto en minuto, no en cada trama. Las gráficas de un vuelo
+  grabado no cambian: entran por otro camino.
+
+Lo demás ya estaba acotado: el log se queda en sus últimas 5000 líneas, los
+puntos cumplidos se marcan una vez por punto (no una vez por vuelta) y la
+grabación va a disco desde su propio hilo.
+
+Repetida la misma medida de 10 minutos: la memoria va de 79 a 83 MB en los
+primeros 6 minutos, mientras se llenan la estela y el historial, y se queda
+en 83 MB los 4 últimos.
+
+## 22. Panel de capas como en la demo, y el panel de rutas abajo
+
+**Capas.** Hasta ahora el mapa solo enseñaba las dos capas base, con dos
+acciones fijas en el menú (Satelital y OSM), y quitaba el mapa híbrido y las
+capas fijas del paquete (§3). Ahora todo sale del `mapa.json`:
+
+- **Menú Capas**: una acción por capa base del paquete (se mantienen Ctrl+S
+  para la satelital y Ctrl+O para OSM; las demás, Ctrl+1, Ctrl+2…) y
+  «Panel de capas» (Ctrl+L).
+- **Panel de capas** (`Mapa/PanelCapas`), a la derecha y como el árbol de la
+  demo de libmapa: «Mapa base» (se marca una, como un radio; si es vectorial,
+  sus grupos cuelgan de ella) y «Superpuestas» (el híbrido con sus grupos
+  —carreteras, nombres de calles, lugares, POI…— y las capas fijas). Las
+  capas de la estación (ruta, misión, dibujos) y la de entidades que libmapa
+  crea por defecto no salen: no son del paquete.
+- El híbrido ya no se descarga: queda cargado y **oculto** al arrancar, igual
+  que las capas fijas, y se enciende desde el panel.
+- Lo que se deja puesto se guarda en `conf.ini`, en `[CAPAS]`: la base, el
+  híbrido, sus grupos apagados y las capas fijas visibles. Las listas van
+  unidas con «;», para distinguir «ninguno» de «nunca guardado». Si el panel
+  estaba abierto, también se recuerda, en `[VENTANAS] capas`.
+- El panel no habla con libmapa: `MapaMision` gana lo necesario
+  (`capasBase`, `gruposHibrido`, `capasFijas`, `estadoCapas` /
+  `restaurarCapas`… y la señal `capasCambiadas`).
+
+**Rutas.** La ventana de rutas era flotante, sin marco, y tapaba la esquina
+del mapa (había que recolocarla a mano cada vez que se movía o redimensionaba
+la ventana). Ahora es un **panel abajo**, a todo lo ancho, en un
+`QDockWidget`. Se muestra u oculta con *Rutas → Panel de rutas* (Ctrl+R) o
+con su botón de cerrar, y `conf.ini` (`[VENTANAS] rutas`) recuerda si se
+dejó abierto. El diseño va en tres columnas:
+
+- **izquierda**: qué ruta (combo), el dron y la gestión (Nueva, Guardar,
+  Restablecer y Eliminar);
+- **centro**: la tabla, con columnas a su medida, filas alternas y el estado
+  como un solo icono (antes salían dos: «✓✓»);
+- **derecha**: el resumen en grande (distancia, tiempo y autonomía que queda,
+  con barra y estado) y las acciones: «Ver en el mapa» (verde cuando está
+  dibujada), Perfil, Análisis, Guía y un **«Enviar al dron»** grande.
+
+Cambios de funcionamiento:
+
+- **«Enviar al dron»** solo se puede pulsar con la ruta de 10 puntos lista y
+  con enlace; sin enlace dice «Enviar al dron (sin enlace)». Antes se pulsaba
+  y salía un aviso.
+- **«Ver en el mapa» y «Análisis»** salían desactivados al arrancar aunque
+  hubiera una ruta válida: el constructor los apagaba al final. Ahora quedan
+  según la ruta cargada.
+- **Doble clic en un punto de la tabla** centra el mapa en él
+  (`MapaMision::centrarEn`).
+
+Los paneles cambian el tamaño del mapa sin cambiar el de la ventana, así que
+el panel de vuelo y las gráficas se recolocan cuando cambia el mapa, no solo
+cuando cambia la ventana. `test_mapamision` suma tres casos: las capas del
+paquete, el panel de capas y guardar y restaurar el estado.
+
+## 23. Repaso de diseño: panel de rutas con perfil, mapa y pestaña Enlace
+
+El usuario pidió una opinión sincera sobre cómo se ve la estación, con sus
+capturas a pantalla completa (1920×1080). Lo que fallaba:
+
+- **Panel de rutas**: la tabla se estiraba a 1400 px y los números quedaban
+  a un palmo unos de otros. Había mucho hueco y nada útil en él. Las cifras
+  traían decimales que no dicen nada («300.00», «16.25») y el estado salía
+  dos veces.
+- **Mapa**: al mostrar la ruta, aparecía diminuta en mitad de La Habana y
+  había que buscarla. A esa escala, los rótulos P1…P10 se montaban unos
+  encima de otros y no se leía ninguno.
+- **Pestaña Enlace**: el dron se elegía abajo del todo, después de conectar
+  (al revés de como se usa), y entre el puerto y «Conectar» quedaba un hueco
+  enorme.
+- Detalles: el interruptor «Quitar del mapa», relleno de verde, gritaba más
+  que la acción principal («Enviar al dron»). «Válida (con advertencias)» no
+  decía cuáles.
+
+Lo que cambia:
+
+- **Perfil de altitud dentro del panel**, en el hueco que dejaba la tabla.
+  Muestra la ruta en el naranja del mapa, con P1…P10, sobre el terreno
+  relleno, y marca en rojo donde el terreno queda a menos de 10 m. Sigue el
+  tema claro u oscuro, y un clic en el perfil selecciona ese punto en la
+  tabla. «Perfil» pasa a ser «Ampliar perfil», que abre otro igual en una
+  ventana grande. De paso: la leyenda va en su fila (dentro tapaba la ruta),
+  un clic elige el punto más cercano (antes la cuenta estaba mal) y dos
+  puntos en el mismo sitio ya no dividen por cero.
+- **Tabla al ancho justo**: columnas a su medida, cabeceras cortas
+  («Dist. (m)», «Alt. (m)», «Vel. (m/s)») con el nombre largo en el tooltip,
+  números a la derecha, metros sin decimales y la velocidad con uno.
+  **Editar una celda ya trae su valor**: no había `EditRole` y el editor
+  salía vacío.
+- **Estado como pastilla** de color (verde, ámbar o rojo); el tooltip dice
+  qué hay que mirar.
+- **«Ver en el mapa» encuadra la ruta** (`MapaMision::encuadrarRuta`, con un
+  margen alrededor). Si dos puntos quedan a menos de 34 px en pantalla, solo
+  se rotula P1 (`refrescarRotulosRuta`, al cambiar el zoom o mover un
+  punto); al acercarse vuelven todos.
+- **El interruptor «Ver en el mapa»**, encendido, va con borde y texto
+  verdes, sin relleno.
+- **Pestaña Enlace en el orden de uso**: Dron, Enlace (tipo, host, puerto),
+  Conectar (más alto, y en verde mientras hay conexión) y «Grabar el vuelo»
+  (antes «Guardar»), todo arriba y sin el hueco.
+
+El rectángulo oscuro arriba a la izquierda del mapa, en la captura, es una
+zona sin teselas en el paquete; no viene de la estación.
+
+## 24. Abrir un panel ya no desplaza el mapa, y la tabla no crece con los errores
+
+- **El mapa no se corre.** Al abrir el panel de rutas (o el de capas), el
+  mapa encogía por abajo, pero libmapa conserva el centro: todo lo que se veía
+  subía medio panel. Ahora `MapaMision` vigila el redimensionado del mapa y,
+  si la ventana no ha cambiado (lo ha encogido o ampliado un panel, o el
+  operador arrastrando su borde), deja fija la esquina de arriba a la
+  izquierda: se recorta o se amplía por abajo y por la derecha. Al maximizar
+  o redimensionar la ventana se sigue conservando el centro. La cuenta va en
+  coordenadas de eje de libmapa (longitud y Mercator), que son lineales en
+  pantalla. Prueba: `panelNoDesplazaElMapa`.
+- **La tabla no se ensancha con filas no válidas.** Las filas con errores o
+  advertencias se pintaban en negrita, con un `QFont()` que además cambiaba
+  la letra de la tabla por la de la aplicación. Las columnas crecían y la
+  tabla le comía sitio al perfil. Fuera esa negrita: ya marcan el error el
+  fondo rojo y el icono.
+
+## 25. Sin saltos: el mapa al ocultar el panel, «Enviar mandos» a la vista y la barra de estado quieta
+
+- **El salto al ocultar el panel de rutas.** Grabada la pantalla a 60 fps
+  (ffmpeg contra la pantalla virtual) y medida la posición de la cuadrícula
+  fotograma a fotograma: al ocultar el panel salía **un fotograma con el mapa
+  viejo estirado** al tamaño nuevo (líneas cada 104 px en vez de 64) y en el
+  siguiente volvía a su sitio. Ahora `MapaMision` no deja pintar el mapa
+  mientras se redimensiona: lo vuelve a permitir dos vueltas del bucle de
+  eventos después, cuando libmapa ya ha repintado con el tamaño nuevo.
+  Medido igual al ocultar y al mostrar el panel: ningún fotograma
+  intermedio.
+- **«Enviar mandos» siempre a la vista.** Con el panel de rutas abierto, a la
+  columna de la izquierda le queda poco alto y el botón quedaba abajo del
+  desplazamiento. Ahora el botón de enviar de cada pestaña (Mandos,
+  Ganancias) va fijo debajo, fuera de lo que se desplaza. Al sacarlo de su
+  widget sigue su estado: desactivado sin enlace y oculto cuando la pestaña
+  muestra los mandos del cuadróptero.
+- **La barra de estado no baila.** El indicador del enlace (cambia cuatro
+  veces por segundo), el tiempo de conexión y la posición del ratón tenían el
+  ancho de su texto: con cada cambio de cifras se recolocaba toda la barra.
+  Ahora cada uno tiene un ancho fijo, el de su texto más largo con la letra
+  de la pantalla.
+
+## 26. Los paneles flotan encima del mapa, como en QGroundControl
+
+Al usuario seguía sin gustarle abrir y cerrar el panel de rutas, y preguntó
+lo justo: ¿por qué hay que repintar si solo cambia el tamaño? ¿Y si el
+panel no afectara al mapa? Mirado cómo lo hacen otras estaciones:
+
+- **QGroundControl**: el mapa ocupa toda la ventana. El editor de misión
+  (plegable, a la derecha) y el perfil de terreno o las estadísticas (abajo)
+  **flotan encima del mapa**, que nunca cambia de tamaño.
+- **Mission Planner**: reparte la pantalla en zonas (HUD, pestañas, mapa).
+  Cambiar una de tamaño cambia el mapa, igual que nos pasaba con los
+  `QDockWidget`.
+
+Los dos arreglos anteriores (§24 fijaba la esquina del mapa y §25 no lo
+dejaba pintar mientras se redimensionaba) trataban el síntoma: el mapa
+cambiaba de tamaño y libmapa tenía que rehacer la vista, pedir teselas y
+repintar. Ahora **el mapa no cambia de tamaño**:
+
+- `Widgets/PanelFlotante`: un panel hijo del mapa, con título, cruz de
+  cerrar y el fondo del tema casi opaco, con las esquinas redondeadas. El
+  ratón y la rueda sobre él son suyos (no arrastran ni acercan el mapa de
+  debajo).
+- El **panel de rutas** flota abajo, a todo lo ancho del mapa, y el de
+  **capas** a la derecha, encima del de rutas. Se abren y cierran igual que
+  antes (Ctrl+R, Ctrl+L o su cruz) y `conf.ini` lo recuerda. Al cerrarlos,
+  el mapa solo vuelve a pintar el trozo que tapaban, desde la imagen que ya
+  tiene.
+- Medido a 60 fps al cerrar el panel de rutas: en los 167 fotogramas, la
+  parte del mapa que no tapa el panel no cambia ni un píxel.
+- Fuera los dos arreglos de §24 y §25 en `MapaMision` (el filtro de
+  redimensionado), que ya no hacen falta.
+- Lo que tapan los paneles se le dice al mapa (`ponerZonaTapada`), para que
+  «Ver en el mapa» encuadre la ruta en la parte visible y el doble clic en un
+  punto lo lleve al centro de lo que se ve, no debajo del panel. La prueba
+  `zonaTapadaPorLosPaneles` sustituye a la de §24.
+- El panel de vuelo se centra en lo que deja libre el panel de capas. En un
+  mapa estrecho, el perfil del panel de rutas se oculta si le quedan menos de
+  220 px, en vez de quedar aplastado.
+- Con el panel de rutas abierto, la barra de escala del mapa (abajo a la
+  izquierda) queda tapada: libmapa no deja moverla.
