@@ -22,6 +22,7 @@ private slots:
     void muestrasSinRedondear();
     void soloEscribeAlVolcarYAlTerminar();
     void dronQueNoExiste();
+    void volcarNoEsperaAlDisco();
 
     void reproduceConSuPlan();
     void interpolaEntreMuestras();
@@ -116,8 +117,8 @@ void TestGrabador::muestrasSinRedondear()
     QCOMPARE(q.value(12).toInt(), 7);
 }
 
-// Anotar no escribe; volcar escribe todo de una vez; terminar escribe lo que
-// quede; despues de terminar no se acepta nada.
+// Anotar no escribe; volcar manda todo de una vez al hilo de escritura;
+// terminar escribe lo que quede y espera; despues no se acepta nada.
 void TestGrabador::soloEscribeAlVolcarYAlTerminar()
 {
     GrabadorVuelo g(m_db);
@@ -131,6 +132,7 @@ void TestGrabador::soloEscribeAlVolcarYAlTerminar()
     QCOMPARE(g.pendientes(), 25);
     QCOMPARE(filas(vuelo), 0);
     QVERIFY2(g.volcar(), qPrintable(g.error()));
+    g.esperar();   // se escribe en otro hilo
     QCOMPARE(filas(vuelo), 25);
     QCOMPARE(g.pendientes(), 0);
     for (int i = 0; i < 5; ++i)
@@ -149,6 +151,31 @@ void TestGrabador::dronQueNoExiste()
     QVERIFY(!g.empezar(QStringLiteral("fantasma")));
     QVERIFY(g.error().contains(QStringLiteral("fantasma")));
     QVERIFY(!g.grabando());
+}
+
+// Con la base de datos bloqueada por otra conexion (como un disco lento),
+// volcar vuelve en el acto: espera el hilo de escritura, no la interfaz. Al
+// soltar el bloqueo se escribe todo.
+void TestGrabador::volcarNoEsperaAlDisco()
+{
+    GrabadorVuelo g(m_db);
+    QVERIFY(g.empezar(QStringLiteral("alafija")));
+    const int vuelo = g.vuelo();
+    MuestraVuelo m;
+    for (int i = 0; i < 10; ++i)
+        g.anotar(m);
+
+    QSqlDatabase otra = QSqlDatabase::database(QStringLiteral("prueba"));
+    QSqlQuery bloqueo(otra);
+    QVERIFY(bloqueo.exec("BEGIN EXCLUSIVE"));
+    QElapsedTimer reloj;
+    reloj.start();
+    QVERIFY(g.volcar());
+    QVERIFY2(reloj.elapsed() < 100, qPrintable(QString::number(reloj.elapsed())));
+    QTest::qWait(300);           // el escritor sigue esperando al bloqueo
+    QVERIFY(bloqueo.exec("COMMIT"));
+    g.terminar();
+    QCOMPARE(filas(vuelo), 10);
 }
 
 // Muestra de prueba en el instante \a ms de un vuelo que empieza a las 11:00.

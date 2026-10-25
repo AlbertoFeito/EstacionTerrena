@@ -564,3 +564,28 @@ ya no pasa por una línea de texto.
 Visto al probar (sin cambiar, pendiente de confirmar): el planificador
 muestra la velocidad de cada punto en m/s, pero al enviar el plan se divide
 por 3,6 como si fuera km/h (16,25 → 4,5 m/s). Apuntado en `PENDIENTES.md`.
+
+## 16. Grabar sin frenar la pantalla
+
+Aviso del usuario: grabando un vuelo (al menos en debug) el dron «se detiene y
+luego acelera». Cada segundo, `GrabadorVuelo` escribía las muestras
+pendientes en el hilo de la interfaz, y cerrar la transacción espera al disco.
+Aquí (Linux, en un contenedor) son 1–2 ms, pero en Windows cada `COMMIT` hace
+varias esperas al disco (diario y base de datos) que, en debug o con el
+antivirus mirando el fichero, llegan a decenas o cientos de ms. En ese rato
+no se pinta nada, las tramas se acumulan y luego salen todas de golpe.
+
+- La escritura pasa a un **hilo propio** (`GrabadorVuelo`): `volcar()` solo
+  entrega el lote y vuelve; el hilo lo escribe en una transacción, en orden
+  con los planes. `terminar()` espera a que todo esté en disco (la lista de
+  vuelos lo lee justo después), y `esperar()` lo hace a petición.
+- Esa conexión usa **WAL con `synchronous=NORMAL`**: una espera al disco por
+  transacción en lugar de varias, y sigue a salvo si se cae la estación (solo
+  se perdería lo del último segundo si se va la luz). El fichero de la base de
+  datos pasa a tener al lado `DronDB.db-wal` y `DronDB.db-shm`, que son suyos.
+- `test_grabador::volcarNoEsperaAlDisco`: con la base de datos bloqueada por
+  otra conexión (como un disco lento), `volcar()` vuelve en menos de 100 ms y,
+  al soltarse el bloqueo, se escribe todo. Antes esperaba hasta 5 s en el
+  hilo de la interfaz. 83 pruebas en total.
+- Visto con la app grabando: todas las esperas al disco (`fsync`) las hace el
+  hilo «GrabadorVuelo» y el de la interfaz lee la telemetría trama a trama.

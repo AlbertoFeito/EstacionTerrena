@@ -22,25 +22,142 @@ const char *kColumnas[] = {
 const char *kNuevas[] = {"Punto_Norte", "Punto_Este", "Punto_Altura"};
 const char *kEnteras[] = {"Realimentacion_Regimen", "Realimentacion_ComandoMision",
                           "CantidadSatelites"};
+
+// Conexion del hilo de escritura (se abre alli la primera vez): WAL con
+// synchronous=NORMAL, una sola espera al disco por transaccion.
+QSqlDatabase conexionEscritura(const QString &nombre, const QString &fichero, QString *error)
+{
+    if (QSqlDatabase::contains(nombre))
+        return QSqlDatabase::database(nombre);
+    QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), nombre);
+    db.setDatabaseName(fichero);
+    db.setConnectOptions(QStringLiteral("QSQLITE_BUSY_TIMEOUT=5000"));
+    if (!db.open()) {
+        *error = db.lastError().text();
+        return db;
+    }
+    QSqlQuery q(db);
+    q.exec(QStringLiteral("PRAGMA journal_mode=WAL"));
+    q.exec(QStringLiteral("PRAGMA synchronous=NORMAL"));
+    return db;
 }
 
-// Nombre de conexion propio para cada grabador.
+// Un lote de muestras en una transaccion con una consulta preparada.
+bool insertarMuestras(QSqlDatabase db, int vuelo, int dron, const QVector<MuestraVuelo> &lote,
+                      QString *error)
+{
+    QStringList nombres = {QStringLiteral("Id_Vuelos"), QStringLiteral("Dron_ID")};
+    for (const char *c : kColumnas)
+        nombres << QString::fromLatin1(c);
+    QStringList marcas;
+    for (int i = 0; i < nombres.size(); ++i)
+        marcas << QStringLiteral("?");
+
+    db.transaction();
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("INSERT INTO DatosVuelos (%1) VALUES (%2)")
+                  .arg(nombres.join(QStringLiteral(", ")), marcas.join(QStringLiteral(", "))));
+    for (const MuestraVuelo &m : lote) {
+        q.addBindValue(vuelo);
+        q.addBindValue(dron);
+        for (double v : {m.lat, m.lon, m.cabeceo, m.banqueo, m.velocidadKmh, m.altura, m.curso,
+                         m.distanciaChequeo, m.cursoDeseado})
+            q.addBindValue(v);
+        q.addBindValue(m.regimen);
+        q.addBindValue(m.mision);
+        q.addBindValue(m.cursoImu);
+        q.addBindValue(m.satelites);
+        for (double g : m.ganancias)
+            q.addBindValue(g);
+        for (double a : m.actuadores)
+            q.addBindValue(a);
+        q.addBindValue(m.convergenciaBanqueo);
+        q.addBindValue(m.convergenciaCabeceo);
+        q.addBindValue(m.fecha);
+        q.addBindValue(m.puntoNorte);
+        q.addBindValue(m.puntoEste);
+        q.addBindValue(m.puntoAltura);
+        if (!q.exec()) {
+            *error = q.lastError().text();
+            db.rollback();
+            return false;
+        }
+    }
+    if (!db.commit()) {
+        *error = db.lastError().text();
+        return false;
+    }
+    return true;
+}
+
+// Un plan entero en una transaccion, con la hora a la que se confirmo.
+bool insertarPlan(QSqlDatabase db, int vuelo, int dron, const QVector<PuntoPlan> &plan,
+                  const QDateTime &cuando, QString *error)
+{
+    db.transaction();
+    QSqlQuery q(db);
+    q.prepare(QStringLiteral("INSERT INTO PlanesVuelo (Dron_ID, Id_Vuelos, Fecha, Indice, Nombre, "
+                             "Lat, Lon, Altura, Velocidad, Norte, Este) "
+                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+    for (int i = 0; i < plan.size(); ++i) {
+        const PuntoPlan &p = plan.at(i);
+        for (const QVariant &v : {QVariant(dron), QVariant(vuelo), QVariant(cuando), QVariant(i),
+                                  QVariant(p.nombre), QVariant(p.lat), QVariant(p.lon),
+                                  QVariant(p.altura), QVariant(p.velocidad), QVariant(p.norte),
+                                  QVariant(p.este)})
+            q.addBindValue(v);
+        if (!q.exec()) {
+            *error = q.lastError().text();
+            db.rollback();
+            return false;
+        }
+    }
+    if (!db.commit()) {
+        *error = db.lastError().text();
+        return false;
+    }
+    return true;
+}
+}
+
+// Nombre de conexion propio para cada grabador y el hilo donde se escribe.
 GrabadorVuelo::GrabadorVuelo(const QString &ficheroDb, QObject *parent)
     : QObject(parent), m_fichero(ficheroDb),
-      m_conexion(QStringLiteral("grabador_vuelo_%1").arg(quintptr(this)))
+      m_conexion(QStringLiteral("grabador_vuelo_%1").arg(quintptr(this))),
+      m_escritor(new QObject)
 {
+    m_hilo.setObjectName(QStringLiteral("GrabadorVuelo"));
+    m_escritor->moveToThread(&m_hilo);
+    m_hilo.start();
     m_reloj.setInterval(1000);
     connect(&m_reloj, &QTimer::timeout, this, [this]() { volcar(); });
 }
 
-// Escribe lo pendiente y suelta la conexion.
+// Escribe lo pendiente, cierra las dos conexiones (la de escritura, en su
+// hilo) y para el hilo.
 GrabadorVuelo::~GrabadorVuelo()
 {
     terminar();
+    const QString escritura = m_conexion + QStringLiteral("_escritura");
+    QMetaObject::invokeMethod(m_escritor, [escritura]() {
+        if (QSqlDatabase::contains(escritura)) {
+            QSqlDatabase::database(escritura, false).close();
+            QSqlDatabase::removeDatabase(escritura);
+        }
+    }, Qt::BlockingQueuedConnection);
+    m_hilo.quit();
+    m_hilo.wait();
+    delete m_escritor;
     if (QSqlDatabase::contains(m_conexion)) {
         QSqlDatabase::database(m_conexion, false).close();
         QSqlDatabase::removeDatabase(m_conexion);
     }
+}
+
+// Un error del hilo de escritura, ya en el de la interfaz.
+void GrabadorVuelo::anotarError(const QString &error)
+{
+    m_error = error;
 }
 
 // Abre (una vez) la conexion propia; espera hasta 5 s si otra conexion esta
@@ -157,58 +274,32 @@ void GrabadorVuelo::anotar(const MuestraVuelo &m)
         m_pendientes.last().fecha = QDateTime::currentDateTime();
 }
 
-// Todas las pendientes en una transaccion y con una sola consulta preparada.
-// Si falla, se quedan para el siguiente intento.
+// Manda las pendientes al hilo de escritura (una transaccion por lote) y
+// vuelve en el acto: el hilo de la interfaz no espera al disco.
 bool GrabadorVuelo::volcar()
 {
     if (m_pendientes.isEmpty())
         return true;
-    if (!abrir())
-        return false;
-    QSqlDatabase db = QSqlDatabase::database(m_conexion);
-    QStringList nombres = {QStringLiteral("Id_Vuelos"), QStringLiteral("Dron_ID")};
-    for (const char *c : kColumnas)
-        nombres << QString::fromLatin1(c);
-    QStringList marcas;
-    for (int i = 0; i < nombres.size(); ++i)
-        marcas << QStringLiteral("?");
-
-    db.transaction();
-    QSqlQuery q(db);
-    q.prepare(QStringLiteral("INSERT INTO DatosVuelos (%1) VALUES (%2)")
-                  .arg(nombres.join(QStringLiteral(", ")), marcas.join(QStringLiteral(", "))));
-    for (const MuestraVuelo &m : qAsConst(m_pendientes)) {
-        q.addBindValue(m_vuelo);
-        q.addBindValue(m_dron);
-        for (double v : {m.lat, m.lon, m.cabeceo, m.banqueo, m.velocidadKmh, m.altura, m.curso,
-                         m.distanciaChequeo, m.cursoDeseado})
-            q.addBindValue(v);
-        q.addBindValue(m.regimen);
-        q.addBindValue(m.mision);
-        q.addBindValue(m.cursoImu);
-        q.addBindValue(m.satelites);
-        for (double g : m.ganancias)
-            q.addBindValue(g);
-        for (double a : m.actuadores)
-            q.addBindValue(a);
-        q.addBindValue(m.convergenciaBanqueo);
-        q.addBindValue(m.convergenciaCabeceo);
-        q.addBindValue(m.fecha);
-        q.addBindValue(m.puntoNorte);
-        q.addBindValue(m.puntoEste);
-        q.addBindValue(m.puntoAltura);
-        if (!q.exec()) {
-            m_error = q.lastError().text();
-            db.rollback();
-            return false;
-        }
-    }
-    if (!db.commit()) {
-        m_error = db.lastError().text();
-        return false;
-    }
-    m_pendientes.clear();
+    QVector<MuestraVuelo> lote;
+    lote.swap(m_pendientes);
+    const QString nombre = m_conexion + QStringLiteral("_escritura");
+    const QString fichero = m_fichero;
+    const int vuelo = m_vuelo, dron = m_dron;
+    QMetaObject::invokeMethod(m_escritor, [this, nombre, fichero, vuelo, dron, lote]() {
+        QString error;
+        QSqlDatabase db = conexionEscritura(nombre, fichero, &error);
+        if (error.isEmpty())
+            insertarMuestras(db, vuelo, dron, lote, &error);
+        if (!error.isEmpty())
+            QMetaObject::invokeMethod(this, [this, error]() { anotarError(error); }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
     return true;
+}
+
+// Espera a que el hilo de escritura acabe lo que tiene encargado (va en orden).
+void GrabadorVuelo::esperar()
+{
+    QMetaObject::invokeMethod(m_escritor, []() {}, Qt::BlockingQueuedConnection);
 }
 
 // Escribe lo que quede y deja de aceptar muestras.
@@ -218,33 +309,27 @@ void GrabadorVuelo::terminar()
         return;
     m_reloj.stop();
     volcar();
+    esperar();   // al terminar, todo en disco (la lista de vuelos lo lee enseguida)
     m_grabando = false;
 }
 
-// El plan entero en una transaccion, con la hora a la que se confirmo.
+// El plan, al hilo de escritura detras de las muestras ya mandadas.
 bool GrabadorVuelo::anotarPlan(const QVector<PuntoPlan> &plan, const QDateTime &fecha)
 {
-    if (!m_grabando || plan.isEmpty() || !abrir())
+    if (!m_grabando || plan.isEmpty())
         return false;
+    volcar();   // lo anterior, antes
     const QDateTime cuando = fecha.isValid() ? fecha : QDateTime::currentDateTime();
-    QSqlDatabase db = QSqlDatabase::database(m_conexion);
-    db.transaction();
-    QSqlQuery q(db);
-    q.prepare(QStringLiteral("INSERT INTO PlanesVuelo (Dron_ID, Id_Vuelos, Fecha, Indice, Nombre, "
-                             "Lat, Lon, Altura, Velocidad, Norte, Este) "
-                             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
-    for (int i = 0; i < plan.size(); ++i) {
-        const PuntoPlan &p = plan.at(i);
-        for (const QVariant &v : {QVariant(m_dron), QVariant(m_vuelo), QVariant(cuando), QVariant(i),
-                                  QVariant(p.nombre), QVariant(p.lat), QVariant(p.lon),
-                                  QVariant(p.altura), QVariant(p.velocidad), QVariant(p.norte),
-                                  QVariant(p.este)})
-            q.addBindValue(v);
-        if (!q.exec()) {
-            m_error = q.lastError().text();
-            db.rollback();
-            return false;
-        }
-    }
-    return db.commit();
+    const QString nombre = m_conexion + QStringLiteral("_escritura");
+    const QString fichero = m_fichero;
+    const int vuelo = m_vuelo, dron = m_dron;
+    QMetaObject::invokeMethod(m_escritor, [this, nombre, fichero, vuelo, dron, plan, cuando]() {
+        QString error;
+        QSqlDatabase db = conexionEscritura(nombre, fichero, &error);
+        if (error.isEmpty())
+            insertarPlan(db, vuelo, dron, plan, cuando, &error);
+        if (!error.isEmpty())
+            QMetaObject::invokeMethod(this, [this, error]() { anotarError(error); }, Qt::QueuedConnection);
+    }, Qt::QueuedConnection);
+    return true;
 }
