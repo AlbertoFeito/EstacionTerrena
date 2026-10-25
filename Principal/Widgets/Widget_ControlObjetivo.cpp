@@ -147,9 +147,10 @@ void Widget_ControlObjetivo::prepara_envia_datos(int pos)
         aux.append(",");
         aux.append(QByteArray::number(listDatosVuelos.at(pos).Id_Vuelos));
         aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Lat,'f',4));
+        // Con 7 decimales (~1 cm): con 4 (~11 m) la traza reproducida salia en escalones.
+        aux.append(QByteArray::number(listDatosVuelos.at(pos).Lat,'f',7));
         aux.append(",");
-        aux.append(QByteArray::number(listDatosVuelos.at(pos).Lon,'f',4));
+        aux.append(QByteArray::number(listDatosVuelos.at(pos).Lon,'f',7));
         aux.append(",");
         aux.append(QByteArray::number(listDatosVuelos.at(pos).Realimentacion_Cabeceo,'f',2));
         aux.append(",");

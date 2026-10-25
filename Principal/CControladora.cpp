@@ -1,6 +1,7 @@
 #include "CControladora.h"
 #include "Iconos/Iconos.h"
 #include "Protocolo/FilaVuelo.h"
+#include "Vuelos/GrabadorVuelo.h"
 
 #include <cmath>
 #include <QAction>
@@ -195,47 +196,10 @@ void CControladora::preparaDataBase()
     _aQuery->prepare ("PRAGMA foreign_keys = ON");
     _aQuery->startExec ();
 
-    query1 = "CREATE TABLE IF NOT EXISTS DatosVuelos("
-             "Id_Vuelos INTEGER NOT NULL, "
-             "Dron_ID INTEGER NOT NULL REFERENCES DronTable(id_Dron) ON DELETE CASCADE ON UPDATE CASCADE, "
-             "Lat REAL, "
-             "Lon REAL, "
-             "Realimentacion_Cabeceo REAL, "
-             "Realimentacion_Banqueo REAL, "
-             "Realimentacion_Velocidad REAL, "
-             "Realimentacion_Altura REAL, "
-             "Realimentacion_Curso REAL, "
-             "Distancia_Chequeo REAL, "
-             "Curso_Deseado REAL, "
-             "Realimentacion_Regimen INTEGER, "
-             "Realimentacion_ComandoMision INTEGER, "
-             "Realimentacion_CursoIMU REAL, "
-             "CantidadSatelites INTEGER, "
-
-             "KPCabeceo REAL, "
-             "KICabeceo REAL, "
-             "KPBanqueo REAL, "
-             "KIBanqueo REAL, "
-             "KPVelocidad REAL, "
-             "KIVelocidad REAL, "
-             "KPAltura REAL, "
-             "KIAltura REAL, "
-             "KPCurso REAL, "
-             "KPRumbo REAL, "
-             "KIRumbo REAL, "
-
-             "Control_Estabilizadores REAL, "
-             "Control_Alerones REAL, "
-             "Control_Motor REAL, "
-             "Control_Rumbo REAL, "
-
-             "Convergencia_Banqueo REAL, "
-             "Convergencia_Cabeceo REAL, "
-
-             "Fecha DATETIME)";
-
-    _aQuery->prepare (query1);
-    _aQuery->startExec ();
+    // La tabla de vuelos (y su indice) la crea el grabador, que es quien escribe en ella.
+    m_grabador = new GrabadorVuelo(Rutas::carpetaDatos () + "/DronDB.db", this);
+    if (!m_grabador->asegurarTabla ())
+        LogHandler::getInstance ().appendLogMessage ("Vuelos: " + m_grabador->error ());
     Database::AsyncQuery::startExecOnce(
                 "SELECT Nombre FROM DronTable",
                 [this](const Database::AsyncQueryResult& res) {
@@ -617,30 +581,27 @@ void CControladora::conecciones()
         DronID = text;
     });
 
+    // Grabar el vuelo: el grabador da de alta el vuelo en el momento (antes se
+    // pedia el numero de vuelo de forma asincrona y las primeras tramas podian
+    // ir al vuelo anterior).
     connect(m_wConexion->chB_Guardar (), &QCheckBox::toggled,[=](bool checked)
     {
-        if (!checked)
+        if (!checked) {
+            m_grabador->terminar ();
             refrescarControlObjetivo ();   // el vuelo recien grabado ya sale en la lista
-        if(checked)
-        {
-            QString queryVuelos = "SELECT Id_Dron, Vuelos FROM DronTable WHERE Nombre = \'" +DronID+ "\'";
-
-            Database::AsyncQuery::startExecOnce(
-                        queryVuelos,
-                        [=](const Database::AsyncQueryResult& res) {
-                dronID = res.value(0, "Id_Dron").toInt () ;
-                vueloID = res.value(0, "Vuelos").toInt () + 1;
-
-                QString queryUpdate = QString("UPDATE DronTable SET Vuelos = %1 WHERE Id_Dron = %2")
-                        .arg (vueloID)
-                        .arg (dronID);
-                Database::AsyncQuery::startExecOnce(
-                            queryUpdate,
-                            [=](const Database::AsyncQueryResult& res) {
-
-                });
-            });
+            return;
         }
+        if (!m_grabador->empezar (DronID)) {
+            LogHandler::getInstance ().appendLogMessage ("Grabar vuelo: " + m_grabador->error ());
+            mPrincipal->statusBar ()->showMessage (tr("⚠ No se puede grabar el vuelo: %1")
+                                                       .arg (m_grabador->error ()), 8000);
+            const QSignalBlocker sinSenal(m_wConexion->chB_Guardar ());
+            m_wConexion->chB_Guardar ()->setChecked (false);
+            return;
+        }
+        dronID = m_grabador->dron ();
+        vueloID = m_grabador->vuelo ();
+        mPrincipal->statusBar ()->showMessage (tr("Grabando el vuelo %1 de %2").arg (vueloID).arg (DronID), 5000);
     });
 
     connect (m_wControlObjetivo,&Widget_ControlObjetivo::datoContolObjetivo,this,&CControladora::recibirDatos);
@@ -1385,126 +1346,36 @@ void CControladora::onRouteActionTriggered(QAction *action)
     m_wPuntos->setRouteVisible(true);
 }
 
-// Guarda una fila del vuelo en curso (casilla "Guardar"). Antes leia siempre la
-// trama de ala fija (con cuadroptero guardaba lo que no era), cambiaba el
-// cabeceo por el banqueo y la posicion con 4 decimales (unos 11 m).
+// Anota una muestra del vuelo en curso (casilla "Guardar") en el grabador.
+// Lo comun a los dos tipos de dron sale de m_ParametrosValues, que cada
+// manejador de trama rellena con lo suyo; la actitud, de los argumentos.
+// Antes leia siempre la trama de ala fija, cambiaba el cabeceo por el banqueo
+// y guardaba la posicion como texto con 4 decimales (la traza en escalones).
 void CControladora::guardaDatosDron(double cabeceo, double banqueo, double velocidadKmh,
                                     double altura, double curso)
 {
-    QString fecha =  QTime::currentTime ().toString ("hh:mm:ss");
-    fecha.replace (":","-");
-    query1 = "INSERT INTO DatosVuelos ("
-             "Id_Vuelos, "
-             "Dron_ID, "
-             "Lat, "
-             "Lon, "
-             "Realimentacion_Cabeceo, "
-             "Realimentacion_Banqueo, "
-             "Realimentacion_Velocidad, "
-             "Realimentacion_Altura, "
-             "Realimentacion_Curso, "
-             "Distancia_Chequeo, "
-             "Curso_Deseado, "
-             "Realimentacion_Regimen, "
-             "Realimentacion_ComandoMision, "
-             "Realimentacion_CursoIMU, "
-             "CantidadSatelites, "
-
-             "KPCabeceo, "
-             "KICabeceo, "
-             "KPBanqueo, "
-             "KIBanqueo, "
-             "KPVelocidad, "
-             "KIVelocidad, "
-             "KPAltura, "
-             "KIAltura, "
-             "KPCurso, "
-             "KPRumbo, "
-             "KIRumbo, "
-
-             "Control_Estabilizadores, "
-             "Control_Alerones, "
-             "Control_Motor, "
-             "Control_Rumbo, "
-
-             "Convergencia_Banqueo, "
-             "Convergencia_Cabeceo, "
-             "Fecha) "
-
-             "VALUES ("
-             ":Id_Vuelos, "
-             ":Dron_ID, "
-             ":Lat, "
-             ":Lon, "
-             ":Realimentacion_Cabeceo, "
-             ":Realimentacion_Banqueo, "
-             ":Realimentacion_Velocidad, "
-             ":Realimentacion_Altura, "
-             ":Realimentacion_Curso, "
-             ":Distancia_Chequeo, "
-             ":Curso_Deseado, "
-             ":Realimentacion_Regimen, "
-             ":Realimentacion_ComandoMision, "
-             ":Realimentacion_CursoIMU, "
-             ":CantidadSatelites, "
-
-             ":KPCabeceo, "
-             ":KICabeceo, "
-             ":KPBanqueo, "
-             ":KIBanqueo, "
-             ":KPVelocidad, "
-             ":KIVelocidad, "
-             ":KPAltura, "
-             ":KIAltura, "
-             ":KPCurso, "
-             ":KPRumbo, "
-             ":KIRumbo, "
-
-             ":Control_Estabilizadores, "
-             ":Control_Alerones, "
-             ":Control_Motor, "
-             ":Control_Rumbo, "
-
-             ":Convergencia_Banqueo, "
-             ":Convergencia_Cabeceo, "
-             ":Fecha"
-             ")";
-    _aQuery->prepare (query1);
-
-    // Lo comun a los dos tipos de dron sale de m_ParametrosValues, que cada
-    // manejador de trama rellena con lo suyo; la actitud, de los argumentos.
     const QVector<double> &v = m_ParametrosValues;
-    auto num = [](double x, int decimales = 2) { return QString::number (x, 'f', decimales); };
-    _aQuery->bindValue(":Id_Vuelos", vueloID);
-    _aQuery->bindValue(":Dron_ID", dronID);
-    _aQuery->bindValue(":Lat", num (geoPos.latitude (), 6));
-    _aQuery->bindValue(":Lon", num (geoPos.longitude (), 6));
-    _aQuery->bindValue(":Realimentacion_Cabeceo", num (cabeceo));
-    _aQuery->bindValue(":Realimentacion_Banqueo", num (banqueo));
-    _aQuery->bindValue(":Realimentacion_Velocidad", num (velocidadKmh));
-    _aQuery->bindValue(":Realimentacion_Altura", num (altura));
-    _aQuery->bindValue(":Realimentacion_Curso", num (curso));
-    _aQuery->bindValue(":Distancia_Chequeo", num (v[2]));
-    _aQuery->bindValue(":Curso_Deseado", num (v[3]));
-    _aQuery->bindValue(":Realimentacion_Regimen", QString::number (int (v[4])));
-    _aQuery->bindValue(":Realimentacion_ComandoMision", QString::number (int (v[5])));
-    _aQuery->bindValue(":Realimentacion_CursoIMU", num (v[6]));
-    _aQuery->bindValue(":CantidadSatelites", QString::number (int (v[7])));
-
-    const char *ganancias[] = {":KPCabeceo", ":KICabeceo", ":KPBanqueo", ":KIBanqueo",
-                               ":KPVelocidad", ":KIVelocidad", ":KPAltura", ":KIAltura",
-                               ":KPCurso", ":KPRumbo", ":KIRumbo"};
+    MuestraVuelo m;
+    m.lat = geoPos.latitude ();
+    m.lon = geoPos.longitude ();
+    m.cabeceo = cabeceo;
+    m.banqueo = banqueo;
+    m.velocidadKmh = velocidadKmh;
+    m.altura = altura;
+    m.curso = curso;
+    m.distanciaChequeo = v[2];
+    m.cursoDeseado = v[3];
+    m.regimen = int (v[4]);
+    m.mision = int (v[5]);
+    m.cursoImu = v[6];
+    m.satelites = int (v[7]);
     for (int k = 0; k < 11; ++k)
-        _aQuery->bindValue(QString::fromLatin1 (ganancias[k]), num (v[8 + k]));
-    _aQuery->bindValue(":Control_Estabilizadores", num (v[19]));
-    _aQuery->bindValue(":Control_Alerones", num (v[20]));
-    _aQuery->bindValue(":Control_Motor", num (v[21]));
-    _aQuery->bindValue(":Control_Rumbo", num (v[22]));
-    _aQuery->bindValue(":Convergencia_Banqueo", num (v[23]));
-    _aQuery->bindValue(":Convergencia_Cabeceo", num (v[24]));
-
-    _aQuery->bindValue(":Fecha", QDateTime::currentDateTime ());
-    _aQuery->startExec ();
+        m.ganancias[k] = v[8 + k];
+    for (int k = 0; k < 4; ++k)
+        m.actuadores[k] = v[19 + k];
+    m.convergenciaBanqueo = v[23];
+    m.convergenciaCabeceo = v[24];
+    m_grabador->anotar (m);
 }
 
 void CControladora::updateOverlayPosition()

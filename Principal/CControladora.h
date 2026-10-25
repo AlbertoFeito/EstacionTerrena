@@ -38,6 +38,8 @@
 
 #include "Estructuras/Estructuras.h"
 
+class GrabadorVuelo;
+
 class CControladora : public QObject
 {
     Q_OBJECT
@@ -152,6 +154,7 @@ private:
     PanelVuelo::Detalle m_detalle;   // detalle tecnico de la ultima trama
     bool m_estadoDronAdoptado = false;   // la pestaña de Mandos ya tomo el regimen del dron
     int m_posicionValida = -1;   // ultima validez avisada en el log (-1: ninguna)
+    GrabadorVuelo *m_grabador = nullptr;   // graba el vuelo (casilla "Guardar")
 
     bool m_ControlObjetivo = false;
     bool m_Conectado = false;

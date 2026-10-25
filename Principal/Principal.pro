@@ -41,6 +41,7 @@ SOURCES += \
     AlturaWorker.cpp \
     CControladora.cpp \
     Iconos/Iconos.cpp \
+    Vuelos/GrabadorVuelo.cpp \
     Database/AsyncQuery.cpp \
     Database/AsyncQueryResult.cpp \
     Database/AsynqQueryModel.cpp \
@@ -83,6 +84,7 @@ HEADERS += \
     AlturaWorker.h \
     CControladora.h \
     Iconos/Iconos.h \
+    Vuelos/GrabadorVuelo.h \
     Ci_Principal.h \
     Database/AsyncQuery.h \
     Database/AsyncQueryResult.h \

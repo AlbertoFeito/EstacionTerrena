@@ -466,3 +466,42 @@ podía fusionar: tocaba `LibMapaStatic/` y `estilos.qrc`, borrados en §12).
   vuelo grabado con el primero en pausa (aparece sin reiniciar y no se pierde
   el que se veía) y la gráfica con la altura subiendo y bajando.
 - Pruebas: `test_tramas` lee una fila grabada y una incompleta. 75 en total.
+
+## 14. Grabación de vuelos nueva: sin escalones y sin perder el principio
+
+La traza de un vuelo reproducido salía en escalones. Venía de redondear la
+posición a 4 decimales (unos 11 m en latitud y 10 m en longitud) en dos
+sitios: al guardar (como texto) y al reproducir, porque Control de objetivo
+vuelve a escribir cada fila con `QByteArray::number(Lat, 'f', 4)`. Además, la
+grabación tenía otros defectos:
+
+- el número de vuelo se pedía y se apuntaba en `DronTable` de forma
+  asíncrona: las primeras tramas tras marcar «Guardar» iban al vuelo
+  anterior;
+- cada trama lanzaba un `INSERT` asíncrono con la consulta compartida
+  `_aQuery`, preparada y con los valores pasados a texto cada vez;
+- `DatosVuelos` no tenía índice, y todas las consultas de Control de objetivo
+  buscan por dron y vuelo.
+
+Por eso se sustituye por **`Principal/Vuelos/GrabadorVuelo`** (solo Qt Core +
+Sql, con su propia conexión SQLite al mismo fichero):
+
+- `empezar(dron)` da de alta el vuelo en el momento (número del dron + 1,
+  guardado en `DronTable.Vuelos`), antes de aceptar ninguna muestra; si el
+  dron no existe, «Guardar» se desmarca y la barra de estado dice por qué;
+- `anotar()` solo guarda la muestra en memoria (a 10 Hz no se toca el disco);
+- cada segundo, y al terminar, las pendientes se escriben de una vez en una
+  transacción con una consulta preparada, con los números tal cual (REAL, sin
+  pasar por texto), y la fecha con milisegundos;
+- crea `DatosVuelos` (las mismas columnas de siempre) y el índice
+  `DatosVuelos_dron_vuelo` si no existen.
+
+La reproducción pasa la posición con 7 decimales. La precisión que queda es la
+del protocolo, que manda latitud y longitud como `float` de 32 bits (unos
+0,2 m en latitud y 0,8 m en longitud a esta latitud): no se ve en el mapa.
+
+- `test_grabador` (4 casos, base de datos temporal): vuelo nuevo al empezar,
+  muestras sin redondear y cada una en su columna, escritura solo al volcar y
+  al terminar, dron que no existe. 79 pruebas en total.
+- Probado con la app contra el simulador: 628 filas en 63 s (10 por segundo),
+  la altura de 100 a 159 m, el índice creado y la reproducción del vuelo nuevo.

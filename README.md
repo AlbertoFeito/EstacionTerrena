@@ -103,6 +103,15 @@ toma lo que diga el dron). *Usar posición actual del dron como casa* copia la
 última posición recibida a la casa, y **Enviar mandos** lo manda todo. Cuando
 el dron confirma, la «H» del mapa pasa a la casa enviada.
 
+## Grabar y reproducir vuelos
+
+Con **Guardar** marcado (pestaña *Enlace*, conectado) se graba el vuelo: el
+número de vuelo se da en el momento y las muestras (10 por segundo, sin
+redondear) se escriben cada segundo en `Recursos/data/DronDB.db`. En
+*Objetivo* se elige dron y vuelo (sale el más reciente) para reproducirlo en el
+mapa o verlo en **Graficar**: cada variable en su franja, con su rango real en
+la leyenda.
+
 ## Simulador (sin dron)
 
 `simulador_dron` (se compila con el resto, queda junto al ejecutable) es un dron
