@@ -1,8 +1,7 @@
 QT += core gui widgets printsupport positioning sql
 
 greaterThan(QT_MAJOR_VERSION, 5) {
-    # Qt 6 - necesita core5compat
-    QT += core5compat
+    # Qt 6: utiles.cpp ya usa QRegularExpression, no hace falta core5compat
     CONFIG += c++17
 }
 

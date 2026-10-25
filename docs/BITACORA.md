@@ -374,3 +374,21 @@ Queda una pregunta para quien programa el autopiloto (en `PENDIENTES.md`): la
 estación no manda nada periódico, así que el autopiloto real tiene que
 detectar la pérdida por la radio o por tiempo; y qué dice en la telemetría
 mientras vuelve sin enlace.
+
+## 12. Qt 6 sin core5compat también en LibMapaStatic, y arreglos de la rama de Qt 6
+
+Con un Qt 6 instalado sin el módulo Qt5Compat, qmake paraba con
+`Unknown module(s) in QT: core5compat`. `Principal` ya no lo pedía (entrada 2),
+pero la copia de `LibMapaStatic/LibMapaStatic.pro` seguía con
+`QT += core5compat`. No hacía falta: `utiles.cpp` ya usa `QRegularExpression`
+en Qt 6 y `cutiles.cpp` (el único con `QRegExp` sin condición) no se compila.
+Comprobado: compila con Qt 6.4 sin el módulo.
+
+Además, de la rama de Qt 6:
+- `Widget_ControlObjetivo`: los slots `on_cB_Drones/Vuelos_currentIndexChanged(QString)`
+  pasan a `currentTextChanged`. En Qt 6 no existe la sobrecarga con `QString`
+  de `currentIndexChanged`, así que esos slots no se llamaban nunca (lo avisaba
+  `connectSlotsByName` al arrancar). Los combos no son editables: es lo mismo.
+- `Principal.pro`: `estilos.qrc` solo se incluye si existe, para no tener que
+  crear uno vacío al compilar donde falta.
+- `usbdeviceswatcher.cpp`: `<sys/select.h>` explícito para `select()`.
