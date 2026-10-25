@@ -11,7 +11,7 @@
 #include <QVector>
 
 class QWidget;
-namespace libmapa { class MapWidget; }
+namespace libmapa { class MapWidget; struct MapFeature; }
 
 //! Una capa del paquete para el panel de capas: id, nombre y si se ve.
 struct CapaMapa
@@ -126,6 +126,9 @@ public:
     void encuadrarRuta();
     //! Pinta de verde el punto \a indice, ya cumplido por el dron.
     void marcarPuntoCumplido(int indice);
+    //! Vuelve a poner en rojo los puntos cumplidos (la ruta ya no es el plan
+    //! que cumplia el dron).
+    void olvidarCumplidos();
     //! Radio del circulo de acercamiento de cada punto, en metros Mercator
     //! (las mismas unidades que el radio que se manda al autopiloto).
     void ponerRadioAcercamiento(double metrosMercator);
@@ -168,6 +171,9 @@ private:
     void refrescarRotulosRuta();
     double metrosEnPantalla(double px) const;
     static QPixmap simboloHome();
+    static QPixmap simboloPuntoRuta(const QColor &color);
+    static void estiloPuntoRuta(libmapa::MapFeature &punto, bool cumplido);
+    void actualizarRuta(const QVector<PuntoRutaMapa> &puntos);
     static QString idCapa(CapaBase capa);
 
     libmapa::MapWidget *m_mapa = nullptr;

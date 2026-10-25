@@ -1198,6 +1198,25 @@ bool MiModelo::setData(const QModelIndex &index, const QVariant &value, int role
     return false;
 }
 
+// Mueve un punto (posicion y, si llega, altura) con un solo guardado y una
+// sola revalidacion: el arrastre en el mapa no debe repintar la ruta tres veces.
+bool MiModelo::moverPunto(int fila, const QGeoCoordinate &pos, double altura)
+{
+    if (fila < 0 || fila >= listaDatos.size() || !pos.isValid())
+        return false;
+
+    E_Punto &item = listaDatos[fila];
+    item.pos.setLatitude(pos.latitude());
+    item.pos.setLongitude(pos.longitude());
+    if (!std::isnan(altura))
+        item.altura = altura;
+
+    if (!currentRouteName.isEmpty())
+        actualizarElementoEnTabla(currentRouteName, item);
+    revalidarRutaCompleta();
+    return true;
+}
+
 /**
  * @brief Devuelve los flags de la celda (editable excepto ID, distancia y estado).
  */

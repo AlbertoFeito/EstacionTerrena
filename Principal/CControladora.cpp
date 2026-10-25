@@ -1335,7 +1335,12 @@ void CControladora::pintarRutaEnMapa(bool visible)
     for (const auto &punto : m_wPuntos->getModelo()->obtenerLista())
         puntos.append({punto.pos, punto.nombre});
     m_mapa->pintarRuta(puntos, visible);
-    // Repintar no borra lo ya cumplido.
+    // Los cumplidos son del plan que confirmo el dron: si la ruta que se ve ya
+    // no es ese plan (se ha movido un punto, se ha abierto otra), van en rojo.
+    if (sL_cambiaProyeccion () != m_planEnDron) {
+        m_mapa->olvidarCumplidos ();
+        return;
+    }
     for (int i = 0; i < puntos.size(); ++i)
         if (m_cumplidos.cumplido (i))
             m_mapa->marcarPuntoCumplido (i);

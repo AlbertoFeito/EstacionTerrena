@@ -780,26 +780,17 @@ void Widget_Puntos::onPointMoved(int index, const QGeoCoordinate &nuevaPos)
     if (index < 0 || index >= modelo->rowCount() || !nuevaPos.isValid())
         return;
 
-    QModelIndex idxLat = modelo->index(index, 3);
-    QModelIndex idxLon = modelo->index(index, 4);
-    modelo->setData(idxLat, nuevaPos.latitude(), Qt::EditRole);
-    modelo->setData(idxLon, nuevaPos.longitude(), Qt::EditRole);
-
-    // Ajustar altitud según el terreno
+    // Altitud segun el terreno del sitio nuevo; todo va al modelo de una vez
+    // (un solo repintado de la ruta, sin estados a medio mover).
+    double nuevaAltitud = std::numeric_limits<double>::quiet_NaN();
     if (m_alturaWorker) {
         DroneCharacteristics drone = modelo->getDroneCharacteristics();
         qint16 terreno = m_alturaWorker->obtenerAltura(nuevaPos.latitude(),
                                                        nuevaPos.longitude());
         if (terreno < 0) terreno = 0;
-        double nuevaAltitud = calcularAltitudVuelo(terreno, drone);
-
-        QModelIndex idxAlt = modelo->index(index, 6);
-        modelo->setData(idxAlt, nuevaAltitud, Qt::EditRole);
-
-        qDebug() << "Punto" << index << "movido a:" << nuevaPos.toString()
-                 << "| Terreno:" << terreno << "m"
-                 << "| Nueva altitud:" << nuevaAltitud << "m";
+        nuevaAltitud = calcularAltitudVuelo(terreno, drone);
     }
+    modelo->moverPunto(index, nuevaPos, nuevaAltitud);
 }
 
 /**

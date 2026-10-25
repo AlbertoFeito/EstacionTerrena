@@ -307,6 +307,16 @@ public:
     bool insertRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
     bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
 
+    /**
+     * @brief Lleva el punto \a fila a \a pos con altura \a altura de una vez:
+     *        una escritura en la base y una revalidacion (un solo dataChanged),
+     *        en vez de tres setData (latitud, longitud y altura) que repintan
+     *        la ruta tres veces y la dejan un momento a medio mover.
+     *        Con \a altura NaN se queda la que tenia.
+     * @return false si la fila no existe o la posicion no es valida.
+     */
+    bool moverPunto(int fila, const QGeoCoordinate &pos, double altura);
+
     // Revalidación
     /**
      * @brief Revalida completamente la ruta: recalcula distancias, errores, advertencias y puntos críticos.

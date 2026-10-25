@@ -992,3 +992,53 @@ depende del compilador.
 
 Visto con la app: el panel de rutas carga la ruta, la valida y la dibuja como
 antes.
+
+## 29. Los puntos de la ruta: un símbolo, un solo repintado y la selección se queda
+
+El usuario vio algo raro con los puntos: el rótulo P3 suelto de su vértice,
+puntos verdes que no venían a cuento y la sensación de que la ruta se repintaba
+demasiado. Pidió un centro con una circunferencia alrededor, menos repintado y
+poder seleccionar un solo vértice sin que afectara al resto.
+
+Lo que pasaba:
+
+- **Cada arrastre rehacía la ruta tres veces.** `Widget_Puntos::onPointMoved`
+  cambiaba la latitud, la longitud y la altura con tres `setData`. Cada uno
+  guardaba en la base, revalidaba la ruta entera y emitía `dataChanged`, y la
+  estación redibujaba la ruta desde cero. Además, el primero dejaba el punto
+  un momento con la latitud nueva y la longitud vieja.
+- **Rehacer desde cero cambiaba los ids.** `MapaMision::pintarRuta` borraba la
+  capa y creaba la línea y los puntos otra vez. La selección y el arrastre de
+  libmapa se quedaban apuntando a entidades que ya no existían.
+- **Los verdes eran de otro plan.** Los puntos cumplidos se volvían a marcar
+  por número en cada repintado, aunque la ruta ya no fuera la que el dron
+  había confirmado.
+
+Lo hecho:
+
+- **`MiModelo::moverPunto(fila, pos, altura)`** cambia la posición y la altura
+  de una vez, con un guardado y una revalidación (un solo `dataChanged`).
+  `onPointMoved` lo usa.
+- **`pintarRuta` actualiza en el sitio** cuando la ruta tiene los mismos puntos
+  (`actualizarRuta`). Solo se mueven los puntos que cambiaron, y el vértice de
+  la línea se comprueba aparte, para que nunca quede despegado del punto. Cada
+  punto conserva su id, así que la selección no se pierde, y los anillos lo
+  siguen solos (van atados al id). Si cambia el número de puntos, se rehace.
+- **Los cumplidos solo se marcan sobre el plan que confirmó el dron.** Si la
+  ruta que se ve es otra (se ha movido un punto o se ha abierto otra ruta),
+  `olvidarCumplidos` la vuelve a poner en rojo.
+- **El símbolo del punto** es ahora un centro marcado y una circunferencia de
+  9 px, con borde oscuro para que se vea sobre el satélite: rojo si está
+  pendiente y verde si está cumplido. Se dibuja una vez (a doble resolución,
+  nítido en pantallas con escala) y se reutiliza. El rótulo va junto a la
+  circunferencia.
+
+Pruebas nuevas en `test_mapamision`:
+
+- `repintarMueveSoloElPuntoCambiado`: los ids y la selección se mantienen, la
+  línea sigue al punto y P1 ni se toca.
+- `cumplidosSeOlvidan`.
+- `puntoConCentroYCircunferencia`: comprueba el centro, el hueco y el anillo
+  en los píxeles del icono.
+
+Son 112 pruebas en total.
