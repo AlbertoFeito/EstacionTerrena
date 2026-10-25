@@ -516,9 +516,14 @@ void CControladora::createToolBar()
 
 void CControladora::conecciones()
 {
+    // Cada pestaña se reconoce por el widget que contiene, no por su texto: al
+    // acortar los nombres de las pestañas, las comparaciones con el texto
+    // dejaron de cumplirse (p. ej. Control de objetivo no cargaba los drones).
     connect (tabOpciones,&QTabWidget::currentChanged, [this](int index)
     {
-        if(tabOpciones->tabText (index) == "Configuración")
+        QWidget *pagina = tabOpciones->widget (index);
+        auto es = [pagina](QWidget *w) { return pagina && w && pagina->isAncestorOf (w); };
+        if(es (m_wConexion))
         {
             Database::AsyncQuery::startExecOnce(
                         "SELECT Nombre FROM DronTable",
@@ -546,7 +551,7 @@ void CControladora::conecciones()
             });
         }
 
-        if(tabOpciones->tabText (index) == "Control_Objetivo")
+        if(es (m_wControlObjetivo))
         {
             m_wControlObjetivo->setEnabled (!m_Conectado);
 
@@ -564,13 +569,13 @@ void CControladora::conecciones()
 
         }
 
-        if(tabOpciones->tabText (index) == "Datos_Drones")
+        if(es (m_wDrones))
         {
             m_wDrones->setEnabled (!m_Conectado);
             m_wDrones->actualizaTabla ();
         }
 
-        if(tabOpciones->tabText (index) == "Mandos")
+        if(es (m_wMandos))
         {
             m_wMandos->setEnabled (m_Conectado);
             m_wMandosCuadroptero->hide ();
@@ -591,7 +596,7 @@ void CControladora::conecciones()
                 }
         }
 
-        if(tabOpciones->tabText (index) == "Ganacias_Control")
+        if(es (m_wGanancias))
         {
             m_wGanancias->setEnabled (m_Conectado);
             m_wMandosCuadroptero->hide ();
@@ -899,14 +904,14 @@ void CControladora::recibirDatos(QByteArray byteArray)
     indicador->setRoll (f.banqueo);
     indicador->setPitch (f.cabeceo);
     indicador->setHeading (f.curso);
-    indicador->setAirspeed (f.velocidad * 3.6);   // se grabo en m/s, como llega del dron
+    indicador->setAirspeed (f.velocidad);   // se grabo ya en km/h
     indicador->setAltitude (f.altura);
     indicador->redraw ();
 
     if (f.lat != 0) {
         static const QColor colores[] = {Qt::red, Qt::yellow, Qt::green};
         const QColor colorTraza = colores[qBound(0, f.regimen, 2)];
-        const QString descripcion = "V: " + QString::number (f.velocidad * 3.6, 'f', 2) +
+        const QString descripcion = "V: " + QString::number (f.velocidad, 'f', 2) +
                 " km/h\nH: " + QString::number (f.altura, 'f', 2) + " m";
         m_mapa->actualizarVehiculo (geoPos, f.curso, colorTraza,
                                     m_detalle.tipoDron == 0 ? Iconos::avion(colorTraza)

@@ -9,11 +9,11 @@
  *        reproducirlo (texto separado por comas).
  *
  * Campos: 0 "=", 1 vuelo, 2 lat, 3 lon, 4 cabeceo, 5 banqueo, 6 velocidad
- * (m/s), 7 altura, 8 curso, 9 distancia de chequeo, 10 curso deseado, 11
+ * (km/h: se guarda ya pasada), 7 altura, 8 curso, 9 distancia de chequeo, 10 curso deseado, 11
  * regimen, 12 mision, 13 curso IMU, 14 satelites, 15..25 ganancias, 26..29
  * actuadores, 30..31 convergencias (banqueo, cabeceo), 32 segundos desde el
- * principio. Son las columnas de DatosVuelos, guardadas tal cual llegaron del
- * dron (grados, como en vivo).
+ * principio. Son las columnas de DatosVuelos: tal cual llegaron del dron
+ * (grados), salvo la velocidad, que se guarda en km/h.
  *
  * Antes la estacion leia los campos sin mirar cuantos traia la linea (una
  * corta la tumbaba), giraba el avion del mapa con la velocidad (campo 6) en

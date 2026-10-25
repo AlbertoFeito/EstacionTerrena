@@ -410,8 +410,7 @@ podía fusionar: tocaba `LibMapaStatic/` y `estilos.qrc`, borrados en §12).
   campos de la fila sin mirar cuántos traía (una fila corta tumbaba la
   estación), giraba el avión del mapa con la **velocidad** (campo 6) en lugar
   del **curso** (campo 8), pasaba el curso deseado de radianes a grados aunque
-  se grabó en grados, y ponía la velocidad del indicador en m/s (en vivo va en
-  km/h). Ahora la fila la lee `Protocolo/FilaVuelo.h` (con su prueba) y la
+  se grabó en grados. Ahora la fila la lee `Protocolo/FilaVuelo.h` (con su prueba) y la
   reproducción se ve como en vivo: instrumentos, panel, detalle técnico y el
   avión o el cuadróptero del color del régimen. Una fila incompleta se ignora
   y se anota en el log.
@@ -434,4 +433,11 @@ podía fusionar: tocaba `LibMapaStatic/` y `estilos.qrc`, borrados en §12).
 - Del PR #1: los combos de Control de objetivo usaban
   `currentIndexChanged(QString)`, que en Qt 6 no existe: no se llamaban nunca
   (no se podía elegir dron ni vuelo). Pasan a `currentTextChanged`.
+- **Pestañas**: al acortar sus nombres (§9) dejaron de cumplirse las
+  comparaciones con el texto de la pestaña que cargan datos al abrirla:
+  Control de objetivo no llenaba los combos de dron y vuelo (lo vio el
+  usuario), Enlace no refrescaba la lista de drones, Drones no refrescaba la
+  tabla y Ganancias no se activaba con el enlace. Ahora cada pestaña se
+  reconoce por el widget que contiene. Probado con la app: vuelo guardado con
+  el simulador, combos llenos y reproducción.
 - Pruebas: `test_tramas` lee una fila grabada y una incompleta. 75 en total.
