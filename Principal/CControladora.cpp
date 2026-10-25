@@ -18,6 +18,15 @@
 #include "MyQSettings/myqsetting.h"
 #include "Rutas.h"
 
+// Ancho en pixeles de \a muestra con la letra de \a w (en negrita si lo pide),
+// mas un pequeno margen: para fijar el ancho de los rotulos de la barra de estado.
+static int anchoTexto(const QWidget *w, const QString &muestra, bool negrita = false)
+{
+    QFont f = w->font ();
+    f.setBold (negrita);
+    return QFontMetrics(f).horizontalAdvance (muestra) + 12;
+}
+
 CControladora::CControladora(QObject *parent) :
     QObject(parent),
     alturaWorkerPTR(std::make_unique<AlturaWorker>(parent)),
@@ -112,6 +121,15 @@ tabOpciones = new QTabWidget(mPrincipal);
 
 bool CControladora::eventFilter(QObject *obj, QEvent *event)
 {
+    // Botones de enviar sacados de su widget (initTabOpciones): copian su estado.
+    if (QPushButton *b = m_botonesFijos.value (obj)) {
+        const auto tipo = event->type ();
+        if (tipo == QEvent::EnabledChange || tipo == QEvent::Show || tipo == QEvent::Hide) {
+            auto *w = static_cast<QWidget *> (obj);
+            b->setEnabled (w->isEnabled ());
+            b->setVisible (!w->isHidden ());
+        }
+    }
     if (m_mapa && obj == m_mapa->mapa () && event->type () == QEvent::Resize)
         updateOverlayPosition ();
     return QObject::eventFilter(obj, event);
@@ -189,7 +207,33 @@ QWidget *w4 = new QWidget();
         desplazable->setWidgetResizable (true);
         desplazable->setFrameShape (QFrame::NoFrame);
         desplazable->setHorizontalScrollBarPolicy (Qt::ScrollBarAlwaysOff);
-        const int i = tabOpciones->addTab (desplazable, tr(p.nombre));
+        // El boton de enviar (Mandos, Ganancias) va fijo debajo, fuera de lo
+        // que se desplaza: con el panel de rutas abierto quedaba fuera de la
+        // vista y habia que bajar para mandar.
+        QWidget *pestana = desplazable;
+        const auto enviar = p.pagina->findChildren<QPushButton *> (QStringLiteral("pB_Enviar"));
+        if (!enviar.isEmpty ()) {
+            pestana = new QWidget;
+            auto *caja = new QVBoxLayout(pestana);
+            caja->setContentsMargins (0, 0, 0, 4);
+            caja->setSpacing (4);
+            caja->addWidget (desplazable, 1);
+            for (QPushButton *b : enviar) {
+                // Su widget de origen (hijo directo de la pagina): el boton sigue
+                // su estado, activo sin enlace o no, y oculto si se oculta.
+                QWidget *duenio = b;
+                while (duenio->parentWidget () && duenio->parentWidget () != p.pagina)
+                    duenio = duenio->parentWidget ();
+                for (QLayout *l : p.pagina->findChildren<QLayout *> ())
+                    l->removeWidget (b);
+                caja->addWidget (b);
+                m_botonesFijos.insert (duenio, b);
+                duenio->installEventFilter (this);
+                b->setEnabled (duenio->isEnabled ());
+                b->setVisible (!duenio->isHidden ());
+            }
+        }
+        const int i = tabOpciones->addTab (pestana, tr(p.nombre));
         tabOpciones->setTabToolTip (i, tr(p.ayuda));
     }
 
@@ -1488,6 +1532,10 @@ void CControladora::crearMapa()
     alturaWorkerPTR->setMapa(m_mapa);
 
     m_lPosicionRaton = new QLabel(mPrincipal);
+    // Ancho fijo (el del texto mas largo): con el raton moviendose, el numero de
+    // cifras cambia y la barra de estado entera se recolocaba sin parar.
+    m_lPosicionRaton->setFixedWidth (anchoTexto (m_lPosicionRaton,
+        QStringLiteral("Lat: -90.000000  Lon: -180.000000  Alt: -99999 m")));
     mPrincipal->statusBar()->addPermanentWidget(m_lPosicionRaton);
 
     LogHandler& logHandler = LogHandler::getInstance();
@@ -1717,12 +1765,17 @@ void CControladora::crearIndicadorEnlace()
 {
     m_reloj.start ();
     m_lEnlace = new QLabel(mPrincipal);
-    m_lEnlace->setMinimumWidth (330);
+    // Ancho fijo, como el resto de la barra: el texto cambia cuatro veces por
+    // segundo («última hace 0,1 s», tramas/s) y la barra no debe bailar.
+    m_lEnlace->setFixedWidth (anchoTexto (m_lEnlace,
+        QStringLiteral("tcp 255.255.255.255:65535 · 100 tramas/s · última hace 10,0 s"), true) + 16);
     mPrincipal->statusBar ()->insertPermanentWidget (0, m_lEnlace);
     // Al lado, cuanto lleva abierto el enlace (y, al cerrarlo, cuanto duro).
     m_lTiempoConexion = new QLabel(mPrincipal);
     m_lTiempoConexion->setToolTip (tr("Tiempo que lleva abierto el enlace con el dron"));
     m_lTiempoConexion->setStyleSheet (QStringLiteral("QLabel { padding: 1px 8px; font-weight: bold; }"));
+    m_lTiempoConexion->setFixedWidth (anchoTexto (m_lTiempoConexion,
+        QStringLiteral("Última conexión 000:00:00"), true) + 16);
     mPrincipal->statusBar ()->insertPermanentWidget (1, m_lTiempoConexion);
 
     SerialManager *enlace = m_wConexion->serialManager ();

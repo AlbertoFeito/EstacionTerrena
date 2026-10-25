@@ -7,6 +7,7 @@
 #include <QFont>
 #include <QPainter>
 #include <QResizeEvent>
+#include <QTimer>
 #include <QtMath>
 
 #include <cmath>
@@ -142,6 +143,16 @@ bool MapaMision::eventFilter(QObject *objeto, QEvent *evento)
     if (objeto != m_mapa || evento->type() != QEvent::Resize)
         return QObject::eventFilter(objeto, evento);
     const auto *r = static_cast<QResizeEvent *>(evento);
+    // Sin pintar hasta que libmapa haya rehecho la vista con el tamano nuevo:
+    // si no, salia un fotograma con el mapa viejo estirado al tamano nuevo
+    // (el «salto» al ocultar el panel de rutas). Dos vueltas del bucle: en la
+    // primera corren los repintados en cola de libmapa.
+    if (m_mapa->isVisible() && m_mapa->updatesEnabled()) {
+        m_mapa->setUpdatesEnabled(false);
+        QTimer::singleShot(0, this, [this]() {
+            QTimer::singleShot(0, this, [this]() { m_mapa->setUpdatesEnabled(true); });
+        });
+    }
     const QSize ventana = m_mapa->window()->size();
     const bool porPanel = ventana == m_tamVentana && m_mapa->isVisible()
                           && r->oldSize().width() > 1 && r->oldSize().height() > 1;

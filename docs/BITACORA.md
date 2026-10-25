@@ -830,3 +830,26 @@ zona sin teselas en el paquete; no viene de la estación.
   la letra de la tabla por la de la aplicación. Las columnas crecían y la
   tabla le comía sitio al perfil. Fuera esa negrita: ya marcan el error el
   fondo rojo y el icono.
+
+## 25. Sin saltos: el mapa al ocultar el panel, «Enviar mandos» a la vista y la barra de estado quieta
+
+- **El salto al ocultar el panel de rutas.** Grabada la pantalla a 60 fps
+  (ffmpeg contra la pantalla virtual) y medida la posición de la cuadrícula
+  fotograma a fotograma: al ocultar el panel salía **un fotograma con el mapa
+  viejo estirado** al tamaño nuevo (líneas cada 104 px en vez de 64) y en el
+  siguiente volvía a su sitio. Ahora `MapaMision` no deja pintar el mapa
+  mientras se redimensiona: lo vuelve a permitir dos vueltas del bucle de
+  eventos después, cuando libmapa ya ha repintado con el tamaño nuevo.
+  Medido igual al ocultar y al mostrar el panel: ningún fotograma
+  intermedio.
+- **«Enviar mandos» siempre a la vista.** Con el panel de rutas abierto, a la
+  columna de la izquierda le queda poco alto y el botón quedaba abajo del
+  desplazamiento. Ahora el botón de enviar de cada pestaña (Mandos,
+  Ganancias) va fijo debajo, fuera de lo que se desplaza. Al sacarlo de su
+  widget sigue su estado: desactivado sin enlace y oculto cuando la pestaña
+  muestra los mandos del cuadróptero.
+- **La barra de estado no baila.** El indicador del enlace (cambia cuatro
+  veces por segundo), el tiempo de conexión y la posición del ratón tenían el
+  ancho de su texto: con cada cambio de cifras se recolocaba toda la barra.
+  Ahora cada uno tiene un ancho fijo, el de su texto más largo con la letra
+  de la pantalla.

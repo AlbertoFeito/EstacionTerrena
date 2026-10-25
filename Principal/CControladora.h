@@ -239,6 +239,8 @@ private:
     void updateOverlayPosition();
     // Panel de rutas (Widget_Puntos) abajo, en un QDockWidget.
     QDockWidget *m_dockRuta = nullptr;
+    // Botones de enviar fijos debajo de su pestaña, por el widget del que salieron.
+    QHash<QObject *, QPushButton *> m_botonesFijos;
     void crearPanelRutas();
 
     //rumboProximo punto
