@@ -15,7 +15,8 @@
  *
  * Contiene toda la información necesaria para definir un punto en la ruta:
  * identificador, nombre, modo, coordenadas geográficas, altitud, velocidad,
- * radio de giro, distancias y estado de validación.
+ * radio de giro y distancias. Lo que la revision ve en el punto no va aqui:
+ * lo calcula RoutePlanner (RevisionRuta) cada vez.
  */
 struct E_Punto
 {
@@ -30,8 +31,6 @@ struct E_Punto
     float altitudObjetivo;            ///< Altitud objetivo (puede usarse para planificación).
     float tiempoTransicion;           ///< Tiempo estimado desde el punto anterior (segundos).
     double tasaAscenso;               ///< Tasa de ascenso/descenso calculada (m/s).
-    bool puntoCritico;                ///< Indica si el punto se considera crítico.
-    QStringList advertencias;         ///< Lista de advertencias asociadas al punto.
 
     /**
      * @brief Calcula la distancia geodésica a otro punto.

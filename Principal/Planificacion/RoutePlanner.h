@@ -1,289 +1,129 @@
 #ifndef ROUTEPLANNER_H
 #define ROUTEPLANNER_H
 
-// Motor de validacion y analisis de rutas (antes dentro de Widget_Puntos.h).
+// Revision de rutas: comprueba una ruta contra lo que puede hacer el dron y
+// devuelve lo que ha visto, cada cosa con su porque y como arreglarla.
 // Solo Qt Core y Positioning: se prueba sin pantalla (test_planificador).
 
 #include "Estructuras/E_Punto.h"
 #include "Planificacion/CaracteristicasDron.h"
 
+#include <QGeoCoordinate>
 #include <QList>
-#include <QPair>
 #include <QString>
-#include <QStringList>
-#include <QVariant>
+#include <QVector>
 
-// ============================================================================
-// CLASE RoutePlanner – Motor de validación (SIN OPTIMIZACIÓN)
-// ============================================================================
+#include <functional>
+#include <limits>
+
+//! Algo que la revision ha visto en la ruta: que pasa, por que importa (con
+//! los numeros y el limite del dron) y que cambiar para arreglarlo.
+struct Hallazgo
+{
+    //! Error: incumple un limite del dron o pasa por el terreno; la ruta no
+    //! deberia enviarse. Aviso: el dron la vuela, pero no como esta planeada
+    //! (llega mas bajo, da una vuelta, no alcanza la velocidad...). Nota: algo
+    //! que no se ha podido comprobar.
+    enum class Gravedad { Error, Aviso, Nota };
+
+    Gravedad gravedad = Gravedad::Aviso;
+    QString codigo;        //!< "altura_baja", "giro_cerrado"... (para las pruebas)
+    int desde = -1;        //!< punto (indice) o primero del tramo; -1: la ruta entera
+    int hasta = -1;        //!< ultimo punto del tramo; -1 si es de un solo punto
+    QString lugar;         //!< "P3", "P3 → P4" o "Ruta"
+    QString titulo;        //!< corto: "Sube más rápido de lo que puede"
+    QString explicacion;   //!< que pasa, con los numeros
+    QString solucion;      //!< que cambiar, con valores
+
+    //! true si toca al punto \a fila (es suyo o del tramo que empieza o acaba en el).
+    bool tocaA(int fila) const { return fila >= 0 && (fila == desde || fila == hasta); }
+};
+
+//! Un tramo de la ruta (del punto \c desde al siguiente), para el informe.
+struct TramoRuta
+{
+    int desde = 0;
+    double distancia = 0.0;      //!< m
+    double tiempo = 0.0;         //!< s (0 si el tramo va a velocidad cero)
+    double tasaVertical = 0.0;   //!< m/s que pide el plan (+ sube, - baja)
+    double alturaLlegada = 0.0;  //!< m a los que llega de verdad (limitado por la tasa del dron)
+    double holguraTerreno = std::numeric_limits<double>::quiet_NaN();  //!< m minimos sobre el terreno
+};
+
+//! Lo que sale de revisar una ruta: los hallazgos y las cifras del informe.
+struct RevisionRuta
+{
+    QVector<Hallazgo> hallazgos;   //!< errores primero, luego avisos y notas
+    QVector<TramoRuta> tramos;
+
+    double distancia = 0.0;        //!< m
+    double tiempo = 0.0;           //!< s
+    double usoDistancia = 0.0;     //!< fraccion de la autonomia en distancia (1 = toda)
+    double usoTiempo = 0.0;        //!< fraccion de la autonomia en tiempo
+    double velocidadMin = 0.0, velocidadMax = 0.0;   //!< m/s
+    double alturaMin = 0.0, alturaMax = 0.0;         //!< m
+    double subida = 0.0, bajada = 0.0;               //!< m acumulados
+    double holguraTerreno = std::numeric_limits<double>::quiet_NaN();  //!< m, la menor de la ruta
+    bool hayTerreno = false;       //!< se ha podido comprobar el terreno (algun dato)
+
+    //! true si no hay errores (los avisos no impiden enviarla).
+    bool valida() const { return cuantos(Hallazgo::Gravedad::Error) == 0; }
+    int cuantos(Hallazgo::Gravedad g) const;
+    //! Los hallazgos que tocan al punto \a fila.
+    QVector<Hallazgo> delPunto(int fila) const;
+    //! Los errores en una linea cada uno ("P3: Por debajo de la altura mínima"), o
+    //! "Ruta válida" si no hay.
+    QString resumenErrores() const;
+};
 
 /**
- * @brief Clase encargada de validar rutas y puntos según las características del dron.
+ * @brief Revisa rutas segun las caracteristicas del dron.
  *
- * Proporciona métodos para verificar distancias, altitudes, velocidades, transiciones,
- * radios de giro, y genera análisis detallados de la ruta.
+ * Mira todo de una vez (no se para en el primer problema) y simula lo que hara
+ * el dron de verdad: si no le da para subir, el tramo siguiente empieza mas
+ * bajo, y el terreno se compara con esa altura, no con la del plan.
  */
 class RoutePlanner {
 public:
-    /**
-     * @brief Constructor.
-     * @param chars Características del dron que se usarán para las validaciones.
-     */
-    RoutePlanner(const DroneCharacteristics &chars);
+    //! Cota del terreno en metros o NaN si no hay dato.
+    using FuncionTerreno = std::function<double(const QGeoCoordinate &)>;
+
+    //! Alabeo maximo supuesto en los giros del ala fija (el mismo de siempre).
+    static constexpr double kAlabeoGrados = 30.0;
+    //! Por debajo de esto sobre el terreno es error; por debajo de kHolguraAviso, aviso.
+    static constexpr double kHolguraMinima = 10.0;
+    static constexpr double kHolguraAviso = 30.0;
+    //! Cada cuantos metros se mira el terreno a lo largo de un tramo.
+    static constexpr double kPasoTerreno = 20.0;
+    //! Usar mas de esta fraccion de la autonomia es aviso (hay que ir y volver).
+    static constexpr double kUsoAutonomiaAviso = 0.8;
+
+    explicit RoutePlanner(const DroneCharacteristics &chars);
 
     /**
-     * @brief Valida que la distancia entre dos waypoints esté dentro de los límites del dron.
-     * @param wp1 Primer waypoint.
-     * @param wp2 Segundo waypoint.
-     * @param errorMsg Cadena de salida con el mensaje de error si la validación falla.
-     * @return true si la distancia es válida, false en caso contrario.
+     * @brief Revisa la ruta \a puntos.
+     * @param terreno Cota del terreno; si no se da, no se mira el terreno.
      */
-    bool validarDistanciaWaypoint(const E_Punto &wp1, const E_Punto &wp2, QString &errorMsg) const;
+    RevisionRuta revisar(const QList<E_Punto> &puntos, const FuncionTerreno &terreno = {}) const;
 
-    /**
-     * @brief Valida que la altitud de un punto esté dentro del rango permitido.
-     * @param punto Punto a validar.
-     * @param errorMsg Cadena de salida con el mensaje de error si la validación falla.
-     * @return true si la altitud es válida, false en caso contrario.
-     */
-    bool validarAltitud(const E_Punto &punto, QString &errorMsg) const;
+    //! Radio de giro del ala fija a \a velocidad m/s: el de un giro coordinado
+    //! con kAlabeoGrados de alabeo, r = v² / (g·tan φ), y nunca menos que el
+    //! radio minimo configurado del dron.
+    double radioDeGiro(double velocidad) const;
 
-    /**
-     * @brief Valida que la velocidad en un punto esté dentro de los límites del dron.
-     * @param punto Punto a validar.
-     * @param errorMsg Cadena de salida con el mensaje de error si la validación falla.
-     * @return true si la velocidad es válida, false en caso contrario.
-     */
-    bool validarVelocidadPunto(const E_Punto &punto, QString &errorMsg) const;
+    //! Cuanto cambia el rumbo en \a p2 al ir de \a p1 a \a p3, en grados (0-180).
+    double anguloGiro(const E_Punto &p1, const E_Punto &p2, const E_Punto &p3) const;
 
-    /**
-     * @brief Valida la transición de velocidad entre dos waypoints, comprobando que la aceleración no supere los límites.
-     * @param actual Waypoint actual.
-     * @param siguiente Siguiente waypoint.
-     * @param distancia Distancia entre ellos.
-     * @param errorMsg Cadena de salida con el mensaje de error si la validación falla.
-     * @return true si la transición es válida, false en caso contrario.
-     */
-    bool validarTransicionVelocidad(const E_Punto &actual, const E_Punto &siguiente,
-                                    double distancia, QString &errorMsg) const;
-
-    /**
-     * @brief Valida la transición de altitud entre dos waypoints, comprobando pendiente y tasa vertical.
-     * @param actual Waypoint actual.
-     * @param siguiente Siguiente waypoint.
-     * @param distancia Distancia entre ellos.
-     * @param errorMsg Cadena de salida con el mensaje de error si la validación falla.
-     * @return true si la transición es válida, false en caso contrario.
-     */
-    bool validarTransicionAltitud(const E_Punto &actual, const E_Punto &siguiente,
-                                  double distancia, QString &errorMsg) const;
-
-    /**
-     * @brief Valida que el radio de giro en un punto sea suficiente para la velocidad y tipo de dron.
-     * @param punto Punto a validar.
-     * @param errorMsg Cadena de salida con el mensaje de error si la validación falla.
-     * @return true si el radio es válido, false en caso contrario.
-     */
-    bool validarRadioGiro(const E_Punto &punto, QString &errorMsg) const;
-
-    /**
-     * @brief Calcula el radio de giro mínimo teórico para una velocidad dada (solo para ala fija).
-     * @param velocidad Velocidad en m/s.
-     * @return Radio mínimo teórico en metros.
-     */
-    double calcularRadioMinimoTeorico(double velocidad) const;
-
-    /**
-     * @brief Calcula el radio de giro recomendado (1.5 veces el mínimo teórico).
-     * @param velocidad Velocidad en m/s.
-     * @return Radio recomendado en metros.
-     */
-    double calcularRadioGiroRecomendado(double velocidad) const;
-
-    /**
-     * @brief Calcula la distancia total de la ruta sumando las distancias entre waypoints consecutivos.
-     * @param puntos Lista de puntos de la ruta.
-     * @return Distancia total en metros.
-     */
+    //! Suma de las distancias entre puntos consecutivos, en metros.
     double calcularDistanciaTotal(const QList<E_Punto> &puntos) const;
 
-    /**
-     * @brief Calcula el tiempo total de vuelo y la energía estimada para la ruta.
-     * @param puntos Lista de puntos de la ruta.
-     * @return Par (tiempo en segundos, energía en julios).
-     */
-    QPair<double, double> calcularTiempoVuelo(const QList<E_Punto> &puntos) const;
-
-    /**
-     * @brief Estima la potencia requerida para un segmento de vuelo.
-     * @param p1 Punto de inicio.
-     * @param p2 Punto de fin.
-     * @param distancia Distancia del segmento.
-     * @return Potencia estimada en vatios.
-     */
-    double estimarPotencia(const E_Punto &p1, const E_Punto &p2, double distancia) const;
-
-    /**
-     * @brief Estima el consumo de energía total de la ruta en vatios-hora, con un factor de seguridad.
-     * @param puntos Lista de puntos de la ruta.
-     * @return Consumo estimado en Wh.
-     */
-    double estimarConsumoEnergia(const QList<E_Punto> &puntos) const;
-
-    /**
-     * @brief Valida la ruta completa.
-     * ...
-     *
-     * \startuml
-     * start
-     * :Recibir lista de puntos;
-     * if (cantidad < 2) then (sí)
-     *   :Retornar error;
-     *   stop
-     * endif
-     *
-     * :Para cada punto;
-     * while (puntos por validar)
-     *   :validarAltitud;
-     *   if (falla) then (sí)
-     *     :Retornar error;
-     *     stop
-     *   endif
-     *   :validarVelocidad;
-     *   if (falla) then (sí)
-     *     :Retornar error;
-     *     stop
-     *   endif
-     *   :validarRadioGiro;
-     *   if (falla) then (sí)
-     *     :Retornar error;
-     *     stop
-     *   endif
-     * endwhile
-     *
-     * :Para cada par de puntos consecutivos;
-     * while (pares por validar)
-     *   :Calcular distancia;
-     *   :validarDistanciaWaypoint;
-     *   if (falla) then (sí)
-     *     :Retornar error;
-     *     stop
-     *   endif
-     *   :validarTransicionVelocidad;
-     *   if (falla) then (sí)
-     *     :Retornar error;
-     *     stop
-     *   endif
-     *   :validarTransicionAltitud;
-     *   if (falla) then (sí)
-     *     :Retornar error;
-     *     stop
-     *   endif
-     * endwhile
-     *
-     * :Calcular distancia total;
-     * if (distancia > maxRange) then (sí)
-     *   :Retornar error;
-     *   stop
-     * endif
-     *
-     * :Calcular tiempo de vuelo;
-     * if (tiempo > endurance) then (sí)
-     *   :Retornar error;
-     *   stop
-     * endif
-     *
-     * :Retornar éxito;
-     * stop
-     * \enduml
-     */
-    QPair<bool, QString> validarRuta(const QList<E_Punto> &puntos) const;
-
-    /**
-     * @brief Realiza validaciones adicionales sobre el perfil completo de la ruta (cambios bruscos, etc.).
-     * @param puntos Lista de puntos de la ruta.
-     * @return Cadena de error vacía si todo es correcto, o mensaje descriptivo.
-     */
-    QString validarPerfilCompleto(const QList<E_Punto> &puntos) const;
-
-    /**
-     * @brief Realiza un análisis detallado de la ruta, devolviendo múltiples métricas y puntos críticos.
-     * @param puntos Lista de puntos de la ruta.
-     * @return Mapa con todos los datos del análisis (distancia, tiempo, energía, puntos críticos, etc.).
-     */
-    QVariantMap analizarRutaDetallada(const QList<E_Punto> &puntos) const;
-
-    /**
-     * @brief Detecta puntos críticos en la ruta (giros cerrados, cambios bruscos, etc.).
-     * @param puntos Lista de puntos de la ruta.
-     * @return Lista de mapas con información detallada de cada punto crítico.
-     */
-    QVariantList detectarPuntosCriticos(const QList<E_Punto> &puntos) const;
-
-    /**
-     * @brief Obtiene el color hexadecimal correspondiente al nivel de criticidad.
-     * @param nivel Nivel de criticidad ("CRÍTICO", "ALTO", "MODERADO", "BAJO").
-     * @return Código de color en formato #RRGGBB.
-     */
-    QString obtenerColorCriticidad(const QString &nivel) const;
-
-    /**
-     * @brief Clasifica el nivel de criticidad de un punto basado en el número de problemas, ángulo y cambio de velocidad.
-     * @param numProblemas Número de problemas detectados.
-     * @param angulo Ángulo de giro.
-     * @param cambioVelocidad Cambio de velocidad en el segmento.
-     * @return Cadena con el nivel ("CRÍTICO", "ALTO", "MODERADO", "BAJO").
-     */
-    QString clasificarCriticidad(int numProblemas, double angulo, double cambioVelocidad) const;
-
-    /**
-     * @brief Clasifica el nivel de seguridad según el margen calculado.
-     * @param margen Margen de seguridad en porcentaje.
-     * @return Cadena con el nivel ("MUY ALTO", "ALTO", "MODERADO", "BAJO", "MUY BAJO").
-     */
-    QString clasificarNivelSeguridad(double margen) const;
-
-    /**
-     * @brief Analiza cada segmento de la ruta y devuelve métricas por segmento.
-     * @param puntos Lista de puntos de la ruta.
-     * @return Lista de mapas con datos de cada segmento.
-     */
-    QVariantList analizarSegmentos(const QList<E_Punto> &puntos) const;
-
-    /**
-     * @brief Calcula el ángulo de giro entre tres puntos consecutivos.
-     * @param p1 Punto anterior.
-     * @param p2 Punto actual.
-     * @param p3 Punto siguiente.
-     * @return Ángulo en grados (0-180).
-     */
-    double calcularAnguloGiro(const E_Punto &p1, const E_Punto &p2, const E_Punto &p3) const;
-
-    /**
-     * @brief Calcula el margen de seguridad de la ruta en porcentaje.
-     * @param puntos Lista de puntos de la ruta.
-     * @return Margen de seguridad (0-100).
-     */
-    double calcularMargenSeguridad(const QList<E_Punto> &puntos) const;
-
-    /**
-     * @brief Calcula el factor de carga máximo experimentado por el dron en la ruta.
-     * @param puntos Lista de puntos de la ruta.
-     * @return Factor de carga máximo (adimensional, g's).
-     */
-    double calcularFactorCargaMaximo(const QList<E_Punto> &puntos) const;
-
-    /**
-     * @brief Calcula un índice de estrés estimado para la ruta (0-100).
-     * @param puntos Lista de puntos de la ruta.
-     * @return Índice de estrés.
-     */
-    double calcularEstresRuta(const QList<E_Punto> &puntos) const;
+    //! Tiempo de vuelo en segundos, cada tramo a la media de las velocidades de
+    //! sus puntos (los tramos a velocidad cero no cuentan).
+    double calcularTiempoVuelo(const QList<E_Punto> &puntos) const;
 
 private:
     DroneCharacteristics droneChars; ///< Características del dron.
-    double g;                        ///< Aceleración de la gravedad (m/s²).
-    double densidadAire;              ///< Densidad del aire (kg/m³) para cálculos aerodinámicos.
+    double g = 9.81;                 ///< Aceleración de la gravedad (m/s²).
 };
 
 #endif // ROUTEPLANNER_H

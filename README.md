@@ -148,7 +148,11 @@ de 10 puntos en *Rutas*; para que la siga, *Mandos* en régimen automático.
    abierto) → **Nueva**: elegir el dron y el nombre de la ruta; después, clic
    derecho en el mapa en el punto inicial (se generan los 10 puntos, que se
    pueden arrastrar o editar en la tabla; doble clic en uno centra el mapa en
-   él) y **Enviar al dron**. Cuando el dron confirma, el botón se pone verde y
+   él) y **Enviar al dron**. Antes, la revisión de la ruta dice qué está mal y
+   cómo arreglarlo: icono y color en cada fila de la tabla (el detalle, con el
+   ratón encima), cuántos errores y avisos en el estado de abajo, y el
+   **Análisis** completo (no modal: se rehace solo mientras se corrige y lleva a
+   cada punto). Cuando el dron confirma, el botón se pone verde y
    la barra de estado dice «✓ El dron ha confirmado el plan». Sin respuesta en
    3 s, aviso; si lo rechaza, se reenvía hasta 3 veces.
 3. Con la ruta en el dron, este sigue dando vueltas a casa: solo la cumple en

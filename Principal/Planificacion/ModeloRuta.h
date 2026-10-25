@@ -2,7 +2,7 @@
 #define MODELORUTA_H
 
 // Modelo de la tabla de puntos de la ruta (MiModelo) y su base de datos (antes
-// dentro de Widget_Puntos.h): los 10 puntos, su validacion con RoutePlanner y
+// dentro de Widget_Puntos.h): los 10 puntos, su revision con RoutePlanner y
 // el guardado en SQLite (tablas drones, rutas_metadata y una por ruta).
 
 #include "AlturaWorker.h"
@@ -10,6 +10,7 @@
 #include "Planificacion/RoutePlanner.h"
 
 #include <QAbstractTableModel>
+#include <QByteArray>
 #include <QGeoCoordinate>
 #include <QList>
 #include <QMap>
@@ -38,10 +39,7 @@ public:
      */
     enum Role {
         IdRole = Qt::UserRole + 1,       ///< ID del punto.
-        ErrorRole = Qt::UserRole + 2,    ///< Errores del punto.
-        WarningRole = Qt::UserRole + 3,   ///< Advertencias del punto.
-        CriticoRole = Qt::UserRole + 4,   ///< Indica si el punto es crítico.
-        AnalisisRole = Qt::UserRole + 5   ///< Datos de análisis del punto (tasa, distancia, etc.).
+        GravedadRole = Qt::UserRole + 2  ///< Lo peor que la revision ve en el punto (Hallazgo::Gravedad), o -1.
     };
 
     explicit MiModelo(QObject *parent = nullptr);
@@ -109,30 +107,17 @@ public:
      */
     bool isDroneConfigured() const;
 
-    // Validación y análisis
+    // Revision
     /**
-     * @brief Valida la ruta actual usando el planificador.
-     * @return Par (válido, mensaje).
+     * @brief La revision de la ruta actual (limites del dron, tramos, giros,
+     *        terreno y autonomia), con cada problema explicado y su arreglo.
+     *
+     * Se rehace sola cuando cambian los puntos o el dron (se compara una firma
+     * de lo que la afecta), asi que siempre esta al dia sin tener que avisar.
      */
-    QPair<bool, QString> validarRuta() const;
-
-    /**
-     * @brief Obtiene métricas básicas de la ruta (distancia, tiempo, porcentajes, etc.).
-     * @return Mapa con las métricas.
-     */
-    QVariantMap obtenerMetricasRuta() const;
-
-    /**
-     * @brief Realiza un análisis detallado de la ruta (delega en RoutePlanner).
-     * @return Mapa con todos los datos del análisis.
-     */
-    QVariantMap analizarRutaDetallada() const;
-
-    /**
-     * @brief Obtiene una lista de recomendaciones basadas en el análisis de la ruta.
-     * @return Lista de cadenas con recomendaciones.
-     */
-    QStringList obtenerRecomendaciones() const;
+    const RevisionRuta &revision() const;
+    //! Lo que la revision ve en el punto \a fila, en una linea (para los CSV).
+    QString observacionesPunto(int fila) const;
 
     // Gestión de puntos – CON RESTRICCIÓN DE 10 PUNTOS
     /**
@@ -147,24 +132,6 @@ public:
      *
      * Usuario -> Model: validarYAgregarElemento(punto)
      * activate Model
-     *
-     * Model -> Planner: validarAltitud(punto)
-     * Planner --> Model: ok/error
-     *
-     * Model -> Planner: validarVelocidadPunto(punto)
-     * Planner --> Model: ok/error
-     *
-     * Model -> Planner: validarRadioGiro(punto)
-     * Planner --> Model: ok/error
-     *
-     alt hay punto anterior
-     *   Model -> Planner: validarDistanciaWaypoint(anterior, punto)
-     *   Planner --> Model: ok/error
-     *   Model -> Planner: validarTransicionVelocidad(...)
-     *   Planner --> Model: ok/error
-     *   Model -> Planner: validarTransicionAltitud(...)
-     *   Planner --> Model: ok/error
-     * end
      *
      * Model -> Model: beginInsertRows()
      * Model -> Model: append punto
@@ -184,13 +151,6 @@ public:
      * @param elemento Punto a agregar.
      */
     void agregarElemento(const E_Punto &elemento);
-
-    /**
-     * @brief Valida una lista de puntos (sin agregarlos) contra las restricciones del dron.
-     * @param puntos Lista de puntos a validar.
-     * @return Par (válido, mensaje).
-     */
-    QPair<bool, QString> validarYActualizarPuntos(const QList<E_Punto> &puntos);
 
     /**
      * @brief Actualiza la posición de puntos existentes en la base de datos y revalida la ruta.
@@ -319,8 +279,8 @@ public:
 
     // Revalidación
     /**
-     * @brief Revalida completamente la ruta: recalcula distancias, errores, advertencias y puntos críticos.
-     *        Emite dataChanged para toda la tabla.
+     * @brief Recalcula distancias y tasas de cada punto y avisa (dataChanged de
+     *        toda la tabla y rutaModificada): la tabla y el panel releen la revision.
      */
     void revalidarRutaCompleta();
 
@@ -351,31 +311,20 @@ signals:
      */
     void rutaConfigurada(const QString &tipoDron, const QString &nombreRuta);
 
-    /**
-     * @brief Señal emitida cuando se actualiza el análisis de la ruta.
-     * @param analisis Mapa con el análisis detallado.
-     */
-    void analisisActualizado(const QVariantMap &analisis);
-
 private:
     QList<E_Punto> listaDatos;                 ///< Lista de puntos de la ruta.
     DroneCharacteristics droneChars;            ///< Características del dron actual.
     RoutePlanner *planner;                      ///< Planificador/validador.
     QString currentRouteName;                   ///< Nombre de la ruta actual.
     QList<DroneCharacteristics> dronesList;     ///< Lista de drones cargados.
-    QMap<int, QString> erroresPorPunto;         ///< Errores asociados a cada punto (por ID).
     AlturaWorker *m_alturaWorker = nullptr;     ///< Worker para obtener alturas del terreno.
+    mutable RevisionRuta m_revision;            ///< Ultima revision de la ruta.
+    mutable QByteArray m_firmaRevision;         ///< De que puntos y dron es m_revision.
 
     /**
      * @brief Inicializa la base de datos SQLite y crea las tablas necesarias si no existen.
      */
     void inicializarBaseDeDatos();
-
-    /**
-     * @brief Limpia los errores y advertencias de un punto y sus adyacentes.
-     * @param puntoId ID del punto central.
-     */
-    void limpiarErroresAdyacentes(int puntoId);
 };
 
 #endif // MODELORUTA_H

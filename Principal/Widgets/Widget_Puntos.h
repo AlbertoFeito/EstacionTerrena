@@ -45,6 +45,8 @@
  * Contiene la tabla de puntos, métricas, botones de acción y se comunica con el modelo
  * y el mapa. Permite crear, cargar, editar, validar y enviar rutas de 10 puntos.
  */
+class VentanaInforme;
+
 class Widget_Puntos : public QWidget
 {
     Q_OBJECT
@@ -112,15 +114,9 @@ public:
     void mostrarMetricasRuta();
 
     /**
-     * @brief Muestra un cuadro de diálogo con el análisis detallado de la ruta.
+     * @brief Abre la ventana del análisis de la ruta (no modal, se rehace sola).
      */
     void mostrarAnalisisDetallado();
-
-    /**
-     * @brief Exporta el análisis de la ruta a un archivo de texto.
-     * @param analisis Mapa con los datos del análisis.
-     */
-    void exportarAnalisis(const QVariantMap &analisis);
 
 signals:
     // Señales para comunicación con otros módulos (principalmente CControladora)
@@ -129,7 +125,6 @@ signals:
     void sI_Ruta2(QList<E_Punto>);                              ///< Emite la ruta como lista de objetos E_Punto.
     void sI_RutaValidada(bool valida, const QString &mensaje); ///< Emite resultado de validación.
     void sI_DronConfigurado(const QString &tipoDron, const QString &nombreRuta); ///< Dron configurado.
-    void sI_AnalisisActualizado(const QVariantMap &analisis); ///< Análisis actualizado.
     void sI_iniciarSeleccionPuntoInicial();                    ///< Inicia modo selección de punto inicial.
     void sI_cancelarSeleccionPuntoInicial();                   ///< Cancela modo selección.
     void sI_rutasModificadas();                                 ///< Lista de rutas modificada.
@@ -173,12 +168,6 @@ public slots:
      * @param nombreRuta Nombre de la ruta configurada.
      */
     void onRutaConfigurada(const QString &tipoDron, const QString &nombreRuta);
-
-    /**
-     * @brief Slot llamado cuando el modelo emite analisisActualizado.
-     * @param analisis Mapa con el análisis actualizado.
-     */
-    void onAnalisisActualizado(const QVariantMap &analisis);
 
     /**
      * @brief Maneja el movimiento de un punto en el mapa, actualizando coordenadas y altitud.
@@ -271,12 +260,12 @@ private:
     void ponerEstado(const QString &texto, const QColor &color, const QString &detalle);
     void ajustarAnchoTabla();
     QString obtenerNombreTablaLimpio(const QString &nombreTablaConFormato);
-    void mostrarRecomendaciones(const QStringList &recomendaciones);
-    void mostrarPuntosCriticosDetalles(const QVariantList &puntosCriticos);
-    void actualizarPanelAnalisis(const QVariantMap &analisis);
+    void refrescarInforme(bool aunqueOculta = false);
+    VentanaInforme *m_informe = nullptr;   // ventana del analisis (se crea al abrirla)
 
 protected:
     void resizeEvent(QResizeEvent *event) override;
+    bool eventFilter(QObject *obj, QEvent *event) override;
 
 };
 

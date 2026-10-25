@@ -13,6 +13,10 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
   cambiados (como la librería antigua, §27). ¿Es a propósito o un error?
 - Si hay una trama en la que el dron devuelve el plan (`newPlanificacionReceived`
   existe en la estación, pero nada la emite).
+- La columna **Radio** de cada punto de la ruta no se manda: la trama del plan
+  (`sPUNTOXYZ`) no la lleva (`parametro_00..02` van a 0) y el acercamiento es el
+  radio de Mandos, uno para todos. ¿El autopiloto usa algún radio por punto? Si
+  no, la columna sobra (§30: ya no se revisa).
 - **Pérdida de enlace**: cómo la detecta el autopiloto. La estación solo
   manda algo cuando el operador envía mandos o una ruta (no hay una trama
   periódica de «sigo aquí»), así que tiene que ser por la radio o por tiempo
@@ -24,6 +28,15 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 
 - **Guardar los polígonos del operador**: con `autosaveFeatures = false` no se
   guardan; se puede hacer a mano con `saveFeaturesTo` / `loadFeaturesFrom`.
+
+## Rutas
+
+- En **Repetir misión** el dron vuelve de P10 a P1 y empieza otra vez: la
+  revisión (§30) no mira ese tramo de cierre ni los giros en P10 y P1. Se puede
+  añadir cuando se sepa qué hace el autopiloto al acabar cada vuelta.
+- La revisión supone que el dron gira al llegar al punto. Con el radio de
+  acercamiento de Mandos empieza antes; si se le pasa ese radio, el aviso de
+  giro cerrado sería más justo.
 
 ## Fase 2: mejora del código (por orden)
 

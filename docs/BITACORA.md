@@ -1042,3 +1042,162 @@ Pruebas nuevas en `test_mapamision`:
   en los píxeles del icono.
 
 Son 112 pruebas en total.
+
+## 30. La revisión de la ruta: qué pasa, por qué y cómo arreglarlo
+
+El usuario pidió revisar el análisis y la validación de las rutas: «creo debe
+quedar mejor explicado los problemas y las soluciones», y que se mirara cómo se
+hace y qué se le dice al operador.
+
+### Lo que había
+
+Se miró `RoutePlanner`, `MiModelo` y el panel. Había más fallos de fondo que de
+redacción:
+
+- **Se paraba en el primer problema.** `validarRuta` devolvía el primer error
+  que encontraba. Con tres problemas se veía uno; al arreglarlo salía otro.
+- **Lo mismo era error en un sitio y aviso en otro.** Al radio de giro y al
+  cambio de velocidad la tabla los marcaba como advertencia, pero bastaban para
+  que el estado dijera «No válida». La tabla podía estar toda en ámbar y la
+  ruta, inválida, sin saber por qué.
+- **Se comprobaba algo que el dron no recibe.** La columna Radio se validaba
+  contra el radio de giro teórico, pero no viaja en la trama del plan
+  (`sPUNTOXYZ` no la lleva) y el acercamiento es el radio de Mandos, uno para
+  todos.
+- **El terreno no se comprobaba.** El perfil marcaba en rojo dónde se acercaba
+  la ruta al terreno, pero la validación no lo miraba: una ruta que atravesaba
+  una loma salía «Válida».
+- **Cifras sin base.** Mostraba como datos de seguridad cosas inventadas:
+  - un «margen de seguridad» que restaba puntos a ojo;
+  - un «estrés de ruta»;
+  - un «factor de carga» que no era el de un giro;
+  - un consumo en Wh con potencias de 150 y 300 W sacadas de la nada;
+  - una «eficiencia» que comparaba con la línea recta de P1 a P10.
+  Parecían medidas y no lo eran.
+- **Los giros se medían mal.** El ángulo salía de restar grados de latitud y
+  longitud: a 60° de latitud, un ángulo recto daba unos 63°.
+- **El arreglo, si lo había, era vago.** «Considere suavizar la trayectoria»,
+  «Aumente el radio». La ventana de puntos críticos calculaba explicaciones y
+  soluciones, pero no las enseñaba.
+- **Repartido y repetido.** Había reglas de «punto crítico» con umbrales
+  distintos en el modelo y en el planificador. El estado se calculaba en dos
+  sitios. Cada cambio rehacía el análisis varias veces.
+
+### Lo que hay ahora
+
+**`RoutePlanner::revisar`** devuelve una `RevisionRuta`: todos los hallazgos de
+una vez, ordenados (errores, avisos y notas) y cada uno con cuatro cosas:
+
+- dónde («P4», «P7 → P8», «Ruta»);
+- un título corto;
+- la explicación, con los números y el límite del dron;
+- **cómo arreglarlo, con el valor que hace falta**: «Baja P9 a 105 m, o separa
+  los puntos hasta 813 m», «Baja la velocidad en P6 a 16.8 m/s o menos».
+
+Las tres gravedades:
+
+- **Error**: incumple un límite del dron o pasa por el terreno. Solo los errores
+  hacen la ruta «No válida».
+- **Aviso**: el dron la vuela, pero no como está planeada.
+- **Nota**: algo que no se ha podido comprobar.
+
+Lo que se revisa, y por qué así:
+
+- **Altura y velocidad de cada punto** contra el dron (error). Por debajo de la
+  mínima del ala fija se explica qué es entrar en pérdida.
+- **Distancia entre puntos**, mínima y máxima (error).
+- **Velocidad**: si le da para acelerar o frenar entre dos puntos, con
+  v² = v₀² ± 2·a·d, que es como cambia de velocidad. Antes se usaba el tiempo a
+  velocidad media. Es aviso, porque llega más despacio pero llega. El arreglo da
+  la velocidad que alcanza y la distancia que haría falta.
+- **Subidas y bajadas** con su tasa máxima (aviso). Si no le da, llega más bajo
+  y **el tramo siguiente empieza ahí**: se simula la altura a la que va de
+  verdad. Antes era error, pero un dron que no llega a la altura sigue
+  volando; el peligro es el terreno, y eso tiene su propia comprobación.
+- **Terreno**: se mira cada 20 m de cada tramo, con esa altura real y no con la
+  del plan:
+  - a menos de 10 m es error (atraviesa o roza);
+  - a menos de 30 m, aviso;
+  - el arreglo da la altura que libra lo más alto del tramo con margen.
+
+  Si la zona no tiene elevación, una nota lo dice: antes se suponía terreno a
+  0 m sin avisar. La cota la da `AlturaWorker::cota`, que devuelve NaN sin dato
+  y no emite una señal por cada consulta.
+- **Giros del ala fija**: el radio sale de la velocidad, r = v²/(g·tan 30°), y
+  nunca es menor que el radio mínimo del dron. Si el punto siguiente queda
+  dentro del círculo de giro (d < 2·r·sen θ), no puede ir directo: se pasa y da
+  una vuelta. Es aviso. El arreglo da la velocidad con la que cabe, a qué
+  distancia alejar el punto o cuánto abrir el giro. El ángulo se mide ahora con
+  acimutes geodésicos.
+- **Autonomía**, en distancia y en tiempo: pasarse es error; usar más del 80 %,
+  aviso, porque además hay que ir hasta P1 y volver.
+
+Lo que se quitó:
+
+- las cifras sin base (margen, estrés, factor de carga, consumo, eficiencia);
+- la validación de la columna Radio;
+- las comprobaciones sueltas (`validarAltitud`, `validarRadioGiro`...);
+- `advertencias` y `puntoCritico` de `E_Punto`, y `erroresPorPunto` del modelo.
+
+La revisión vive en un solo sitio, `MiModelo::revision()`. Se rehace sola
+cuando cambia algo que la afecta: compara una firma con las posiciones,
+alturas, velocidades y nombres de los puntos, el dron y si ya hay mapa.
+
+### Lo que ve el operador
+
+- **Tabla**: el icono y un tinte translúcido de la gravedad en cada fila. Un
+  fondo claro fijo dejaba la letra clara del tema oscuro sin contraste; el
+  tinte se lee con los dos temas. Con el ratón encima, el detalle de ese punto:
+  cada problema con su porqué y su arreglo.
+- **Estado** (abajo): «No válida: 2 errores y 1 aviso». En el tooltip, cuáles
+  son; al pulsarlo, se abre el análisis.
+- **Análisis** (`Widgets/VentanaInforme`, con el texto de
+  `Planificacion/InformeRuta`): sustituye al cuadro de texto con emojis. Trae:
+  - el estado y las cifras de la ruta;
+  - «Qué revisar»;
+  - la tabla de tramos (distancia, tiempo, qué pide en vertical, a qué altura
+    llega de verdad y cuánto pasa sobre el terreno);
+  - «Cómo se revisa»: lo que se comprueba y lo que se supone, para que se sepa
+    de dónde sale cada cosa.
+
+  No es modal: se deja abierto mientras se corrige y se rehace solo. Pinchar en
+  un problema o en un tramo selecciona su punto en la tabla. **Exportar** guarda
+  el mismo informe en texto.
+- **Enviar** con errores: dice cuáles y ofrece «Ver el análisis», «Enviar
+  igualmente» o «Cancelar». Antes era un Sí/No/Cancelar en el que «No» abría el
+  análisis.
+- La **guía** explica las tres gravedades, dónde se ve cada cosa y la misma
+  lista de «Cómo se revisa» que el informe (sale de
+  `InformeRuta::comoSeRevisa`, una sola vez).
+
+### Pruebas
+
+`test_planificador` pasa a 13 casos, cada uno con números hechos a mano:
+
+- una recta sin problemas;
+- límites de altura y velocidad;
+- que salen todos los problemas, no solo el primero;
+- la separación entre puntos;
+- la aceleración, con v² = v₀² ± 2·a·d;
+- la subida que no llega y arrastra al tramo siguiente;
+- el terreno: una loma que se choca, se roza, se libra justa o se libra, y un
+  caso en que el plan la libra pero la altura real no;
+- la nota cuando no hay terreno;
+- el giro cerrado y la velocidad que cabe;
+- el ángulo a 60° de latitud;
+- el radio de giro;
+- la autonomía;
+- el informe.
+
+En total pasan 117 pruebas.
+
+Con la app, sobre una ruta con P4 bajo el mínimo, un tramo de 612 m y una
+subida de 150 m en 300 m:
+
+- el estado dice «No válida: 2 errores y 1 aviso»;
+- las filas se marcan;
+- el análisis explica cada cosa y su arreglo;
+- un enlace selecciona su punto;
+- al subir P4 a 60 m en la tabla, el informe abierto se rehace sin ese error.
+
+Se ha mirado con los dos temas.

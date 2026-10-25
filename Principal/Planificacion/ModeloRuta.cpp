@@ -2,6 +2,7 @@
 // Widget_Puntos.cpp).
 
 #include "ModeloRuta.h"
+#include "InformeRuta.h"
 
 #include <QApplication>
 #include <QDebug>
@@ -135,7 +136,6 @@ void MiModelo::configurarRuta(const DroneCharacteristics &drone, const QString &
 {
     beginResetModel();
     listaDatos.clear();
-    erroresPorPunto.clear();
     endResetModel();
 
     QSqlQuery dropQuery;
@@ -152,7 +152,6 @@ void MiModelo::configurarRuta(const DroneCharacteristics &drone, const QString &
     planner = new RoutePlanner(droneChars);
 
     emit rutaConfigurada(drone.tipoToString(), routeName);
-    emit analisisActualizado(analizarRutaDetallada());
 }
 
 /**
@@ -239,110 +238,38 @@ bool MiModelo::isDroneConfigured() const
 // VALIDACIÓN Y ANÁLISIS
 // ------------------------------------------------------------
 
-/**
- * @brief Valida la ruta actual usando el planificador.
- * @return Par (válido, mensaje).
- */
-QPair<bool, QString> MiModelo::validarRuta() const
+// La revision de la ruta, rehecha solo si han cambiado los puntos o el dron
+// (la firma junta lo que la afecta). Con el terreno del mapa si lo hay.
+const RevisionRuta &MiModelo::revision() const
 {
-    if (!isDroneConfigured())
-        return qMakePair(false, QStringLiteral("Dron no configurado"));
-    return planner->validarRuta(listaDatos);
-}
-
-/**
- * @brief Obtiene métricas básicas de la ruta (distancia, tiempo, porcentajes, etc.).
- * @return Mapa con las métricas.
- */
-QVariantMap MiModelo::obtenerMetricasRuta() const
-{
-    QVariantMap metricas;
+    // Bytes tal cual (sin formatear): la tabla pregunta por cada celda que pinta.
+    QByteArray firma;
+    firma.reserve(48 * listaDatos.size() + 8);
+    const quintptr dron = quintptr(planner);
+    firma.append(reinterpret_cast<const char *>(&dron), sizeof dron);
+    firma.append(m_alturaWorker && m_alturaWorker->hayMapa() ? 'T' : '-');   // el mapa llega despues
+    for (const E_Punto &p : listaDatos) {
+        const double v[4] = {p.pos.latitude(), p.pos.longitude(), p.altura, p.velocidad};
+        firma.append(reinterpret_cast<const char *>(v), sizeof v);
+        firma.append(reinterpret_cast<const char *>(p.nombre.constData()), p.nombre.size() * int(sizeof(QChar)));
+        firma.append('\0');
+    }
+    if (firma == m_firmaRevision)
+        return m_revision;
+    m_firmaRevision = firma;
     if (!isDroneConfigured()) {
-        metricas["error"] = "Dron no configurado";
-        return metricas;
+        m_revision = RevisionRuta();
+        return m_revision;
     }
-
-    double distanciaTotal = planner->calcularDistanciaTotal(listaDatos);
-    auto tiempoVuelo = planner->calcularTiempoVuelo(listaDatos);
-
-    metricas["distancia_total"] = distanciaTotal;
-    metricas["tiempo_vuelo"] = tiempoVuelo.first;
-    metricas["energia_estimada"] = tiempoVuelo.second;
-    metricas["num_waypoints"] = listaDatos.size();
-    metricas["autonomia_restante"] = droneChars.maxRange - distanciaTotal;
-    metricas["autonomia_porcentaje"] = (droneChars.maxRange > 0) ?
-                (distanciaTotal / droneChars.maxRange * 100.0) : 0.0;
-    metricas["endurance_restante"] = droneChars.endurance - tiempoVuelo.first;
-    metricas["endurance_porcentaje"] = (droneChars.endurance > 0) ?
-                (tiempoVuelo.first / droneChars.endurance * 100.0) : 0.0;
-
-    auto validacion = validarRuta();
-    metricas["valida"] = validacion.first;
-    metricas["mensaje_validacion"] = validacion.second;
-
-    return metricas;
+    RoutePlanner::FuncionTerreno terreno;
+    if (m_alturaWorker)
+        terreno = [this](const QGeoCoordinate &c) { return m_alturaWorker->cota(c); };
+    m_revision = planner->revisar(listaDatos, terreno);
+    return m_revision;
 }
 
-/**
- * @brief Realiza un análisis detallado de la ruta (delega en RoutePlanner).
- * @return Mapa con todos los datos del análisis.
- */
-QVariantMap MiModelo::analizarRutaDetallada() const
-{
-    if (!isDroneConfigured()) {
-        QVariantMap resultado;
-        resultado["error"] = "Dron no configurado";
-        return resultado;
-    }
-    return planner->analizarRutaDetallada(listaDatos);
-}
 
-/**
- * @brief Obtiene una lista de recomendaciones basadas en el análisis de la ruta.
- * @return Lista de cadenas con recomendaciones.
- */
-QStringList MiModelo::obtenerRecomendaciones() const
-{
-    QStringList recomendaciones;
-    if (!isDroneConfigured() || listaDatos.size() < 2)
-        return recomendaciones;
 
-    auto analisis = analizarRutaDetallada();
-    if (analisis.contains("error"))
-        return recomendaciones;
-
-    double eficiencia = analisis["eficiencia_ruta"].toDouble();
-    if (eficiencia < 70.0)
-        recomendaciones.append("✓ Considera optimizar la ruta para mayor eficiencia");
-
-    double margenSeguridad = analisis["margen_seguridad"].toDouble();
-    if (margenSeguridad < 30.0)
-        recomendaciones.append("⚠ Margen de seguridad bajo (" + QString::number(margenSeguridad, 'f', 0) + "%)");
-
-    int puntosCriticos = analisis["num_puntos_criticos"].toInt();
-    if (puntosCriticos > 0)
-        recomendaciones.append("⚠ " + QString::number(puntosCriticos) + " puntos críticos detectados");
-
-    double estres = analisis["estres_estimado"].toDouble();
-    if (estres > 70.0)
-        recomendaciones.append("⚠ Estrés de ruta alto (" + QString::number(estres, 'f', 0) + "%)");
-
-    if (droneChars.type == DroneType::FIXED_WING) {
-        double velocidadPromedio = analisis["velocidad_promedio"].toDouble();
-        double variacionTotal = 0;
-        for (const auto &punto : listaDatos)
-            variacionTotal += abs(punto.velocidad - velocidadPromedio);
-        double variacionPromedio = variacionTotal / listaDatos.size();
-        if (variacionPromedio > velocidadPromedio * 0.4)
-            recomendaciones.append("⚠ Para ala fija, mantén velocidad más constante");
-    }
-
-    double consumoWh = analisis["consumo_wh"].toDouble();
-    if (consumoWh > 500)
-        recomendaciones.append("💡 Consumo energético alto. Considera optimizar velocidad y altitud");
-
-    return recomendaciones;
-}
 
 // ------------------------------------------------------------
 // GESTIÓN DE PUNTOS – CON RESTRICCIÓN DE 10 PUNTOS
@@ -367,61 +294,35 @@ QPair<bool, QString> MiModelo::validarYAgregarElemento(const E_Punto &elemento)
 
     E_Punto nuevoPunto = elemento;
     nuevoPunto.id = listaDatos.size();
-    nuevoPunto.advertencias.clear();
-    nuevoPunto.puntoCritico = false;
 
     if (!listaDatos.isEmpty())
         nuevoPunto.distanciaAnterior = listaDatos.last().distanciaA(nuevoPunto);
     else
         nuevoPunto.distanciaAnterior = 0.0;
 
-    QStringList errores;
-    QStringList advertencias;
-    QString error;
-
-    if (!planner->validarAltitud(nuevoPunto, error))
-        errores.append(error);
-    if (!planner->validarVelocidadPunto(nuevoPunto, error))
-        errores.append(error);
-    if (!planner->validarRadioGiro(nuevoPunto, error))
-        advertencias.append(error);
-
-    if (!listaDatos.isEmpty()) {
-        const E_Punto &anterior = listaDatos.last();
-        double distancia = anterior.distanciaA(nuevoPunto);
-
-        if (!planner->validarDistanciaWaypoint(anterior, nuevoPunto, error))
-            errores.append(error);
-        if (!planner->validarTransicionVelocidad(anterior, nuevoPunto, distancia, error))
-            advertencias.append(error);
-        // CAMBIADO: ahora es error
-        if (!planner->validarTransicionAltitud(anterior, nuevoPunto, distancia, error))
-            errores.append(error);
-
-        nuevoPunto.tasaAscenso = nuevoPunto.calcularTasaVertical(anterior);
-        if (abs(nuevoPunto.tasaAscenso) > 3.0)
-            advertencias.append(QString("⚠ TASA VERTICAL ALTA: %1 m/s").arg(nuevoPunto.tasaAscenso, 0, 'f', 1));
-    }
+    if (!listaDatos.isEmpty())
+        nuevoPunto.tasaAscenso = nuevoPunto.calcularTasaVertical(listaDatos.last());
 
     beginInsertRows(QModelIndex(), listaDatos.size(), listaDatos.size());
     listaDatos.append(nuevoPunto);
-    if (!errores.isEmpty())
-        erroresPorPunto[nuevoPunto.id] = errores.join("\n\n");
-    if (!advertencias.isEmpty())
-        listaDatos.last().advertencias = advertencias;
     endInsertRows();
 
     if (!currentRouteName.isEmpty())
         insertarElementosEnTabla(currentRouteName, nuevoPunto);
 
     emit rutaModificada();
-    emit analisisActualizado(analizarRutaDetallada());
 
-    if (!errores.isEmpty())
-        return qMakePair(false, "❌ ERRORES DETECTADOS:\n\n" + errores.join("\n\n"));
-    if (!advertencias.isEmpty())
-        return qMakePair(true, "⚠ PUNTO AGREGADO CON ADVERTENCIAS:\n\n" + advertencias.join("\n\n"));
-    return qMakePair(true, QStringLiteral("✅ PUNTO AGREGADO CORRECTAMENTE"));
+    // Lo que la revision ve en el punto nuevo (o en el tramo que acaba en el).
+    const QVector<Hallazgo> suyos = revision().delPunto(listaDatos.size() - 1);
+    QStringList lineas;
+    bool hayError = false;
+    for (const Hallazgo &h : suyos) {
+        lineas.append(QStringLiteral("%1: %2").arg(h.lugar, h.titulo));
+        hayError = hayError || h.gravedad == Hallazgo::Gravedad::Error;
+    }
+    if (lineas.isEmpty())
+        return qMakePair(true, QStringLiteral("Punto añadido"));
+    return qMakePair(!hayError, lineas.join(QLatin1Char('\n')));
 }
 
 /**
@@ -433,36 +334,6 @@ void MiModelo::agregarElemento(const E_Punto &elemento)
     validarYAgregarElemento(elemento);
 }
 
-/**
- * @brief Valida una lista de puntos (sin agregarlos) contra las restricciones del dron.
- * @param puntos Lista de puntos a validar.
- * @return Par (válido, mensaje).
- */
-QPair<bool, QString> MiModelo::validarYActualizarPuntos(const QList<E_Punto> &puntos)
-{
-    if (!isDroneConfigured())
-        return qMakePair(false, QStringLiteral("Dron no configurado"));
-
-    for (int i = 0; i < puntos.size(); ++i) {
-        QString error;
-        if (!planner->validarAltitud(puntos[i], error))
-            return qMakePair(false, error);
-        if (!planner->validarVelocidadPunto(puntos[i], error))
-            return qMakePair(false, error);
-    }
-
-    for (int i = 0; i < puntos.size() - 1; ++i) {
-        QString error;
-        double distancia = puntos[i].distanciaA(puntos[i + 1]);
-        if (!planner->validarDistanciaWaypoint(puntos[i], puntos[i + 1], error))
-            return qMakePair(false, error);
-        if (!planner->validarTransicionVelocidad(puntos[i], puntos[i + 1], distancia, error))
-            return qMakePair(false, error);
-        if (!planner->validarTransicionAltitud(puntos[i], puntos[i + 1], distancia, error))
-            return qMakePair(false, error);
-    }
-    return qMakePair(true, QStringLiteral("Puntos válidos"));
-}
 
 /**
  * @brief Actualiza la posición de puntos existentes en la base de datos y revalida la ruta.
@@ -503,11 +374,6 @@ bool MiModelo::actualizarElementosEnTabla(const QString &nombreTabla, const QLis
         }
     }
 
-    erroresPorPunto.clear();
-    for (auto &punto : listaDatos) {
-        punto.advertencias.clear();
-        punto.puntoCritico = false;
-    }
 
     if (isDroneConfigured())
         revalidarRutaCompleta();
@@ -533,7 +399,6 @@ bool MiModelo::actualizarElementosEnTabla(const QString &nombreTabla, const QLis
         emit dataChanged(index(0, 0), index(rowCount()-1, columnCount()-1));
 
     emit rutaModificada();
-    emit analisisActualizado(analizarRutaDetallada());
 
     return todosActualizados;
 }
@@ -545,10 +410,8 @@ void MiModelo::borraTodosLosElementos()
 {
     beginResetModel();
     listaDatos.clear();
-    erroresPorPunto.clear();
     endResetModel();
     emit rutaModificada();
-    emit analisisActualizado(analizarRutaDetallada());
 }
 
 /**
@@ -649,7 +512,6 @@ QList<E_Punto> MiModelo::generarPuntosPorDefecto(int count, const QGeoCoordinate
             p.radio = rad;
             p.distanciaAnterior = (i == 0) ? 0.0 : p.pos.distanceTo(puntos.last().pos);
             p.tasaAscenso = 0.0;
-            p.puntoCritico = false;
             puntos.append(p);
             if (i < count - 1)
                 puntoActual = puntoActual.atDistanceAndAzimuth(distancia, azimut);
@@ -699,7 +561,6 @@ QList<E_Punto> MiModelo::generarPuntosPorDefecto(int count, const QGeoCoordinate
         p.radio = defaultRadio;
         p.distanciaAnterior = (i == 0) ? 0.0 : p.pos.distanceTo(puntos.last().pos);
         p.tasaAscenso = 0.0;
-        p.puntoCritico = false;
         puntos.append(p);
 
         if (i < count - 1)
@@ -724,8 +585,9 @@ bool MiModelo::guardarCSV(const QString &nombreFile)
         return false;
 
     QTextStream stream(&file);
-    stream << "ID,Nombre,Modo,Latitud,Longitud,Distancia_Anterior(m),Altura,Velocidad,Radio,Advertencias\n";
-    for (const E_Punto &punto : qAsConst(listaDatos)) {
+    stream << "ID,Nombre,Modo,Latitud,Longitud,Distancia_Anterior(m),Altura,Velocidad,Radio,Observaciones\n";
+    for (int fila = 0; fila < listaDatos.size(); ++fila) {
+        const E_Punto &punto = listaDatos.at(fila);
         stream << punto.id
                << "," << punto.nombre
                << "," << punto.modo
@@ -735,7 +597,7 @@ bool MiModelo::guardarCSV(const QString &nombreFile)
                << "," << QString::number(punto.altura, 'f', 2)
                << "," << QString::number(punto.velocidad, 'f', 2)
                << "," << QString::number(punto.radio, 'f', 2)
-               << "," << punto.advertencias.join("; ")
+               << "," << observacionesPunto(fila)
                << "\n";
     }
     file.close();
@@ -842,13 +704,11 @@ void MiModelo::CargarRutaDesdeBaseDatos(const QString &nombreRuta)
     query.prepare(QString("SELECT * FROM %1 ORDER BY id").arg(nombreRuta));
     if (!query.exec()) {
         emit rutaModificada();
-        emit analisisActualizado(analizarRutaDetallada());
-        return;
+            return;
     }
 
     beginResetModel();
     listaDatos.clear();
-    erroresPorPunto.clear();
 
     while (query.next()) {
         E_Punto punto;
@@ -860,8 +720,6 @@ void MiModelo::CargarRutaDesdeBaseDatos(const QString &nombreRuta)
         punto.velocidad = query.value(6).toDouble();
         punto.radio = query.value(7).toDouble();
         punto.distanciaAnterior = query.value(8).toDouble();
-        punto.advertencias.clear();
-        punto.puntoCritico = false;
         listaDatos.append(punto);
     }
 
@@ -871,7 +729,6 @@ void MiModelo::CargarRutaDesdeBaseDatos(const QString &nombreRuta)
         revalidarRutaCompleta();
 
     emit rutaModificada();
-    emit analisisActualizado(analizarRutaDetallada());
 }
 
 /**
@@ -894,7 +751,6 @@ bool MiModelo::eliminarRutaPorId(const QString &nombreTabla, int id)
 
     for (int i = 0; i < listaDatos.size(); ++i) {
         if (listaDatos.at(i).id == id) {
-            limpiarErroresAdyacentes(id);
             beginRemoveRows(QModelIndex(), i, i);
             listaDatos.removeAt(i);
             endRemoveRows();
@@ -906,8 +762,7 @@ bool MiModelo::eliminarRutaPorId(const QString &nombreTabla, int id)
                 emit dataChanged(index(i, 5), index(i, 5));
             }
             emit rutaModificada();
-            emit analisisActualizado(analizarRutaDetallada());
-            return true;
+                    return true;
         }
     }
     return false;
@@ -936,14 +791,12 @@ bool MiModelo::eliminarTablaRuta(const QString &nombreTabla)
 
     beginResetModel();
     listaDatos.clear();
-    erroresPorPunto.clear();
     endResetModel();
 
     currentRouteName = "";
     delete planner;
     planner = nullptr;
     emit rutaModificada();
-    emit analisisActualizado(analizarRutaDetallada());
     return true;
 }
 
@@ -965,11 +818,9 @@ bool MiModelo::limpiaRutaCompleta(const QString &nombreTabla)
 
     beginResetModel();
     listaDatos.clear();
-    erroresPorPunto.clear();
     endResetModel();
 
     emit rutaModificada();
-    emit analisisActualizado(analizarRutaDetallada());
     return true;
 }
 
@@ -995,6 +846,15 @@ int MiModelo::columnCount(const QModelIndex &parent) const
     return 10;
 }
 
+// Lo que la revision ve en el punto \a fila en una linea, para los CSV (sin comas).
+QString MiModelo::observacionesPunto(int fila) const
+{
+    QStringList lineas;
+    for (const Hallazgo &h : revision().delPunto(fila))
+        lineas.append(QStringLiteral("%1 %2: %3").arg(InformeRuta::nombreGravedad(h.gravedad), h.lugar, h.titulo));
+    return lineas.join(QStringLiteral(" | ")).replace(QLatin1Char(','), QLatin1Char(';'));
+}
+
 /**
  * @brief Devuelve los datos del modelo para un rol específico.
  * @param index Índice de la celda.
@@ -1010,17 +870,14 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
     int puntoId = item.id;
 
     if (role == IdRole) return puntoId;
-    if (role == ErrorRole) return erroresPorPunto.contains(puntoId) ? erroresPorPunto[puntoId] : QString();
-    if (role == WarningRole) return item.advertencias.isEmpty() ? QString() : item.advertencias.join("\n");
-    if (role == CriticoRole) return item.puntoCritico;
-    if (role == AnalisisRole) {
-        QVariantMap analisisPunto;
-        analisisPunto["tasa_ascenso"] = item.tasaAscenso;
-        analisisPunto["distancia_anterior"] = item.distanciaAnterior;
-        analisisPunto["velocidad"] = item.velocidad;
-        analisisPunto["altitud"] = item.altura;
-        return analisisPunto;
-    }
+
+    // Lo que la revision ve en este punto (o en sus tramos) y lo peor de ello.
+    const QVector<Hallazgo> suyos = revision().delPunto(index.row());
+    int peor = -1;   // -1: nada; si no, el Hallazgo::Gravedad mas grave
+    for (const Hallazgo &h : suyos)
+        if (peor < 0 || int(h.gravedad) < peor)
+            peor = int(h.gravedad);
+    if (role == GravedadRole) return peor;
     if (role == Qt::DisplayRole) {
         switch (index.column()) {
         case 0: return item.id;
@@ -1051,91 +908,30 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
         default: return QVariant();
         }
     }
+    // El punto en una linea y, debajo, cada problema con su porque y su arreglo.
     if (role == Qt::ToolTipRole) {
-        QString tooltip;
-        tooltip += QString("📍 <b>PUNTO: %1</b><br>").arg(item.nombre);
-        tooltip += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br>";
-        tooltip += QString("📋 <b>INFORMACIÓN BÁSICA</b><br>");
-        tooltip += QString("• ID: %1<br>").arg(puntoId);
-        tooltip += QString("• Posición: %1, %2<br>").arg(item.pos.latitude(), 0, 'f', 6).arg(item.pos.longitude(), 0, 'f', 6);
-        tooltip += QString("• Altura: %1 m<br>").arg(item.altura, 0, 'f', 1);
-        tooltip += QString("• Velocidad: %1 m/s<br>").arg(item.velocidad, 0, 'f', 1);
-        tooltip += QString("• Radio de giro: %1 m<br>").arg(item.radio, 0, 'f', 1);
-        tooltip += QString("• Distancia al anterior: %1 m<br>").arg(item.distanciaAnterior, 0, 'f', 1);
-        if (item.tasaAscenso != 0) {
-            QString direccion = (item.tasaAscenso > 0) ? "↑ ASCENSO" : "↓ DESCENSO";
-            tooltip += QString("• Tasa vertical: %1 m/s (%2)<br>").arg(abs(item.tasaAscenso), 0, 'f', 2).arg(direccion);
-        }
-        tooltip += "<br>";
-
-        if (erroresPorPunto.contains(puntoId)) {
-            tooltip += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br>";
-            tooltip += "🔴 <b><font color='red'>ERRORES DETECTADOS</font></b><br>";
-            QStringList errores = erroresPorPunto[puntoId].split("\n");
-            for (const QString &err : errores) {
-                if (!err.trimmed().isEmpty())
-                    tooltip += QString("• %1<br>").arg(err);
-            }
-            tooltip += "<br>";
-        }
-        if (!item.advertencias.isEmpty()) {
-            tooltip += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br>";
-            tooltip += "⚠ <b><font color='orange'>ADVERTENCIAS</font></b><br>";
-            for (const QString &adv : item.advertencias)
-                tooltip += QString("• %1<br>").arg(adv.split("\n").first());
-            if (item.advertencias.size() > 1)
-                tooltip += QString("<i>... y %1 advertencia(s) más</i><br>").arg(item.advertencias.size() - 1);
-            tooltip += "<br>";
-        }
-        if (item.puntoCritico) {
-            tooltip += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br>";
-            tooltip += "🔴 <b><font color='red'>PUNTO CRÍTICO</font></b><br>";
-            tooltip += "<i>Este punto requiere atención especial</i><br>";
-            tooltip += "Posibles problemas:<br>";
-            tooltip += "• Giro muy cerrado<br>";
-            tooltip += "• Cambio brusco de velocidad<br>";
-            tooltip += "• Pendiente pronunciada<br>";
-            tooltip += "• Radio de giro insuficiente<br><br>";
-        }
-        tooltip += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━<br>";
-        tooltip += "💡 <b>RECOMENDACIONES</b><br>";
-        if (item.velocidad > getDroneCharacteristics().maxSpeed * 0.8)
-            tooltip += "• Reduzca velocidad para ahorrar energía<br>";
-        if (item.altura < getDroneCharacteristics().minAltitude + 10)
-            tooltip += "• Considere aumentar altura para mayor seguridad<br>";
-        if (item.radio < 10 && getDroneCharacteristics().type == DroneType::FIXED_WING)
-            tooltip += "• Aumente radio de giro para ala fija<br>";
-        return tooltip;
+        QString t = QStringLiteral("<table width='400'><tr><td><b>%1</b> · %2 m · %3 m/s")
+                        .arg(item.nombre.toHtmlEscaped(), QString::number(item.altura, 'f', 0),
+                             QString::number(item.velocidad, 'f', 1));
+        if (index.row() > 0)
+            t += QStringLiteral(" · %1 m desde el anterior").arg(item.distanciaAnterior, 0, 'f', 0);
+        if (suyos.isEmpty())
+            t += QStringLiteral("<br><span style='color:#2e7d32'>Sin problemas.</span>");
+        for (const Hallazgo &h : suyos)
+            t += QStringLiteral("<p style='margin-top:6px'><b style='color:%1'>%2 · %3:</b> <b>%4</b><br>%5<br>"
+                                "<i>Cómo arreglarlo:</i> %6</p>")
+                     .arg(InformeRuta::colorGravedad(h.gravedad), InformeRuta::nombreGravedad(h.gravedad), h.lugar.toHtmlEscaped(),
+                          h.titulo.toHtmlEscaped(), h.explicacion.toHtmlEscaped(), h.solucion.toHtmlEscaped());
+        return t + QStringLiteral("</td></tr></table>");
     }
+    // Un tinte translucido del color de la gravedad: se lee con el tema claro
+    // y con el oscuro (un fondo claro fijo dejaba la letra clara sin contraste).
     if (role == Qt::BackgroundRole) {
-        if (erroresPorPunto.contains(puntoId)) {
-            QLinearGradient gradient(0, 0, 1, 0);
-            gradient.setCoordinateMode(QGradient::ObjectBoundingMode);
-            gradient.setColorAt(0, QColor(255, 230, 230));
-            gradient.setColorAt(1, QColor(255, 200, 200));
-            return QBrush(gradient);
+        if (peor == int(Hallazgo::Gravedad::Error) || peor == int(Hallazgo::Gravedad::Aviso)) {
+            QColor tinte(InformeRuta::colorGravedad(Hallazgo::Gravedad(peor)));
+            tinte.setAlpha(70);
+            return QBrush(tinte);
         }
-        if (item.puntoCritico) {
-            QLinearGradient gradient(0, 0, 1, 0);
-            gradient.setCoordinateMode(QGradient::ObjectBoundingMode);
-            gradient.setColorAt(0, QColor(255, 220, 200));
-            gradient.setColorAt(1, QColor(255, 180, 150));
-            return QBrush(gradient);
-        }
-        if (!item.advertencias.isEmpty()) {
-            QLinearGradient gradient(0, 0, 1, 0);
-            gradient.setCoordinateMode(QGradient::ObjectBoundingMode);
-            gradient.setColorAt(0, QColor(255, 255, 230));
-            gradient.setColorAt(1, QColor(255, 255, 200));
-            return QBrush(gradient);
-        }
-        return QVariant();
-    }
-    if (role == Qt::ForegroundRole) {
-        if (erroresPorPunto.contains(puntoId) || item.puntoCritico)
-            return QBrush(QColor(200, 0, 0));
-        if (!item.advertencias.isEmpty())
-            return QBrush(QColor(150, 100, 0));
         return QVariant();
     }
     // Sin FontRole: la negrita de las filas con errores (y su QFont() con la
@@ -1148,11 +944,12 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
     if (role == Qt::DecorationRole && index.column() == 9) {
         // Iconos del estilo (los :/icons/... de antes no existian en ningun .qrc).
         QStyle *estilo = QApplication::style();
-        if (erroresPorPunto.contains(puntoId) || item.puntoCritico)
-            return estilo->standardIcon(QStyle::SP_MessageBoxCritical);
-        if (!item.advertencias.isEmpty())
-            return estilo->standardIcon(QStyle::SP_MessageBoxWarning);
-        return estilo->standardIcon(QStyle::SP_DialogApplyButton);
+        switch (peor) {
+        case int(Hallazgo::Gravedad::Error): return estilo->standardIcon(QStyle::SP_MessageBoxCritical);
+        case int(Hallazgo::Gravedad::Aviso): return estilo->standardIcon(QStyle::SP_MessageBoxWarning);
+        case int(Hallazgo::Gravedad::Nota): return estilo->standardIcon(QStyle::SP_MessageBoxInformation);
+        default: return estilo->standardIcon(QStyle::SP_DialogApplyButton);
+        }
     }
     return QVariant();
 }
@@ -1170,7 +967,6 @@ bool MiModelo::setData(const QModelIndex &index, const QVariant &value, int role
         return false;
 
     E_Punto &item = listaDatos[index.row()];
-    int puntoId = item.id;
     bool cambioAceptado = false;
 
     switch (index.column()) {
@@ -1258,7 +1054,7 @@ QVariant MiModelo::headerData(int section, Qt::Orientation orientation, int role
         case 6: return "Altura de vuelo, en metros";
         case 7: return "Velocidad en m/s, la que vuela el dron (en pantalla se ve en km/h: x 3,6)";
         case 8: return "Radio de giro en el punto, en metros";
-        case 9: return "Estado del punto: correcto, con advertencias o con errores";
+        case 9: return "Estado del punto: bien, con avisos o con errores (el detalle, al pasar el ratón por la fila)";
         default: return QVariant();
         }
     }
@@ -1289,74 +1085,20 @@ bool MiModelo::removeRows(int row, int count, const QModelIndex &parent)
 // REVALIDACIÓN COMPLETA
 // ------------------------------------------------------------
 
-/**
- * @brief Revalida completamente la ruta: recalcula distancias, errores, advertencias y puntos críticos.
- *        Emite dataChanged para toda la tabla.
- */
+// Distancias y tasas de cada punto al dia, y aviso a la tabla y al panel (que
+// releen la revision, rehecha sola porque han cambiado los puntos).
 void MiModelo::revalidarRutaCompleta()
 {
     if (!isDroneConfigured()) return;
 
-    erroresPorPunto.clear();
-    for (auto &punto : listaDatos) {
-        punto.advertencias.clear();
-        punto.puntoCritico = false;
-    }
-
     for (int i = 0; i < listaDatos.size(); ++i) {
-        if (i > 0)
-            listaDatos[i].distanciaAnterior = listaDatos[i-1].distanciaA(listaDatos[i]);
-        else
-            listaDatos[i].distanciaAnterior = 0.0;
-    }
-
-    for (int i = 0; i < listaDatos.size(); ++i) {
-        E_Punto &punto = listaDatos[i];
-        QStringList erroresPunto, advertenciasPunto;
-        QString error;
-
-        if (!planner->validarAltitud(punto, error)) erroresPunto.append(error);
-        if (!planner->validarVelocidadPunto(punto, error)) erroresPunto.append(error);
-        if (!planner->validarRadioGiro(punto, error)) advertenciasPunto.append(error);
-
-        if (i < listaDatos.size() - 1) {
-            double distancia = punto.distanciaA(listaDatos[i+1]);
-            if (!planner->validarDistanciaWaypoint(punto, listaDatos[i+1], error))
-                erroresPunto.append(QString("Distancia con %1: %2").arg(listaDatos[i+1].nombre).arg(error));
-            if (!planner->validarTransicionVelocidad(punto, listaDatos[i+1], distancia, error))
-                advertenciasPunto.append(QString("Transición con %1: %2").arg(listaDatos[i+1].nombre).arg(error));
-            // AÑADIDO: validar transición de altitud como error
-            if (!planner->validarTransicionAltitud(punto, listaDatos[i+1], distancia, error))
-                erroresPunto.append(QString("Transición altitud con %1: %2").arg(listaDatos[i+1].nombre).arg(error));
-        }
-        if (i > 0)
-            punto.tasaAscenso = punto.calcularTasaVertical(listaDatos[i-1]);
-
-        if (!erroresPunto.isEmpty())
-            erroresPorPunto[punto.id] = erroresPunto.join("\n");
-        if (!advertenciasPunto.isEmpty())
-            punto.advertencias = advertenciasPunto;
-    }
-
-    if (listaDatos.size() >= 3) {
-        for (int i = 1; i < listaDatos.size() - 1; ++i) {
-            const E_Punto &previo = listaDatos[i-1];
-            E_Punto &actual = listaDatos[i];
-            const E_Punto &siguiente = listaDatos[i+1];
-            double angulo = planner->calcularAnguloGiro(previo, actual, siguiente);
-            double cambioVelocidad = abs(siguiente.velocidad - previo.velocidad);
-            if (angulo > 90.0 || cambioVelocidad > droneChars.maxAcceleration * 1.5) {
-                actual.puntoCritico = true;
-                if (!actual.advertencias.contains("Punto crítico detectado"))
-                    actual.advertencias.append("Punto crítico detectado");
-            }
-        }
+        listaDatos[i].distanciaAnterior = i > 0 ? listaDatos[i-1].distanciaA(listaDatos[i]) : 0.0;
+        listaDatos[i].tasaAscenso = i > 0 ? listaDatos[i].calcularTasaVertical(listaDatos[i-1]) : 0.0;
     }
 
     if (!listaDatos.isEmpty())
         emit dataChanged(index(0, 0), index(rowCount()-1, columnCount()-1));
     emit rutaModificada();
-    emit analisisActualizado(analizarRutaDetallada());
 }
 
 /**
@@ -1464,32 +1206,3 @@ void MiModelo::inicializarBaseDeDatos()
     }
 }
 
-/**
- * @brief Limpia los errores y advertencias de un punto y sus adyacentes.
- * @param puntoId ID del punto central.
- */
-void MiModelo::limpiarErroresAdyacentes(int puntoId)
-{
-    int index = -1;
-    for (int i = 0; i < listaDatos.size(); ++i) {
-        if (listaDatos[i].id == puntoId) {
-            index = i;
-            break;
-        }
-    }
-    if (index != -1) {
-        erroresPorPunto.remove(puntoId);
-        listaDatos[index].advertencias.clear();
-        listaDatos[index].puntoCritico = false;
-        if (index > 0) {
-            erroresPorPunto.remove(listaDatos[index-1].id);
-            listaDatos[index-1].advertencias.clear();
-            listaDatos[index-1].puntoCritico = false;
-        }
-        if (index < listaDatos.size() - 1) {
-            erroresPorPunto.remove(listaDatos[index+1].id);
-            listaDatos[index+1].advertencias.clear();
-            listaDatos[index+1].puntoCritico = false;
-        }
-    }
-}

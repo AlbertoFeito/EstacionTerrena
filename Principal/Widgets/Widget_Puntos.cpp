@@ -3,6 +3,8 @@
 // ============================================================================
 
 #include "Widget_Puntos.h"
+#include "VentanaInforme.h"
+#include "Planificacion/InformeRuta.h"
 #include "dronedialog.h"
 
 #include <QFileDialog>
@@ -219,6 +221,9 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     progressAutonomia->setToolTip(tr("Parte de la autonomía del dron que gasta la ruta"));
     der->addWidget(progressAutonomia);
     label_Estado->setAlignment(Qt::AlignCenter);
+    // Pulsar el estado abre el analisis (es donde se mira que le pasa).
+    label_Estado->setCursor(Qt::PointingHandCursor);
+    label_Estado->installEventFilter(this);
     der->addWidget(label_Estado);
 
     der->addWidget(seccion(tr("Acciones")));
@@ -253,12 +258,9 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     // Conexiones del modelo
     connect(modelo, &MiModelo::rutaModificada, this, &Widget_Puntos::mostrarMetricasRuta, Qt::UniqueConnection);
     connect(modelo, &MiModelo::rutaConfigurada, this, &Widget_Puntos::onRutaConfigurada, Qt::UniqueConnection);
-    connect(modelo, &MiModelo::analisisActualizado, this, &Widget_Puntos::onAnalisisActualizado, Qt::UniqueConnection);
     connect(modelo, &QAbstractItemModel::dataChanged,
             [this](const QModelIndex &topLeft, const QModelIndex &topRight, const QVector<int> &roles) {
-        Q_UNUSED(topLeft); Q_UNUSED(topRight);
-        if (roles.contains(MiModelo::ErrorRole) || roles.contains(MiModelo::WarningRole))
-            tw_puntosRuta->viewport()->update();
+        Q_UNUSED(topLeft); Q_UNUSED(topRight); Q_UNUSED(roles);
         emit sI_pintaRuta(true);
         mostrarMetricasRuta();
     });
@@ -426,9 +428,9 @@ void Widget_Puntos::actualizarComboBoxRutas()
     cB_Rutas->blockSignals(false);
 }
 
-/**
- * @brief Actualiza las etiquetas de métricas y el estado de la ruta en la interfaz.
- */
+// Cifras de la ruta (distancia, autonomia, tiempo) y su estado con lo que la
+// revision ha visto: en la pastilla cuantos errores y avisos, en el tooltip
+// cuales. Si el analisis esta abierto, se rehace tambien.
 void Widget_Puntos::mostrarMetricasRuta()
 {
     refrescarPerfil();
@@ -438,198 +440,95 @@ void Widget_Puntos::mostrarMetricasRuta()
         progressAutonomia->setValue(0);
         label_Tiempo->setText("--:--");
         label_Estado->setText(modelo->isDroneConfigured() ? "Ruta vacía" : "No configurado");
+        label_Estado->setToolTip(QString());
         label_Estado->setStyleSheet(modelo->isDroneConfigured() ?
                                         "color: blue; font-weight: bold;" :
                                         "color: gray; font-weight: bold;");
+        refrescarInforme();
         return;
     }
 
-    QVariantMap metricas = modelo->obtenerMetricasRuta();
-    if (metricas.contains("error")) {
-        label_Distancia->setText("0 m");
-        label_AutonomiaRest->setText("0%");
-        progressAutonomia->setValue(0);
-        label_Tiempo->setText("--:--");
-        label_Estado->setText("Error");
-        label_Estado->setStyleSheet("color: red; font-weight: bold;");
-        return;
-    }
-
-    double distancia = metricas["distancia_total"].toDouble();
-    double porcentaje = metricas["autonomia_porcentaje"].toDouble();
-    double tiempoVuelo = metricas["tiempo_vuelo"].toDouble();
-    bool valida = metricas["valida"].toBool();
-
-    label_Distancia->setText(QString("%1 m").arg(distancia, 0, 'f', 0));
-    label_AutonomiaRest->setText(QString("%1%").arg(100.0 - porcentaje, 0, 'f', 0));
-    if (tiempoVuelo > 0) {
-        int minutos = static_cast<int>(tiempoVuelo / 60);
-        int segundos = static_cast<int>(tiempoVuelo) % 60;
-        label_Tiempo->setText(QString("%1:%2").arg(minutos).arg(segundos, 2, 10, QChar('0')));
+    const RevisionRuta &r = modelo->revision();
+    label_Distancia->setText(QString("%1 m").arg(r.distancia, 0, 'f', 0));
+    label_AutonomiaRest->setText(QString("%1%").arg(100.0 - r.usoDistancia * 100.0, 0, 'f', 0));
+    if (r.tiempo > 0) {
+        const int s = int(std::lround(r.tiempo));
+        label_Tiempo->setText(QString("%1:%2").arg(s / 60).arg(s % 60, 2, 10, QChar('0')));
     } else {
         label_Tiempo->setText("--:--");
     }
-
-    progressAutonomia->setValue(porcentaje);
+    progressAutonomia->setValue(qBound(0, int(std::lround(r.usoDistancia * 100.0)), 100));
     progressAutonomia->setFormat("");
 
-    QVariantMap analisis = modelo->analizarRutaDetallada();
-    bool tieneAdvertencias = !analisis.value("puntos_criticos").toList().isEmpty() ||
-            analisis.value("num_puntos_criticos").toInt() > 0 ||
-            !modelo->obtenerRecomendaciones().isEmpty();
+    // En el tooltip, lo que hay que mirar (los primeros) y donde.
+    QStringList detalle;
+    for (int i = 0; i < r.hallazgos.size() && i < 8; ++i) {
+        const Hallazgo &h = r.hallazgos.at(i);
+        detalle << QStringLiteral("<span style='color:%1'>%2</span> · %3: %4")
+                       .arg(InformeRuta::colorGravedad(h.gravedad), InformeRuta::nombreGravedad(h.gravedad),
+                            h.lugar.toHtmlEscaped(), h.titulo.toHtmlEscaped());
+    }
+    if (r.hallazgos.size() > 8)
+        detalle << tr("… y %1 más").arg(r.hallazgos.size() - 8);
+    const QString ayuda = detalle.isEmpty() ? tr("Nada que revisar.") : detalle.join(QStringLiteral("<br>"));
 
-    // Que hay que mirar, a mano en el tooltip (antes solo decia «con
-    // advertencias» y habia que abrir el analisis para saber de que).
-    QStringList detalle = modelo->obtenerRecomendaciones();
-    if (!valida)
-        detalle.prepend(modelo->validarRuta().second);
-    const QString ayuda = detalle.isEmpty() ? tr("Sin observaciones")
-                                            : detalle.join(QStringLiteral("\n"));
-    if (valida && tieneAdvertencias)
-        ponerEstado(tr("Válida, con advertencias"), QColor(255, 179, 0), ayuda);
-    else if (valida)
-        ponerEstado(tr("Válida"), QColor(67, 160, 71), ayuda);
-    else
-        ponerEstado(tr("No válida"), QColor(229, 57, 53), ayuda);
+    QColor color(67, 160, 71);
+    if (!r.valida())
+        color = QColor(InformeRuta::colorGravedad(Hallazgo::Gravedad::Error));
+    else if (r.cuantos(Hallazgo::Gravedad::Aviso) > 0)
+        color = QColor(InformeRuta::colorGravedad(Hallazgo::Gravedad::Aviso));
+    QString texto = InformeRuta::estado(r);
+    if (modelo->rowCount() != 10)
+        texto += tr(" · faltan puntos (%1 de %2)").arg(modelo->rowCount()).arg(10);
+    ponerEstado(texto, color, ayuda);
+    refrescarInforme();
 }
 
 // Estado de la ruta como una pastilla de color (verde, ambar o rojo) con lo
-// que hay que mirar en el tooltip.
+// que hay que mirar en el tooltip; pulsandola se abre el analisis.
 void Widget_Puntos::ponerEstado(const QString &texto, const QColor &color, const QString &detalle)
 {
     label_Estado->setText(texto);
-    label_Estado->setToolTip(detalle + tr("\n\n(«Análisis» para el informe completo)"));
+    label_Estado->setToolTip(detalle + tr("<br><br><i>Pulsa aquí (o «Análisis») para ver el porqué y cómo "
+                                          "arreglarlo.</i>"));
     label_Estado->setStyleSheet(QStringLiteral(
         "QLabel { color: %1; background: rgba(%2, %3, %4, 40); border: 1px solid %1;"
         " border-radius: 4px; padding: 2px 6px; font-weight: bold; }")
         .arg(color.name()).arg(color.red()).arg(color.green()).arg(color.blue()));
 }
 
-/**
- * @brief Muestra un cuadro de diálogo con el análisis detallado de la ruta.
- */
+// Abre (o trae delante) la ventana del analisis. No es modal: se puede dejar
+// abierta mientras se corrige, y pinchar en un problema lleva a su punto.
 void Widget_Puntos::mostrarAnalisisDetallado()
 {
     if (!modelo->isDroneConfigured()) {
         QMessageBox::information(this, "Análisis", "Configure un dron primero.");
         return;
     }
-
-    auto analisis = modelo->analizarRutaDetallada();
-    auto recomendaciones = modelo->obtenerRecomendaciones();
-
-    if (analisis.contains("error")) {
-        QMessageBox::warning(this, "Error", analisis["error"].toString());
-        return;
+    if (!m_informe) {
+        m_informe = new VentanaInforme(this);
+        connect(m_informe, &VentanaInforme::puntoElegido, this, [this](int fila) {
+            if (fila >= 0 && fila < modelo->rowCount()) {
+                tw_puntosRuta->selectRow(fila);
+                tw_puntosRuta->scrollTo(modelo->index(fila, 0));
+            }
+        });
     }
-
-    QString mensaje = "📊 ANÁLISIS DETALLADO DE RUTA\n\n";
-    mensaje += "📋 INFORMACIÓN BÁSICA:\n";
-    mensaje += QString("• Ruta: %1\n").arg(modelo->getCurrentRouteName());
-    mensaje += QString("• Dron: %1\n").arg(modelo->getDroneCharacteristics().nombre);
-    mensaje += QString("• Tipo: %1\n").arg(modelo->getDroneCharacteristics().tipoToString());
-    mensaje += QString("• Waypoints: %1\n").arg(analisis["num_puntos"].toInt());
-    mensaje += QString("• Estado: %1\n\n").arg(analisis["valida"].toBool() ? "✓ Válida" : "✗ Inválida");
-
-    mensaje += "📏 DISTANCIA Y TIEMPO:\n";
-    mensaje += QString("• Distancia total: %1 m\n").arg(analisis["distancia_total"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Distancia en línea recta: %1 m\n").arg(analisis["distancia_linea_recta"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Eficiencia de ruta: %1%\n").arg(analisis["eficiencia_ruta"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Tiempo estimado: %1 s\n").arg(analisis["tiempo_vuelo"].toDouble(), 0, 'f', 0);
-    mensaje += QString("• Consumo estimado: %1 Wh\n\n").arg(analisis["consumo_wh"].toDouble(), 0, 'f', 1);
-
-    mensaje += "⚡ VELOCIDAD:\n";
-    mensaje += QString("• Mínima: %1 m/s\n").arg(analisis["velocidad_min"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Máxima: %1 m/s\n").arg(analisis["velocidad_max"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Promedio: %1 m/s\n\n").arg(analisis["velocidad_promedio"].toDouble(), 0, 'f', 1);
-
-    mensaje += "📈 ALTITUD:\n";
-    mensaje += QString("• Mínima: %1 m\n").arg(analisis["altitud_min"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Máxima: %1 m\n").arg(analisis["altitud_max"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Promedio: %1 m\n").arg(analisis["altitud_promedio"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Ascenso total: %1 m\n").arg(analisis["ascenso_total"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Descenso total: %1 m\n").arg(analisis["descenso_total"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Desnivel total: %1 m\n\n").arg(analisis["desnivel_total"].toDouble(), 0, 'f', 1);
-
-    mensaje += "🛡️ SEGURIDAD:\n";
-    mensaje += QString("• Margen de seguridad: %1%\n").arg(analisis["margen_seguridad"].toDouble(), 0, 'f', 0);
-    mensaje += QString("• Nivel de seguridad: %1\n").arg(analisis["nivel_seguridad"].toString());
-    mensaje += QString("• Factor de carga máximo: %1 g\n").arg(analisis["factor_carga_max"].toDouble(), 0, 'f', 1);
-    mensaje += QString("• Estrés estimado: %1%\n").arg(analisis["estres_estimado"].toDouble(), 0, 'f', 0);
-    mensaje += QString("• Puntos críticos: %1\n\n").arg(analisis["num_puntos_criticos"].toInt());
-
-    QVariantList puntosCriticos = analisis["puntos_criticos"].toList();
-    if (!puntosCriticos.isEmpty()) {
-        mensaje += "🔴 PUNTOS CRÍTICOS DETECTADOS:\n";
-        for (const auto &punto : puntosCriticos) {
-            QVariantMap datos = punto.toMap();
-            mensaje += QString("• %1 (%2): %3\n")
-                    .arg(datos["punto"].toString())
-                    .arg(datos["nivel"].toString())
-                    .arg(datos["problemas"].toStringList().join(", "));
-        }
-        mensaje += "\n";
-    }
-
-    if (!recomendaciones.isEmpty()) {
-        mensaje += "💡 RECOMENDACIONES:\n";
-        for (const auto &rec : recomendaciones)
-            mensaje += "• " + rec + "\n";
-    }
-
-    QMessageBox msgBox;
-    msgBox.setWindowTitle("Análisis Detallado de Ruta");
-    msgBox.setText(mensaje);
-    msgBox.setIcon(QMessageBox::Information);
-    QPushButton *btnPuntosCriticos = nullptr;
-    QPushButton *btnExportar = nullptr;
-    if (!puntosCriticos.isEmpty())
-        btnPuntosCriticos = msgBox.addButton("Ver puntos críticos", QMessageBox::ActionRole);
-    btnExportar = msgBox.addButton("Exportar análisis", QMessageBox::ActionRole);
-    msgBox.addButton(QMessageBox::Ok);
-
-    int result = msgBox.exec();
-    if (msgBox.clickedButton() == btnPuntosCriticos)
-        mostrarPuntosCriticosDetalles(puntosCriticos);
-    else if (msgBox.clickedButton() == btnExportar)
-        exportarAnalisis(analisis);
+    refrescarInforme(true);
+    m_informe->show();
+    m_informe->raise();
+    m_informe->activateWindow();
 }
 
-/**
- * @brief Exporta el análisis de la ruta a un archivo de texto.
- * @param analisis Mapa con los datos del análisis.
- */
-void Widget_Puntos::exportarAnalisis(const QVariantMap &analisis)
+// El informe al dia con la revision, si la ventana esta abierta (o \a aunqueOculta).
+void Widget_Puntos::refrescarInforme(bool aunqueOculta)
 {
-    QString fileName = QFileDialog::getSaveFileName(this, "Guardar análisis",
-                                                    QDir::currentPath(),
-                                                    "Archivos de texto (*.txt);;Archivos CSV (*.csv)");
-    if (fileName.isEmpty()) return;
-
-    QFile file(fileName);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, "Error", "No se pudo crear el archivo");
+    if (!m_informe || (!aunqueOculta && !m_informe->isVisible()))
         return;
-    }
-
-    QTextStream out(&file);
-    out << "ANÁLISIS DE RUTA\n";
-    out << "================\n\n";
-    out << "Ruta: " << modelo->getCurrentRouteName() << "\n";
-    out << "Dron: " << modelo->getDroneCharacteristics().nombre << "\n";
-    out << "Tipo: " << modelo->getDroneCharacteristics().tipoToString() << "\n\n";
-
-    out << "Distancia total: " << analisis["distancia_total"].toDouble() << " m\n";
-    out << "Tiempo estimado: " << analisis["tiempo_vuelo"].toDouble() << " s\n";
-    out << "Consumo estimado: " << analisis["consumo_wh"].toDouble() << " Wh\n";
-    out << "Velocidad promedio: " << analisis["velocidad_promedio"].toDouble() << " m/s\n";
-    out << "Eficiencia: " << analisis["eficiencia_ruta"].toDouble() << "%\n";
-    out << "Margen de seguridad: " << analisis["margen_seguridad"].toDouble() << "%\n";
-    out << "Puntos críticos: " << analisis["num_puntos_criticos"].toInt() << "\n";
-
-    file.close();
-    QMessageBox::information(this, "Exportado", "Análisis exportado correctamente.");
+    m_informe->mostrar(modelo->revision(), modelo->getDroneCharacteristics(), modelo->getCurrentRouteName(),
+                       modelo->obtenerLista());
 }
+
 
 // ------------------------------------------------------------
 // SLOTS PÚBLICOS
@@ -734,14 +633,6 @@ void Widget_Puntos::onRutaConfigurada(const QString &tipoDron, const QString &no
     emit sI_rutaSeleccionada(nombreRuta);
 }
 
-/**
- * @brief Slot llamado cuando el modelo emite analisisActualizado.
- * @param analisis Mapa con el análisis actualizado.
- */
-void Widget_Puntos::onAnalisisActualizado(const QVariantMap &analisis)
-{
-    actualizarPanelAnalisis(analisis);
-}
 
 /**
  * @brief Maneja el movimiento de un punto en el mapa, actualizando coordenadas y altitud.
@@ -925,7 +816,6 @@ void Widget_Puntos::agregarPuntoInicialYGenerarResto(const QGeoCoordinate &coord
     p1.radio = defaultRadio;
     p1.distanciaAnterior = 0.0;
     p1.tasaAscenso = 0.0;
-    p1.puntoCritico = false;
 
     modelo->agregarElemento(p1);  // esto ya valida y añade el punto
 
@@ -956,7 +846,6 @@ void Widget_Puntos::agregarPuntoInicialYGenerarResto(const QGeoCoordinate &coord
         p.radio = defaultRadio;
         p.distanciaAnterior = distanciaOptima;  // será la distancia entre puntos consecutivos
         p.tasaAscenso = 0.0;  // se recalculará automáticamente al validar
-        p.puntoCritico = false;
 
         modelo->agregarElemento(p);
     }
@@ -1071,19 +960,15 @@ void Widget_Puntos::on_pb_guardar_clicked()
                 stream << "# Dron: " << drone.nombre << " (" << drone.tipoToString() << ")\n";
                 stream << "# Ruta: " << modelo->getCurrentRouteName() << "\n";
                 stream << "# Fecha: " << QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss") << "\n\n";
-                auto analisis = modelo->analizarRutaDetallada();
-                if (!analisis.contains("error")) {
-                    stream << "# ESTADÍSTICAS:\n";
-                    stream << "# Distancia total: " << analisis["distancia_total"].toDouble() << " m\n";
-                    stream << "# Tiempo estimado: " << analisis["tiempo_vuelo"].toDouble() << " s\n";
-                    stream << "# Waypoints: " << analisis["num_puntos"].toInt() << "\n";
-                    stream << "# Velocidad promedio: " << analisis["velocidad_promedio"].toDouble() << " m/s\n";
-                    stream << "# Eficiencia: " << analisis["eficiencia_ruta"].toDouble() << "%\n";
-                    stream << "# Margen seguridad: " << analisis["margen_seguridad"].toDouble() << "%\n\n";
-                }
-                stream << "ID,Nombre,Modo,Latitud,Longitud,Distancia_Anterior(m),Altura,Velocidad,Radio,Tasa_Vertical,Advertencias\n";
+                const RevisionRuta &r = modelo->revision();
+                stream << "# " << InformeRuta::estado(r) << "\n";
+                stream << "# Distancia total: " << QString::number(r.distancia, 'f', 0) << " m\n";
+                stream << "# Tiempo estimado: " << QString::number(r.tiempo, 'f', 0) << " s\n";
+                stream << "# Waypoints: " << modelo->rowCount() << "\n\n";
+                stream << "ID,Nombre,Modo,Latitud,Longitud,Distancia_Anterior(m),Altura,Velocidad,Radio,Tasa_Vertical,Observaciones\n";
                 const QList<E_Punto> &puntos = modelo->obtenerLista();
-                for (const E_Punto &punto : puntos) {
+                for (int fila = 0; fila < puntos.size(); ++fila) {
+                    const E_Punto &punto = puntos.at(fila);
                     stream << punto.id
                            << "," << punto.nombre
                            << "," << punto.modo
@@ -1094,7 +979,7 @@ void Widget_Puntos::on_pb_guardar_clicked()
                            << "," << QString::number(punto.velocidad, 'f', 2)
                            << "," << QString::number(punto.radio, 'f', 2)
                            << "," << QString::number(punto.tasaAscenso, 'f', 2)
-                           << "," << punto.advertencias.join("; ").replace(",", ";")
+                           << "," << modelo->observacionesPunto(fila)
                            << "\n";
                 }
                 file.close();
@@ -1271,18 +1156,26 @@ void Widget_Puntos::on_pB_EnviaRuta_clicked()
         return;
     }
 
-    auto validacion = modelo->validarRuta();
-    if (!validacion.first) {
-        QMessageBox::StandardButton reply;
-        reply = QMessageBox::question(this, "Ruta no válida",
-                                      QString("La ruta tiene problemas:\n%1\n\n¿Desea enviarla de todas formas?")
-                                      .arg(validacion.second),
-                                      QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
-        if (reply == QMessageBox::Cancel) return;
-        if (reply == QMessageBox::No) {
-            on_pB_AnalisisDetallado_clicked();
+    // Con errores se puede enviar igualmente (lo decide el operador), pero
+    // viendo cuales son y con el analisis a un clic.
+    const RevisionRuta &revision = modelo->revision();
+    if (!revision.valida()) {
+        QMessageBox caja(this);
+        caja.setIcon(QMessageBox::Warning);
+        caja.setWindowTitle(tr("Ruta con errores"));
+        caja.setText(tr("<b>%1</b>").arg(InformeRuta::estado(revision)));
+        caja.setInformativeText(revision.resumenErrores() + tr("\n\nEl dron no debería volar esta ruta así."));
+        QPushButton *ver = caja.addButton(tr("Ver el análisis"), QMessageBox::AcceptRole);
+        QPushButton *enviar = caja.addButton(tr("Enviar igualmente"), QMessageBox::DestructiveRole);
+        caja.addButton(QMessageBox::Cancel);
+        caja.setDefaultButton(ver);
+        caja.exec();
+        if (caja.clickedButton() == ver) {
+            mostrarAnalisisDetallado();
             return;
         }
+        if (caja.clickedButton() != enviar)
+            return;
     }
 
     QList<QPair<double, double>> coordenadas;
@@ -1291,22 +1184,16 @@ void Widget_Puntos::on_pB_EnviaRuta_clicked()
         coordenadas = modelo->obtenerCoordenadasRuta();
         emit sI_Ruta(coordenadas);
         emit sI_Ruta2(puntos);
-        emit sI_RutaValidada(validacion.first, validacion.second);
+        emit sI_RutaValidada(revision.valida(), revision.resumenErrores());
         // El botón se pone verde cuando el dron confirma (acuse "uvw"), no ahora.
 
         QString mensaje = QString("Ruta enviada al dron. El botón Enviar se pondrá verde "
                                   "cuando el dron la confirme.\n\n");
         mensaje += QString("Puntos: %1\n").arg(puntos.size());
-        auto metricas = modelo->obtenerMetricasRuta();
-        mensaje += QString("Distancia: %1 m\n").arg(metricas["distancia_total"].toDouble(), 0, 'f', 1);
-        auto analisis = modelo->analizarRutaDetallada();
-        if (analisis.contains("tiempo_vuelo")) {
-            int minutos = static_cast<int>(analisis["tiempo_vuelo"].toDouble() / 60);
-            int segundos = static_cast<int>(analisis["tiempo_vuelo"].toDouble()) % 60;
-            mensaje += QString("Tiempo estimado: %1:%2\n").arg(minutos).arg(segundos, 2, 10, QChar('0'));
-        }
-        mensaje += QString("Estado: %1\n").arg(validacion.first ? "✓ Válida" : "⚠ Con observaciones");
-        if (!validacion.first) mensaje += QString("\nObservaciones:\n%1").arg(validacion.second);
+        mensaje += QString("Distancia: %1 m\n").arg(revision.distancia, 0, 'f', 0);
+        const int seg = int(std::lround(revision.tiempo));
+        mensaje += QString("Tiempo estimado: %1:%2\n").arg(seg / 60).arg(seg % 60, 2, 10, QChar('0'));
+        mensaje += QString("Estado: %1\n").arg(InformeRuta::estado(revision));
         QMessageBox::information(this, "Ruta enviada", mensaje);
     } else {
         QMessageBox::critical(this, "Error", "La ruta debe tener al menos 2 puntos.");
@@ -1412,55 +1299,43 @@ void Widget_Puntos::mostrarGuia()
 
     // Construir el texto de la guía
     QString guia = "<h2>Guía para establecer una ruta correcta</h2>";
-    guia += "<p>Una ruta de vuelo está compuesta por una serie de waypoints (puntos) que el dron debe seguir. "
-            "Cada waypoint tiene parámetros como posición, altitud, velocidad y radio de giro.</p>";
+    guia += "<p>Una ruta son 10 puntos que el dron recorre en orden. Cada punto tiene posición, altura "
+            "(sobre el nivel del mar) y velocidad (en m/s; en vuelo se ve en km/h).</p>";
 
-    guia += "<h3>Parámetros del dron</h3>";
-    guia += "<ul>";
-    guia += "<li><b>Velocidad máxima/mínima:</b> La velocidad en cada punto debe estar entre la mínima y máxima del dron. "
-            "Para ala fija, no puede ser inferior a la velocidad de pérdida.</li>";
-    guia += "<li><b>Altitud máxima/mínima:</b> La altitud (sobre el nivel del mar) debe estar dentro del rango permitido.</li>";
-    guia += "<li><b>Tasa de ascenso/descenso:</b> Los cambios de altitud entre puntos no deben exceder la capacidad del dron. "
-            "Se calcula como diferencia de altitud / tiempo del segmento.</li>";
-    guia += "<li><b>Radio de giro mínimo:</b> Para ala fija, el radio de giro debe ser suficiente para la velocidad. "
-            "Un radio demasiado pequeño puede provocar pérdida de control.</li>";
-    guia += "<li><b>Distancia entre waypoints:</b> Debe estar entre la mínima y máxima configuradas. "
-            "Distancias muy cortas pueden ser ineficientes; muy largas pueden exceder la autonomía.</li>";
-    guia += "<li><b>Autonomía (distancia y tiempo):</b> La suma de distancias no debe superar el alcance máximo, "
-            "y el tiempo estimado no debe exceder la duración de la batería.</li>";
+    guia += "<h3>Cómo se crea</h3><ul>";
+    guia += "<li>Con el dron elegido, clic derecho en el mapa: ese es P1 y los demás se generan hacia el este, "
+            "a 50 m sobre el terreno.</li>";
+    guia += "<li>Después se arrastran los puntos en el mapa (la altura se ajusta al terreno del sitio nuevo) "
+            "o se cambian los valores en la tabla.</li></ul>";
+
+    guia += "<h3>Qué te dice la revisión</h3><ul>";
+    guia += QStringLiteral("<li><span style='color:%1'><b>Error</b></span>: incumple un límite del dron o pasa por el "
+                           "terreno. No se debería enviar.</li>").arg(InformeRuta::colorGravedad(Hallazgo::Gravedad::Error));
+    guia += QStringLiteral("<li><span style='color:%1'><b>Aviso</b></span>: el dron la vuela, pero no como está "
+                           "planeada (llega más bajo, da una vuelta, no alcanza la velocidad…).</li>")
+                .arg(InformeRuta::colorGravedad(Hallazgo::Gravedad::Aviso));
+    guia += QStringLiteral("<li><span style='color:%1'><b>Nota</b></span>: algo que no se ha podido comprobar (por "
+                           "ejemplo, sin datos de terreno).</li></ul>")
+                .arg(InformeRuta::colorGravedad(Hallazgo::Gravedad::Nota));
+    guia += "<p>Cada problema dice dónde está, por qué es un problema (con los números y el límite del dron) y "
+            "<b>cómo arreglarlo</b>, con el valor que hace falta. Lo ves en tres sitios:</p><ul>";
+    guia += "<li>En la tabla: el icono y el color de la fila; pasando el ratón, el detalle.</li>";
+    guia += "<li>En el estado de la ruta (abajo): cuántos errores y avisos; pulsándolo, el análisis.</li>";
+    guia += "<li>En <b>Análisis</b>: todo junto, con las cifras de cada tramo. Se puede dejar abierto mientras "
+            "se corrige, y pinchar en un problema lleva a su punto.</li></ul>";
+
+    guia += "<h3>Qué se comprueba</h3><ul>";
+    for (const QString &linea : InformeRuta::comoSeRevisa())
+        guia += QStringLiteral("<li>%1</li>").arg(linea.toHtmlEscaped());
     guia += "</ul>";
 
-    guia += "<h3>Terreno y obstáculos</h3>";
-    guia += "<p>La altitud de los waypoints es sobre el nivel del mar. El terreno se tiene en cuenta al generar puntos "
-            "(se suma un margen de seguridad de 50 m sobre el terreno) y al analizar el perfil. "
-            "Utilice el botón <b>Perfil</b> para visualizar la trayectoria de vuelo frente al terreno. "
-            "Las cruces rojas indican puntos donde el terreno podría estar peligrosamente cerca.</p>";
-
-    guia += "<h3>Interpretación de la tabla</h3>";
-    guia += "<ul>";
-    guia += "<li><b>✓</b> Punto válido, sin problemas.</li>";
-    guia += "<li><b>⚠</b> Advertencia: el punto tiene algún aspecto mejorable (ej. radio algo pequeño, pendiente moderada).</li>";
-    guia += "<li><b>🔴</b> Punto crítico: combina varias advertencias o presenta un riesgo potencial.</li>";
-    guia += "<li><b>❌</b> Error: el punto incumple un límite y la ruta no es válida.</li>";
+    guia += "<h3>Consejos</h3><ul>";
+    guia += "<li>Arregla primero los errores: a veces uno arrastra a los siguientes (si no le da para subir, "
+            "llega más bajo y el tramo siguiente empieza ahí).</li>";
+    guia += "<li>Mira el perfil (abajo a la derecha, o <b>Perfil</b> en grande): la línea es la ruta y el relleno, "
+            "el terreno.</li>";
+    guia += "<li>En ala fija, giros suaves y velocidad constante: cuanto más rápido, más radio de giro necesita.</li>";
     guia += "</ul>";
-    guia += "<p>Pase el ratón sobre la celda de estado para ver los detalles.</p>";
-
-    guia += "<h3>Consejos prácticos</h3>";
-    guia += "<ul>";
-    guia += "<li>Comience con una ruta generada automáticamente (clic derecho en el mapa) y luego ajuste los puntos.</li>";
-    guia += "<li>Evite cambios bruscos de altitud: distribuya el desnivel en varios segmentos.</li>";
-    guia += "<li>Para ala fija, mantenga la velocidad constante y use radios de giro amplios.</li>";
-    guia += "<li>Revise siempre el análisis detallado (botón <b>Análisis</b>) para ver recomendaciones.</li>";
-    guia += "<li>Verifique la autonomía: si el porcentaje de uso supera el 80%, considere reducir la distancia.</li>";
-    guia += "<li>En zonas montañosas, aumente el margen de seguridad y revise el perfil cuidadosamente.</li>";
-    guia += "</ul>";
-
-    guia += "<h3>Métricas en pantalla</h3>";
-    guia += "<p>En la parte inferior se muestran: distancia total, porcentaje de autonomía restante, tiempo estimado y estado de la ruta. "
-            "El estado puede ser: <span style='color:green;'>Válida</span>, <span style='color:orange;'>Válida con advertencias</span>, "
-            "<span style='color:red;'>Inválida</span> o <span style='color:blue;'>Ruta vacía</span>.</p>";
-
-    guia += "<p><b>Recuerde:</b> Siempre valide la ruta antes de enviarla al dron. Una ruta bien planificada aumenta la seguridad y eficiencia del vuelo.</p>";
 
     label->setText(guia);
     contentLayout->addWidget(label);
@@ -1508,24 +1383,7 @@ void Widget_Puntos::updateUIForDroneConfigured(bool configured)
             label_Estado->setText("Ruta vacía");
             label_Estado->setStyleSheet("color: blue; font-weight: bold;");
         } else if (esDiezPuntos) {
-            auto validacion = modelo->validarRuta();
-            QVariantMap analisis = modelo->analizarRutaDetallada();
-            bool tieneAdvertencias = !analisis.value("puntos_criticos").toList().isEmpty() ||
-                    analisis.value("num_puntos_criticos").toInt() > 0 ||
-                    !modelo->obtenerRecomendaciones().isEmpty();
-
-            if (validacion.first) {
-                if (tieneAdvertencias) {
-                    label_Estado->setText("Válida (con advertencias)");
-                    label_Estado->setStyleSheet("color: orange; font-weight: bold;");
-                } else {
-                    label_Estado->setText("Válida");
-                    label_Estado->setStyleSheet("color: green; font-weight: bold;");
-                }
-            } else {
-                label_Estado->setText("Inválida");
-                label_Estado->setStyleSheet("color: red; font-weight: bold;");
-            }
+            mostrarMetricasRuta();
         } else {
             label_Estado->setText(QString("Inválida (%1/10 puntos)").arg(numPuntos));
             label_Estado->setStyleSheet("color: red; font-weight: bold;");
@@ -1653,60 +1511,18 @@ QString Widget_Puntos::obtenerNombreTablaLimpio(const QString &nombreTablaConFor
     return nombreLimpio;
 }
 
-/**
- * @brief Muestra un cuadro de diálogo con las recomendaciones.
- * @param recomendaciones Lista de cadenas con recomendaciones.
- */
-void Widget_Puntos::mostrarRecomendaciones(const QStringList &recomendaciones)
+
+
+
+// Un clic en el estado de la ruta abre el analisis.
+bool Widget_Puntos::eventFilter(QObject *obj, QEvent *event)
 {
-    if (recomendaciones.isEmpty()) return;
-    QString mensaje = "💡 RECOMENDACIONES PARA SU RUTA:\n\n";
-    for (const auto &rec : recomendaciones)
-        mensaje += "• " + rec + "\n";
-    bool mostrar = false;
-    for (const auto &rec : recomendaciones) {
-        if (rec.contains("⚠") || rec.contains("✗")) {
-            mostrar = true;
-            break;
-        }
+    if (obj == label_Estado && event->type() == QEvent::MouseButtonRelease && modelo->isDroneConfigured()
+            && modelo->rowCount() > 0) {
+        mostrarAnalisisDetallado();
+        return true;
     }
-    if (mostrar)
-        QMessageBox::information(this, "Recomendaciones", mensaje);
-}
-
-/**
- * @brief Muestra un cuadro con los detalles de los puntos críticos.
- * @param puntosCriticos Lista de mapas con información de puntos críticos.
- */
-void Widget_Puntos::mostrarPuntosCriticosDetalles(const QVariantList &puntosCriticos)
-{
-    if (puntosCriticos.isEmpty()) {
-        QMessageBox::information(this, "Puntos Críticos", "No se detectaron puntos críticos.");
-        return;
-    }
-
-    QString mensaje = "🔴 PUNTOS CRÍTICOS DETECTADOS:\n\n";
-    for (const auto &punto : puntosCriticos) {
-        QVariantMap datos = punto.toMap();
-        mensaje += QString("📍 %1 (ID: %2)\n").arg(datos["punto"].toString()).arg(datos["id"].toInt());
-        mensaje += QString("   Nivel: %1\n").arg(datos["nivel"].toString());
-        mensaje += QString("   Problemas:\n");
-        for (const QString &problema : datos["problemas"].toStringList())
-            mensaje += QString("   • %1\n").arg(problema);
-        mensaje += "\n";
-    }
-    QMessageBox::information(this, "Puntos Críticos", mensaje);
-}
-
-/**
- * @brief Actualiza el panel de análisis (solo emite señal, sin cambiar estilo de label_Estado).
- * @param analisis Mapa con el análisis.
- */
-void Widget_Puntos::actualizarPanelAnalisis(const QVariantMap &analisis)
-{
-    if (analisis.contains("error")) return;
-
-    emit sI_AnalisisActualizado(analisis);
+    return QWidget::eventFilter(obj, event);
 }
 
 // El perfil se queda con lo que dejan las tres columnas; si son menos de 220 px
