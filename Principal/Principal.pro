@@ -46,6 +46,7 @@ SOURCES += \
     Vuelos/ReproductorVuelo.cpp \
     LocationValidator.cpp \
     Mapa/MapaMision.cpp \
+    Mapa/PanelCapas.cpp \
     MyQSettings/myqsetting.cpp \
     Reporte/layoutcol.cpp \
     Reporte/qecsreport.cpp \
@@ -89,6 +90,7 @@ HEADERS += \
     Estructuras/Estructuras.h \
     LocationValidator.h \
     Mapa/MapaMision.h \
+    Mapa/PanelCapas.h \
     MyQSettings/myqsetting.h \
     Reporte/layoutcol.h \
     Reporte/qecsreport.h \

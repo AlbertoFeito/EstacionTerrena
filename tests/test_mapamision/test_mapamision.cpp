@@ -5,6 +5,7 @@
 // en una carpeta temporal.
 
 #include "Mapa/MapaMision.h"
+#include "Mapa/PanelCapas.h"
 
 #include <libmapa/MapWidget.h>
 #include <qcustomplot.h>
@@ -18,6 +19,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QTemporaryDir>
+#include <QTreeWidget>
 #include <QVariant>
 #include <QtTest>
 
@@ -140,7 +142,7 @@ bool crearPaquete(const QString &dir)
                                                        {"south", 22.8}, {"east", -82.0}}}}},
         {"start", QJsonObject{{"layer", "osm"}, {"center", QJsonArray{23.1, -82.4}}, {"zoom", 12}}},
         {"datasets", datasets},
-        // El mapa hibrido que pone libmapa encima de la base: la estacion lo quita.
+        // El mapa hibrido que pone libmapa encima de la base: la estacion lo oculta.
         {"vectorOverlay", QJsonObject{{"filePath", "calles.mbtiles"}}},
         // Una capa fija que el paquete pide VISIBLE: la estacion la esconde.
         {"overlays", QJsonArray{QJsonObject{{"id", "costa"}, {"name", "Costa"},
@@ -176,6 +178,9 @@ private slots:
 
     void abrePaqueteYCambiaCapa();
     void soloCapasBaseConEscala();
+    void capasDelPaquete();
+    void panelDeCapas();
+    void estadoDeCapasSeRestaura();
     void pintaYQuitaLaRuta();
     void radioDeAcercamientoEnMetrosMercator();
     void puntoCumplidoEnVerde();
@@ -228,8 +233,8 @@ void TestMapaMision::abrePaqueteYCambiaCapa()
     QCOMPARE(m_mision->mapa()->baseLayerId(), QStringLiteral("osm"));
 }
 
-// Como los ejemplos: barra de escala, sin mapa hibrido y con las capas fijas
-// del paquete escondidas aunque el mapa.json las pida visibles.
+// Como los ejemplos: barra de escala, el mapa hibrido cargado pero oculto y las
+// capas fijas del paquete escondidas aunque el mapa.json las pida visibles.
 void TestMapaMision::soloCapasBaseConEscala()
 {
     // El paquete de prueba declara un hibrido valido: un MapWidget a pelo lo pone.
@@ -242,7 +247,8 @@ void TestMapaMision::soloCapasBaseConEscala()
     }
     auto *mapa = m_mision->mapa();
     QVERIFY(mapa->isScaleBarVisible());
-    QVERIFY(!mapa->hasVectorOverlay());
+    QVERIFY(mapa->hasVectorOverlay());
+    QVERIFY(!mapa->isVectorOverlayVisible());
     bool hayCosta = false;
     for (const auto &capa : mapa->featureLayers()) {
         if (capa.id == QStringLiteral("costa")) {
@@ -251,6 +257,95 @@ void TestMapaMision::soloCapasBaseConEscala()
         }
     }
     QVERIFY(hayCosta);
+}
+
+// El panel de capas ve solo lo del mapa.json: las dos bases, el hibrido y la
+// capa fija (no las capas de la estacion), y cada cambio se avisa.
+void TestMapaMision::capasDelPaquete()
+{
+    const QVector<CapaMapa> bases = m_mision->capasBase();
+    QCOMPARE(bases.size(), 2);
+    QCOMPARE(m_mision->capaBaseId(), QStringLiteral("satelital"));
+    int activas = 0;
+    for (const CapaMapa &b : bases)
+        activas += b.visible ? 1 : 0;
+    QCOMPARE(activas, 1);
+
+    QSignalSpy cambios(m_mision, &MapaMision::capasCambiadas);
+    QVERIFY(m_mision->ponerCapaBaseId(QStringLiteral("osm")));
+    QCOMPARE(m_mision->mapa()->baseLayerId(), QStringLiteral("osm"));
+    QVERIFY(!m_mision->ponerCapaBaseId(QStringLiteral("no_existe")));
+
+    QVERIFY(m_mision->hayHibrido());
+    QCOMPARE(m_mision->nombreHibrido(), QStringLiteral("calles"));
+    QVERIFY(!m_mision->hibridoVisible());
+    m_mision->ponerHibridoVisible(true);
+    QVERIFY(m_mision->hibridoVisible());
+    QVERIFY(m_mision->mapa()->isVectorOverlayVisible());
+
+    const QVector<CapaMapa> fijas = m_mision->capasFijas();
+    QCOMPARE(fijas.size(), 1);
+    QCOMPARE(fijas.first().id, QStringLiteral("costa"));
+    QCOMPARE(fijas.first().nombre, QStringLiteral("Costa"));
+    QVERIFY(m_mision->ponerCapaFijaVisible(QStringLiteral("costa"), true));
+    QVERIFY(m_mision->capasFijas().first().visible);
+    QVERIFY(!m_mision->ponerCapaFijaVisible(QStringLiteral("ruta"), false));   // de la estacion
+    QCOMPARE(cambios.count(), 3);
+}
+
+// El panel de capas: «Mapa base» con las dos bases (una marcada) y
+// «Superpuestas» con el hibrido y la capa fija; marcar casillas cambia el mapa.
+void TestMapaMision::panelDeCapas()
+{
+    PanelCapas panel(m_mision);
+    QTreeWidget *arbol = panel.arbol();
+    QCOMPARE(arbol->topLevelItemCount(), 2);
+    QTreeWidgetItem *bases = arbol->topLevelItem(0);
+    QTreeWidgetItem *encima = arbol->topLevelItem(1);
+    QCOMPARE(bases->childCount(), 2);
+    QCOMPARE(encima->childCount(), 2);   // hibrido y costa
+
+    QTreeWidgetItem *osm = nullptr;
+    for (int i = 0; i < bases->childCount(); ++i)
+        if (bases->child(i)->text(0) == QStringLiteral("osm"))
+            osm = bases->child(i);
+    QVERIFY(osm);
+    QCOMPARE(osm->checkState(0), Qt::Unchecked);
+    osm->setCheckState(0, Qt::Checked);
+    QCOMPARE(m_mision->capaBaseId(), QStringLiteral("osm"));
+
+    // El arbol se rehace en cola: se vuelve a buscar el hibrido despues.
+    QCoreApplication::processEvents();
+    QTreeWidgetItem *hibrido = arbol->topLevelItem(1)->child(0);
+    QVERIFY(hibrido->text(0).startsWith(QStringLiteral("Híbrido")));
+    hibrido->setCheckState(0, Qt::Checked);
+    QVERIFY(m_mision->hibridoVisible());
+    QCoreApplication::processEvents();
+    QTreeWidgetItem *costa = arbol->topLevelItem(1)->child(1);
+    QCOMPARE(costa->text(0), QStringLiteral("Costa"));
+    costa->setCheckState(0, Qt::Checked);
+    QVERIFY(m_mision->capasFijas().first().visible);
+}
+
+// Lo que se guarda en conf.ini y se restaura al arrancar: base, hibrido, sus
+// grupos ocultos y las capas fijas visibles. Lo que el paquete ya no trae se
+// ignora.
+void TestMapaMision::estadoDeCapasSeRestaura()
+{
+    m_mision->ponerCapaBaseId(QStringLiteral("osm"));
+    m_mision->ponerHibridoVisible(true);
+    m_mision->ponerCapaFijaVisible(QStringLiteral("costa"), true);
+    const QVariantMap estado = m_mision->estadoCapas();
+
+    delete m_ventana;
+    init();
+    QCOMPARE(m_mision->capaBaseId(), QStringLiteral("satelital"));
+    QVariantMap conBasura = estado;
+    conBasura.insert(QStringLiteral("fijas"), QStringList{QStringLiteral("costa"), QStringLiteral("ya_no_esta")});
+    m_mision->restaurarCapas(conBasura);
+    QCOMPARE(m_mision->capaBaseId(), QStringLiteral("osm"));
+    QVERIFY(m_mision->hibridoVisible());
+    QVERIFY(m_mision->capasFijas().first().visible);
 }
 
 // Una linea y un punto arrastrable por vertice, cada uno con su anillo.

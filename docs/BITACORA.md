@@ -708,3 +708,59 @@ grabación va a disco desde su propio hilo.
 Repetida la misma medida de 10 minutos: la memoria va de 79 a 83 MB en los
 primeros 6 minutos, mientras se llenan la estela y el historial, y se queda
 en 83 MB los 4 últimos.
+
+## 22. Panel de capas como en la demo, y el panel de rutas abajo
+
+**Capas.** Hasta ahora el mapa solo enseñaba las dos capas base, con dos
+acciones fijas en el menú (Satelital y OSM), y quitaba el mapa híbrido y las
+capas fijas del paquete (§3). Ahora todo sale del `mapa.json`:
+
+- **Menú Capas**: una acción por capa base del paquete (se mantienen Ctrl+S
+  para la satelital y Ctrl+O para OSM; las demás, Ctrl+1, Ctrl+2…) y
+  «Panel de capas» (Ctrl+L).
+- **Panel de capas** (`Mapa/PanelCapas`), a la derecha y como el árbol de la
+  demo de libmapa: «Mapa base» (se marca una, como un radio; si es vectorial,
+  sus grupos cuelgan de ella) y «Superpuestas» (el híbrido con sus grupos
+  —carreteras, nombres de calles, lugares, POI…— y las capas fijas). Las
+  capas de la estación (ruta, misión, dibujos) y la de entidades que libmapa
+  crea por defecto no salen: no son del paquete.
+- El híbrido ya no se descarga: queda cargado y **oculto** al arrancar, igual
+  que las capas fijas, y se enciende desde el panel.
+- Lo que se deja puesto se guarda en `conf.ini`, en `[CAPAS]`: la base, el
+  híbrido, sus grupos apagados y las capas fijas visibles. Las listas van
+  unidas con «;», para distinguir «ninguno» de «nunca guardado». Si el panel
+  estaba abierto, también se recuerda, en `[VENTANAS] capas`.
+- El panel no habla con libmapa: `MapaMision` gana lo necesario
+  (`capasBase`, `gruposHibrido`, `capasFijas`, `estadoCapas` /
+  `restaurarCapas`… y la señal `capasCambiadas`).
+
+**Rutas.** La ventana de rutas era flotante, sin marco, y tapaba la esquina
+del mapa (había que recolocarla a mano cada vez que se movía o redimensionaba
+la ventana). Ahora es un **panel abajo**, a todo lo ancho, en un
+`QDockWidget`. Se muestra u oculta con *Rutas → Panel de rutas* (Ctrl+R) o
+con su botón de cerrar, y `conf.ini` (`[VENTANAS] rutas`) recuerda si se
+dejó abierto. El diseño va en tres columnas:
+
+- **izquierda**: qué ruta (combo), el dron y la gestión (Nueva, Guardar,
+  Restablecer y Eliminar);
+- **centro**: la tabla, con columnas a su medida, filas alternas y el estado
+  como un solo icono (antes salían dos: «✓✓»);
+- **derecha**: el resumen en grande (distancia, tiempo y autonomía que queda,
+  con barra y estado) y las acciones: «Ver en el mapa» (verde cuando está
+  dibujada), Perfil, Análisis, Guía y un **«Enviar al dron»** grande.
+
+Cambios de funcionamiento:
+
+- **«Enviar al dron»** solo se puede pulsar con la ruta de 10 puntos lista y
+  con enlace; sin enlace dice «Enviar al dron (sin enlace)». Antes se pulsaba
+  y salía un aviso.
+- **«Ver en el mapa» y «Análisis»** salían desactivados al arrancar aunque
+  hubiera una ruta válida: el constructor los apagaba al final. Ahora quedan
+  según la ruta cargada.
+- **Doble clic en un punto de la tabla** centra el mapa en él
+  (`MapaMision::centrarEn`).
+
+Los paneles cambian el tamaño del mapa sin cambiar el de la ventana, así que
+el panel de vuelo y las gráficas se recolocan cuando cambia el mapa, no solo
+cuando cambia la ventana. `test_mapamision` suma tres casos: las capas del
+paquete, el panel de capas y guardar y restaurar el estado.

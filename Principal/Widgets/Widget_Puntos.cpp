@@ -1795,10 +1795,7 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
         case 7: return QString::number(item.velocidad, 'f', 2);
         case 8: return QString::number(item.radio, 'f', 2);
         case 9:
-            if (erroresPorPunto.contains(puntoId)) return "❌";
-            if (item.puntoCritico) return "🔴";
-            if (!item.advertencias.isEmpty()) return "⚠";
-            return "✓";
+            return QVariant();   // el estado va como icono (DecorationRole), sin texto repetido
         default: return QVariant();
         }
     }
@@ -2231,36 +2228,9 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     m_modoSeleccionPuntoInicial(false),
     m_alturaWorker(alturaWorker)
 {
-    // Configuración de ventana
-    setWindowFlags(Qt::FramelessWindowHint | Qt::Tool | Qt::WindowStaysOnTopHint);
-
-    // Fondo del widget principal igual al de la barra de título para evitar contraste
-    QPalette pal = palette();
-    pal.setColor(QPalette::Window, QColor("#2c3e50"));
-    setPalette(pal);
-    setAutoFillBackground(true);
-
-    // Crear barra de título personalizada
-    titleBar = new QWidget(this);
-    titleBar->setFixedHeight(30);
-    titleBar->setStyleSheet("background-color: #2c3e50; color: white; border: none;");
-    titleBar->installEventFilter(this);
-
-    QHBoxLayout *titleLayout = new QHBoxLayout(titleBar);
-    titleLayout->setContentsMargins(5, 0, 5, 0);
-
-    QLabel *titleLabel = new QLabel("Planificador de Rutas");
-    titleLabel->setStyleSheet("font-weight: bold;");
-
-    m_closeButton = new QPushButton("✕");
-    m_closeButton->setFixedSize(20, 20);
-    m_closeButton->setStyleSheet("QPushButton { background-color: #e74c3c; color: white; border: none; border-radius: 3px; }"
-                                 "QPushButton:hover { background-color: #c0392b; }");
-    connect(m_closeButton, &QPushButton::clicked, this, &Widget_Puntos::on_closeButtonClicked);
-
-    titleLayout->addWidget(titleLabel);
-    titleLayout->addStretch();
-    titleLayout->addWidget(m_closeButton);
+    // Es un panel (va en la parte de abajo de la ventana principal, dentro de
+    // un QDockWidget que pone CControladora): sin barra de titulo propia ni
+    // arrastre, y con los colores del tema.
 
     // Crear el modelo y la referencia a la base de datos
     modelo = new MiModelo();
@@ -2285,11 +2255,25 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     tw_puntosRuta = new QTableView(this);
     tw_puntosRuta->setModel(modelo);
     tw_puntosRuta->hideColumn(0);               // ID
+    // Nombre, modo y estado, a su medida; los numeros se reparten el resto.
     for (int i = 1; i < modelo->columnCount(); ++i) {
-        tw_puntosRuta->horizontalHeader()->setSectionResizeMode(i, QHeaderView::Stretch);
+        const bool corta = i == 1 || i == 2 || i == 9;
+        tw_puntosRuta->horizontalHeader()->setSectionResizeMode(
+            i, corta ? QHeaderView::ResizeToContents : QHeaderView::Stretch);
     }
     tw_puntosRuta->verticalHeader()->setDefaultSectionSize(20);
+    tw_puntosRuta->verticalHeader()->setVisible(false);
+    tw_puntosRuta->setAlternatingRowColors(true);
     tw_puntosRuta->setSelectionBehavior(QAbstractItemView::SelectRows);
+    tw_puntosRuta->setSelectionMode(QAbstractItemView::SingleSelection);
+    tw_puntosRuta->setToolTip(tr("Doble clic en un punto: centra el mapa en él. "
+                                 "Las celdas se editan escribiendo encima."));
+    // Doble clic en la fila (fuera de una celda editable): el mapa va al punto.
+    connect(tw_puntosRuta, &QTableView::doubleClicked, this, [this](const QModelIndex &indice) {
+        const QList<E_Punto> &puntos = modelo->obtenerLista();
+        if (indice.isValid() && indice.row() < puntos.size())
+            emit sI_centrarEnPunto(puntos.at(indice.row()).pos);
+    });
     QFont tablaFont = tw_puntosRuta->font();
     tablaFont.setPointSize(9);
     tw_puntosRuta->setFont(tablaFont);
@@ -2339,85 +2323,102 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     btnGuia->setToolTip("Mostrar guía para establecer una ruta correcta");
     connect(btnGuia, &QPushButton::clicked, this, &Widget_Puntos::mostrarGuia);
 
-    // Establecer ancho fijo para todos los botones
-    int anchoBoton = 95;
-    int altoBoton = 30;
-    QList<QPushButton*> botones = {
-        pB_CrearRuta, pB_EliminaRuta, pB_LimpiaRuta, pb_guardar, pB_EnviaRuta,
-        pb_Mostrar, pB_AnalisisDetallado, m_btnPerfil, btnGuia, pB_CancelarSeleccion
+    // ------------------------------------------------------------
+    // CONSTRUIR EL PANEL: ruta | tabla | resumen y acciones
+    // ------------------------------------------------------------
+    setStyleSheet(QStringLiteral(
+        "QLabel[rol=\"seccion\"] { color: #9e9e9e; font-size: 10px; font-weight: bold; }"
+        "QLabel[rol=\"dato\"] { font-size: 15px; font-weight: bold; }"
+        "QLabel[rol=\"unidad\"] { color: #9e9e9e; font-size: 10px; }"
+        "QPushButton { min-height: 26px; padding: 0 8px; }"
+        "QPushButton#enviar { min-height: 40px; font-size: 14px; font-weight: bold; }"
+        "QPushButton#enviar:enabled { background-color: #1565c0; color: white; border-radius: 4px; }"
+        "QPushButton#verMapa:checked { background-color: #2e7d32; color: white; }"));
+    auto seccion = [](const QString &texto) {
+        auto *l = new QLabel(texto.toUpper());
+        l->setProperty("rol", "seccion");
+        return l;
     };
-    for (QPushButton* btn : botones) {
-        btn->setFixedWidth(anchoBoton);
-        btn->setFixedHeight(altoBoton);
-    }
 
-    // ------------------------------------------------------------
-    // CONSTRUIR EL LAYOUT PRINCIPAL
-    // ------------------------------------------------------------
-    QVBoxLayout *mainLayout = new QVBoxLayout(this);
-    mainLayout->setContentsMargins(0, 0, 0, 0);
-    mainLayout->setSpacing(0);
+    QHBoxLayout *mainLayout = new QHBoxLayout(this);
+    mainLayout->setContentsMargins(6, 4, 6, 4);
+    mainLayout->setSpacing(10);
 
-    mainLayout->addWidget(titleBar);
+    // ---- IZQUIERDA: que ruta y su gestion ----
+    QWidget *izquierda = new QWidget(this);
+    izquierda->setFixedWidth(230);
+    QVBoxLayout *izq = new QVBoxLayout(izquierda);
+    izq->setContentsMargins(0, 0, 0, 0);
+    izq->setSpacing(4);
+    izq->addWidget(seccion(tr("Ruta")));
+    izq->addWidget(cB_Rutas);
+    labelInfoDron->setWordWrap(true);
+    labelInfoDron->setStyleSheet(QStringLiteral("color: #9e9e9e; font-size: 11px;"));
+    izq->addWidget(labelInfoDron);
+    QGridLayout *gestion = new QGridLayout();
+    gestion->setSpacing(4);
+    gestion->addWidget(pB_CrearRuta, 0, 0);
+    gestion->addWidget(pb_guardar, 0, 1);
+    gestion->addWidget(pB_LimpiaRuta, 1, 0);
+    gestion->addWidget(pB_EliminaRuta, 1, 1);
+    gestion->addWidget(pB_CancelarSeleccion, 2, 0, 1, 2);
+    izq->addLayout(gestion);
+    izq->addStretch();
+    label_PuntosFijos->setText(tr("10 puntos fijos: se mueven arrastrándolos en el mapa "
+                                  "o editando la tabla"));
+    label_PuntosFijos->setWordWrap(true);
+    label_PuntosFijos->setStyleSheet(QStringLiteral("color: #9e9e9e; font-size: 10px; font-style: italic;"));
+    izq->addWidget(label_PuntosFijos);
+    mainLayout->addWidget(izquierda);
 
-    QWidget *contentWidget = new QWidget(this);
-    QVBoxLayout *contentLayout = new QVBoxLayout(contentWidget);
-    contentLayout->setContentsMargins(2, 2, 2, 2);
-    contentLayout->setSpacing(4);
+    // ---- CENTRO: la tabla de puntos ----
+    mainLayout->addWidget(tw_puntosRuta, 1);
 
-    // ---- FILA SUPERIOR: selector de rutas + info dron ----
-    QHBoxLayout *topRow = new QHBoxLayout();
-    topRow->setSpacing(6);
-    topRow->addWidget(new QLabel("Ruta:"));
-    topRow->addWidget(cB_Rutas);
-    topRow->addSpacing(10);
-    topRow->addWidget(new QLabel("Dron:"));
-    topRow->addWidget(labelInfoDron);
-    topRow->addStretch();
-    contentLayout->addLayout(topRow);
+    // ---- DERECHA: resumen de la ruta y acciones ----
+    QWidget *derecha = new QWidget(this);
+    derecha->setFixedWidth(260);
+    QVBoxLayout *der = new QVBoxLayout(derecha);
+    der->setContentsMargins(0, 0, 0, 0);
+    der->setSpacing(4);
+    der->addWidget(seccion(tr("Resumen")));
+    QGridLayout *resumen = new QGridLayout();
+    resumen->setHorizontalSpacing(12);
+    resumen->setVerticalSpacing(0);
+    auto dato = [&](QLabel *valor, const QString &nombre, int columna) {
+        valor->setProperty("rol", "dato");
+        auto *n = new QLabel(nombre);
+        n->setProperty("rol", "unidad");
+        resumen->addWidget(valor, 0, columna);
+        resumen->addWidget(n, 1, columna);
+    };
+    dato(label_Distancia, tr("distancia"), 0);
+    dato(label_Tiempo, tr("tiempo (min:s)"), 1);
+    dato(label_AutonomiaRest, tr("autonomía que queda"), 2);
+    der->addLayout(resumen);
+    progressAutonomia->setMinimumWidth(0);
+    progressAutonomia->setMaximumWidth(QWIDGETSIZE_MAX);
+    progressAutonomia->setFixedHeight(8);
+    progressAutonomia->setTextVisible(false);
+    progressAutonomia->setToolTip(tr("Parte de la autonomía del dron que gasta la ruta"));
+    der->addWidget(progressAutonomia);
+    label_Estado->setAlignment(Qt::AlignCenter);
+    der->addWidget(label_Estado);
 
-    // ---- TABLA DE PUNTOS ----
-    contentLayout->addWidget(tw_puntosRuta, 1);
-
-    // ---- FILA DE MÉTRICAS ----
-    QHBoxLayout *metricsRow = new QHBoxLayout();
-    metricsRow->setSpacing(4);
-    metricsRow->addWidget(label_Distancia);
-    metricsRow->addWidget(new QLabel("|"));
-    metricsRow->addWidget(label_AutonomiaRest);
-    metricsRow->addWidget(new QLabel("|"));
-    metricsRow->addWidget(label_Tiempo);
-    metricsRow->addSpacing(6);
-    metricsRow->addWidget(progressAutonomia);
-    metricsRow->addStretch();
-    metricsRow->addWidget(label_Estado);
-    contentLayout->addLayout(metricsRow);
-
-    // ---- FILA DE BOTONES PRINCIPALES ----
-    QHBoxLayout *buttonRow = new QHBoxLayout();
-    buttonRow->setSpacing(6);
-    buttonRow->addWidget(pB_CrearRuta);
-    buttonRow->addWidget(pB_EliminaRuta);
-    buttonRow->addWidget(pB_LimpiaRuta);
-    buttonRow->addWidget(pb_guardar);
-    buttonRow->addWidget(pB_EnviaRuta);
-    buttonRow->addWidget(pb_Mostrar);
-    buttonRow->addWidget(pB_AnalisisDetallado);
-    buttonRow->addWidget(pB_CancelarSeleccion);
-    buttonRow->addWidget(m_btnPerfil);
-    buttonRow->addWidget(btnGuia);
-    buttonRow->addStretch();
-    contentLayout->addLayout(buttonRow);
-
-    // ---- ETIQUETA INFORMATIVA ----
-    QHBoxLayout *infoRow = new QHBoxLayout();
-    infoRow->setContentsMargins(0, 0, 0, 0);
-    infoRow->addStretch();
-    infoRow->addWidget(label_PuntosFijos);
-    infoRow->addStretch();
-    contentLayout->addLayout(infoRow);
-
-    mainLayout->addWidget(contentWidget, 1);
+    der->addWidget(seccion(tr("Acciones")));
+    pb_Mostrar->setObjectName(QStringLiteral("verMapa"));
+    pb_Mostrar->setText(tr("Ver en el mapa"));
+    QGridLayout *acciones = new QGridLayout();
+    acciones->setSpacing(4);
+    acciones->addWidget(pb_Mostrar, 0, 0, 1, 2);
+    acciones->addWidget(m_btnPerfil, 1, 0);
+    acciones->addWidget(pB_AnalisisDetallado, 1, 1);
+    acciones->addWidget(btnGuia, 2, 0, 1, 2);
+    der->addLayout(acciones);
+    der->addStretch();
+    pB_EnviaRuta->setObjectName(QStringLiteral("enviar"));
+    pB_EnviaRuta->setText(tr("Enviar al dron"));
+    der->addWidget(pB_EnviaRuta);
+    mainLayout->addWidget(derecha);
 
     // ------------------------------------------------------------
     // CONEXIONES Y CONFIGURACIÓN INICIAL
@@ -2469,10 +2470,11 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     m_originalStyle = pB_EnviaRuta->styleSheet();
     connect(&m_timer, &QTimer::timeout, this, &Widget_Puntos::on_restoreStyle);
 
-    // Estado inicial de la UI
-    pB_AnalisisDetallado->setEnabled(false);
-    pb_Mostrar->setEnabled(false);
+    // Al arrancar la ruta no se dibuja, pero los botones quedan segun la ruta
+    // cargada (antes «Mostrar» y «Análisis» quedaban desactivados aunque hubiera
+    // una ruta valida, y no se podia ver en el mapa sin cambiar de ruta).
     pb_Mostrar->setChecked(false);
+    updateUIForDroneConfigured(modelo->isDroneConfigured());
 }
 
 Widget_Puntos::~Widget_Puntos()
@@ -2861,6 +2863,7 @@ void Widget_Puntos::seleccionarRuta(const QString &/*nombreRuta*/)
 void Widget_Puntos::setEnlaceDisponible(bool disponible)
 {
     m_enlaceDisponible = disponible;
+    refrescarBotonEnviar();
 }
 
 void Widget_Puntos::on_AcuseRecibo()
@@ -3494,8 +3497,8 @@ void Widget_Puntos::on_pB_EnviaRuta_clicked()
  */
 void Widget_Puntos::on_pb_Mostrar_toggled(bool checked)
 {
-    pb_Mostrar->setText(checked ? "Ocultar" : "Mostrar");
-    pb_Mostrar->setToolTip(checked ? "Ocultar Ruta" : "Mostrar Ruta");
+    pb_Mostrar->setText(checked ? tr("Quitar del mapa") : tr("Ver en el mapa"));
+    pb_Mostrar->setToolTip(checked ? tr("Quita la ruta del mapa") : tr("Dibuja la ruta en el mapa"));
     emit sI_pintaRuta(checked);
     emit sI_visibilidadCambiada(modelo->getCurrentRouteName(), checked);
 }
@@ -3506,15 +3509,6 @@ void Widget_Puntos::on_pb_Mostrar_toggled(bool checked)
 void Widget_Puntos::on_pB_AnalisisDetallado_clicked()
 {
     mostrarAnalisisDetallado();
-}
-
-/**
- * @brief Cierra el widget (lo oculta) y emite la señal closed().
- */
-void Widget_Puntos::on_closeButtonClicked()
-{
-    hide();
-    emit closed();
 }
 
 /**
@@ -3645,7 +3639,7 @@ void Widget_Puntos::updateUIForDroneConfigured(bool configured)
 
     if (configured && rutaCargada) {
         pB_CrearRuta->setEnabled(true);
-        pB_EnviaRuta->setEnabled(tienePuntos && esDiezPuntos);
+        m_rutaEnviable = tienePuntos && esDiezPuntos;
         pb_guardar->setEnabled(tienePuntos && esDiezPuntos);
         pB_EliminaRuta->setEnabled(rutaCargada);
         pB_LimpiaRuta->setEnabled(rutaCargada);
@@ -3677,11 +3671,11 @@ void Widget_Puntos::updateUIForDroneConfigured(bool configured)
         } else {
             label_Estado->setText(QString("Inválida (%1/10 puntos)").arg(numPuntos));
             label_Estado->setStyleSheet("color: red; font-weight: bold;");
-            pB_EnviaRuta->setEnabled(false);
+            m_rutaEnviable = false;
         }
     } else {
         pB_CrearRuta->setEnabled(true);
-        pB_EnviaRuta->setEnabled(false);
+        m_rutaEnviable = false;
         pb_guardar->setEnabled(false);
         pB_EliminaRuta->setEnabled(false);
         pB_LimpiaRuta->setEnabled(false);
@@ -3692,7 +3686,23 @@ void Widget_Puntos::updateUIForDroneConfigured(bool configured)
         pb_Mostrar->setEnabled(false);
     }
 
+    refrescarBotonEnviar();
     mostrarInfoDronActual();
+}
+
+// «Enviar al dron» solo se puede pulsar con una ruta de 10 puntos lista y con
+// enlace; si falta algo, el boton dice que (antes se pulsaba y salia un aviso).
+void Widget_Puntos::refrescarBotonEnviar()
+{
+    pB_EnviaRuta->setEnabled(m_rutaEnviable && m_enlaceDisponible);
+    if (!m_enlaceDisponible) {
+        pB_EnviaRuta->setText(tr("Enviar al dron (sin enlace)"));
+        pB_EnviaRuta->setToolTip(tr("Conéctate al dron en la pestaña Enlace"));
+    } else {
+        pB_EnviaRuta->setText(tr("Enviar al dron"));
+        pB_EnviaRuta->setToolTip(m_rutaEnviable ? tr("Manda la ruta al autopiloto")
+                                                : tr("La ruta tiene que tener 10 puntos"));
+    }
 }
 
 /**
@@ -3754,7 +3764,8 @@ void Widget_Puntos::habilitarBotonesRuta(bool habilitar)
     bool tieneRuta = !modelo->getCurrentRouteName().isEmpty();
     bool esDiezPuntos = (modelo->rowCount() == 10);
 
-    pB_EnviaRuta->setEnabled(habilitar && tienePuntos && tieneRuta && esDiezPuntos);
+    m_rutaEnviable = habilitar && tienePuntos && tieneRuta && esDiezPuntos;
+    refrescarBotonEnviar();
     pb_guardar->setEnabled(habilitar && tienePuntos && tieneRuta && esDiezPuntos);
     pB_EliminaRuta->setEnabled(habilitar && tieneRuta);
     pB_LimpiaRuta->setEnabled(habilitar && tieneRuta);
@@ -3838,81 +3849,4 @@ void Widget_Puntos::actualizarPanelAnalisis(const QVariantMap &analisis)
     if (analisis.contains("error")) return;
 
     emit sI_AnalisisActualizado(analisis);
-}
-
-// ------------------------------------------------------------
-// EVENTOS
-// ------------------------------------------------------------
-
-/**
- * @brief Maneja el evento de cierre para emitir la señal closed().
- */
-void Widget_Puntos::closeEvent(QCloseEvent *event)
-{
-    emit closed();
-    QWidget::closeEvent(event);
-}
-
-/**
- * @brief Inicia el arrastre del widget al presionar el botón izquierdo.
- */
-void Widget_Puntos::mousePressEvent(QMouseEvent *event)
-{
-    if (event->button() == Qt::LeftButton) {
-        m_dragging = true;
-        m_dragPosition = event->globalPos() - frameGeometry().topLeft();
-        event->accept();
-    }
-}
-
-/**
- * @brief Mueve el widget durante el arrastre.
- */
-void Widget_Puntos::mouseMoveEvent(QMouseEvent *event)
-{
-    if (m_dragging && (event->buttons() & Qt::LeftButton)) {
-        move(event->globalPos() - m_dragPosition);
-        event->accept();
-    }
-}
-
-/**
- * @brief Finaliza el arrastre.
- */
-void Widget_Puntos::mouseReleaseEvent(QMouseEvent *event)
-{
-    if (event->button() == Qt::LeftButton) {
-        m_dragging = false;
-        event->accept();
-    }
-}
-
-/**
- * @brief Filtro de eventos para la barra de título (permite arrastrar desde ella).
- */
-bool Widget_Puntos::eventFilter(QObject *obj, QEvent *event)
-{
-    if (obj == titleBar) {
-        if (event->type() == QEvent::MouseButtonPress) {
-            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-            if (mouseEvent->button() == Qt::LeftButton) {
-                m_dragging = true;
-                m_dragPosition = mouseEvent->globalPos() - frameGeometry().topLeft();
-                return true;
-            }
-        } else if (event->type() == QEvent::MouseMove) {
-            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-            if (m_dragging && (mouseEvent->buttons() & Qt::LeftButton)) {
-                move(mouseEvent->globalPos() - m_dragPosition);
-                return true;
-            }
-        } else if (event->type() == QEvent::MouseButtonRelease) {
-            QMouseEvent *mouseEvent = static_cast<QMouseEvent*>(event);
-            if (mouseEvent->button() == Qt::LeftButton) {
-                m_dragging = false;
-                return true;
-            }
-        }
-    }
-    return QWidget::eventFilter(obj, event);
 }

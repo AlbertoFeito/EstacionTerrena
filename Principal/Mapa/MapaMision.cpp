@@ -3,6 +3,7 @@
 #include <libmapa/MapWidget.h>
 
 #include <QDir>
+#include <QFileInfo>
 #include <QFont>
 #include <QPainter>
 #include <QtMath>
@@ -64,7 +65,7 @@ MapaMision::MapaMision(const QString &paquete, QWidget *padre)
         }
     }
 
-    soloCapasBase();
+    ocultarCapasDelPaquete();
     crearCapas();
     ponerCapaBase(CapaBase::Satelital);
     m_mapa->setScaleBarVisible(true);
@@ -141,16 +142,199 @@ QStringList MapaMision::avisos() const
     return m_mapa->dataWarnings() + m_mapa->elevationWarnings();
 }
 
-// Fuera el mapa hibrido (las teselas vectoriales que el paquete pone encima de
-// la base) y las capas fijas del paquete (aguas, corredores...): de momento la
-// estacion solo muestra las capas base, satelital y OSM. Como no se carga
-// ninguna base de entidades, las capas que hay al abrir son todas del paquete.
-void MapaMision::soloCapasBase()
+// Al abrir, solo la capa base: el mapa hibrido (las teselas vectoriales que el
+// paquete pone encima) y las capas fijas (aguas, corredores...) quedan cargados
+// pero ocultos, y el operador los enciende en el panel de capas. Como no se
+// carga ninguna base de entidades, las capas que hay al abrir son del paquete.
+void MapaMision::ocultarCapasDelPaquete()
 {
     if (m_mapa->hasVectorOverlay())
-        m_mapa->clearVectorOverlay();
+        m_mapa->setVectorOverlayVisible(false);
     for (const LayerInfo &capa : m_mapa->featureLayers())
         m_mapa->setFeatureLayerVisible(capa.id, false);
+}
+
+// Las capas que crea la estacion (no vienen del mapa.json).
+bool MapaMision::esCapaDeLaEstacion(const QString &id)
+{
+    return id == kCapaDibujos || id == kCapaRuta || id == kCapaMision;
+}
+
+// Capas base del paquete, con la activa marcada.
+QVector<CapaMapa> MapaMision::capasBase() const
+{
+    QVector<CapaMapa> capas;
+    const QString activa = m_mapa->baseLayerId();
+    for (const BaseLayerInfo &b : m_mapa->availableBaseLayers())
+        capas.append({b.id, b.displayName.isEmpty() ? b.id : b.displayName, b.id == activa});
+    return capas;
+}
+
+// Id de la capa base activa.
+QString MapaMision::capaBaseId() const
+{
+    return m_mapa->baseLayerId();
+}
+
+// Pone la capa base por su id del mapa.json.
+bool MapaMision::ponerCapaBaseId(const QString &id)
+{
+    if (id == m_mapa->baseLayerId())
+        return true;
+    if (!m_mapa->setBaseLayerId(id))
+        return false;
+    emit capasCambiadas();
+    return true;
+}
+
+// Pasa los grupos de libmapa (calles, POI...) a los de la estacion.
+static QVector<CapaMapa> aCapas(const QVector<BaseLayerGroup> &grupos)
+{
+    QVector<CapaMapa> capas;
+    for (const BaseLayerGroup &g : grupos)
+        capas.append({g.id, g.title.isEmpty() ? g.id : g.title, g.visible});
+    return capas;
+}
+
+// Grupos de una capa base vectorial (vacio si es raster).
+QVector<CapaMapa> MapaMision::gruposCapaBase(const QString &base) const
+{
+    return aCapas(m_mapa->baseLayerGroups(base));
+}
+
+// Enciende o apaga un grupo de una capa base vectorial.
+bool MapaMision::ponerGrupoCapaBaseVisible(const QString &base, const QString &grupo, bool visible)
+{
+    if (!m_mapa->setBaseLayerGroupVisible(grupo, visible, base))
+        return false;
+    emit capasCambiadas();
+    return true;
+}
+
+// Si el paquete trae mapa hibrido.
+bool MapaMision::hayHibrido() const
+{
+    return m_mapa->hasVectorOverlay();
+}
+
+// Nombre del hibrido para el panel: el del fichero, sin extension.
+QString MapaMision::nombreHibrido() const
+{
+    return QFileInfo(m_mapa->vectorOverlayFile()).completeBaseName();
+}
+
+bool MapaMision::hibridoVisible() const
+{
+    return m_mapa->hasVectorOverlay() && m_mapa->isVectorOverlayVisible();
+}
+
+// Muestra u oculta el hibrido entero (sus grupos no se olvidan).
+void MapaMision::ponerHibridoVisible(bool visible)
+{
+    if (!m_mapa->hasVectorOverlay() || m_mapa->isVectorOverlayVisible() == visible)
+        return;
+    m_mapa->setVectorOverlayVisible(visible);
+    emit capasCambiadas();
+}
+
+QVector<CapaMapa> MapaMision::gruposHibrido() const
+{
+    return aCapas(m_mapa->vectorOverlayGroups());
+}
+
+// Enciende o apaga un grupo del hibrido (nombres de calles, lugares...).
+bool MapaMision::ponerGrupoHibridoVisible(const QString &grupo, bool visible)
+{
+    if (!m_mapa->setVectorOverlayGroupVisible(grupo, visible))
+        return false;
+    emit capasCambiadas();
+    return true;
+}
+
+// Capas fijas del paquete, de arriba abajo como se pintan. Son las de solo
+// lectura: las editables son las de la estacion y la de entidades que libmapa
+// crea por defecto.
+QVector<CapaMapa> MapaMision::capasFijas() const
+{
+    QVector<CapaMapa> capas;
+    const QVector<LayerInfo> todas = m_mapa->featureLayers();
+    for (auto it = todas.crbegin(); it != todas.crend(); ++it) {
+        if (!it->editable && !esCapaDeLaEstacion(it->id))
+            capas.append({it->id, it->displayName.isEmpty() ? it->id : it->displayName, it->visible});
+    }
+    return capas;
+}
+
+// Muestra u oculta una capa fija del paquete (nunca una de la estacion ni otra
+// editable).
+bool MapaMision::ponerCapaFijaVisible(const QString &id, bool visible)
+{
+    bool fija = false;
+    for (const CapaMapa &c : capasFijas())
+        fija = fija || c.id == id;
+    if (!fija || !m_mapa->setFeatureLayerVisible(id, visible))
+        return false;
+    emit capasCambiadas();
+    return true;
+}
+
+// Ids de los grupos apagados.
+static QStringList ocultos(const QVector<CapaMapa> &grupos)
+{
+    QStringList ids;
+    for (const CapaMapa &g : grupos)
+        if (!g.visible)
+            ids.append(g.id);
+    return ids;
+}
+
+// Estado de las capas para conf.ini.
+QVariantMap MapaMision::estadoCapas() const
+{
+    QVariantMap e;
+    e.insert(QStringLiteral("base"), capaBaseId());
+    e.insert(QStringLiteral("hibrido"), hibridoVisible());
+    e.insert(QStringLiteral("hibrido_ocultos"), ocultos(gruposHibrido()));
+    QStringList fijas;
+    for (const CapaMapa &c : capasFijas())
+        if (c.visible)
+            fijas.append(c.id);
+    e.insert(QStringLiteral("fijas"), fijas);
+    for (const CapaMapa &b : capasBase()) {
+        const QVector<CapaMapa> grupos = gruposCapaBase(b.id);
+        if (!grupos.isEmpty())
+            e.insert(QStringLiteral("ocultos_") + b.id, ocultos(grupos));
+    }
+    return e;
+}
+
+// Aplica un estado guardado. Avisa una sola vez al final, no por cada capa.
+void MapaMision::restaurarCapas(const QVariantMap &estado)
+{
+    {
+        const QSignalBlocker sinAvisos(this);
+        const QString base = estado.value(QStringLiteral("base")).toString();
+        if (!base.isEmpty())
+            ponerCapaBaseId(base);
+        for (const CapaMapa &b : capasBase()) {
+            const QString clave = QStringLiteral("ocultos_") + b.id;
+            if (!estado.contains(clave))
+                continue;
+            const QStringList apagados = estado.value(clave).toStringList();
+            for (const CapaMapa &g : gruposCapaBase(b.id))
+                ponerGrupoCapaBaseVisible(b.id, g.id, !apagados.contains(g.id));
+        }
+        if (estado.contains(QStringLiteral("hibrido_ocultos"))) {
+            const QStringList apagados = estado.value(QStringLiteral("hibrido_ocultos")).toStringList();
+            for (const CapaMapa &g : gruposHibrido())
+                ponerGrupoHibridoVisible(g.id, !apagados.contains(g.id));
+        }
+        ponerHibridoVisible(estado.value(QStringLiteral("hibrido")).toBool());
+        const QStringList fijas = estado.value(QStringLiteral("fijas")).toStringList();
+        for (const CapaMapa &c : capasFijas())
+            ponerCapaFijaVisible(c.id, fijas.contains(c.id));
+    }
+    emit capasCambiadas();
 }
 
 // Capas de la estacion: la ruta (puntos arrastrables), la mision (la casa, que
@@ -175,13 +359,13 @@ QString MapaMision::idCapa(CapaBase capa)
 // cuyo nombre lo recuerde ("Satelital", "Open Street Map").
 bool MapaMision::ponerCapaBase(CapaBase capa)
 {
-    if (m_mapa->setBaseLayerId(idCapa(capa)))
+    if (ponerCapaBaseId(idCapa(capa)))
         return true;
     const QString pista = capa == CapaBase::OSM ? QStringLiteral("street") : QStringLiteral("sat");
     for (const BaseLayerInfo &info : m_mapa->availableBaseLayers()) {
         if (info.displayName.contains(pista, Qt::CaseInsensitive)
             || info.id.contains(pista, Qt::CaseInsensitive))
-            return m_mapa->setBaseLayerId(info.id);
+            return ponerCapaBaseId(info.id);
     }
     return false;
 }
@@ -485,6 +669,13 @@ void MapaMision::dibujarPoligono()
 {
     m_mapa->setActiveFeatureLayer(kCapaDibujos);
     m_mapa->setActiveTool(MapTool::DrawPolygon);
+}
+
+// Centra la vista en una posicion (doble clic en un punto de la tabla de ruta).
+void MapaMision::centrarEn(const QGeoCoordinate &pos)
+{
+    if (pos.isValid())
+        m_mapa->setCenter(pos);
 }
 
 // Cota del terreno del origen de elevacion del mapa (NaN si no hay).

@@ -756,7 +756,7 @@ signals:
     void sI_rutasModificadas();                                 ///< Lista de rutas modificada.
     void sI_rutaSeleccionada(const QString &routeName);        ///< Ruta seleccionada.
     void sI_visibilidadCambiada(const QString &routeName, bool visible); ///< Cambió visibilidad de una ruta.
-    void closed();                                              ///< El widget se cerró.
+    void sI_centrarEnPunto(const QGeoCoordinate &pos);          ///< Doble clic en un punto: centrar el mapa ahí.
 
 public slots:
     /**
@@ -838,7 +838,6 @@ private slots:
     void on_pB_EnviaRuta_clicked();
     void on_pb_Mostrar_toggled(bool checked);
     void on_pB_AnalisisDetallado_clicked();
-    void on_closeButtonClicked();
     void mostrarPerfil();
     void mostrarGuia();
 
@@ -848,15 +847,12 @@ private:
     MiModelo *modelo;                           ///< Modelo de datos de la tabla.
     QTimer m_timer;                             ///< Temporizador para el acuse de recibo.
     bool m_enlaceDisponible = false;            ///< Hay enlace con el dron (lo pone CControladora).
+    bool m_rutaEnviable = false;                ///< La ruta tiene sus 10 puntos y se puede mandar.
     QString m_originalStyle;                     ///< Estilo original del botón enviar.
     bool m_modoSeleccionPuntoInicial;            ///< Indica si estamos en modo selección de P1.
     AlturaWorker *m_alturaWorker;                ///< Worker de alturas.
     PerfilAltitudWidget *m_perfilWidget;         ///< Widget de perfil de altitud.
     QPushButton *m_btnPerfil;                    ///< Botón "Perfil".
-    QPoint m_dragPosition;                       ///< Posición para arrastrar la ventana.
-    bool m_dragging;                             ///< Indica si se está arrastrando la ventana.
-    QPushButton *m_closeButton;                  ///< Botón de cierre de la ventana.
-    QWidget *titleBar;                           ///< Barra de título personalizada.
 
     // Widgets de la interfaz
     QComboBox *cB_Rutas;                         ///< Combo de selección de rutas.
@@ -890,17 +886,12 @@ private:
     void mostrarInfoDronActual();
     void limpiarTodo();
     void habilitarBotonesRuta(bool habilitar);
+    void refrescarBotonEnviar();
     QString obtenerNombreTablaLimpio(const QString &nombreTablaConFormato);
     void mostrarRecomendaciones(const QStringList &recomendaciones);
     void mostrarPuntosCriticosDetalles(const QVariantList &puntosCriticos);
     void actualizarPanelAnalisis(const QVariantMap &analisis);
 
-protected:
-    void closeEvent(QCloseEvent *event) override;
-    void mousePressEvent(QMouseEvent *event) override;
-    void mouseMoveEvent(QMouseEvent *event) override;
-    void mouseReleaseEvent(QMouseEvent *event) override;
-    bool eventFilter(QObject *watched, QEvent *event) override;
 };
 
 #endif // WIDGET_PUNTOS_H

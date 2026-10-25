@@ -3,6 +3,8 @@
 
 #include <QObject>
 #include "Mapa/MapaMision.h"
+#include "Mapa/PanelCapas.h"
+#include <QDockWidget>
 #include "Protocolo/ProyeccionMercator.h"
 #include "Protocolo/Tramas.h"
 #include "Protocolo/SeguimientoCumplidos.h"
@@ -88,9 +90,15 @@ private:
     QActionGroup *aG_Tema;
     QAction *aClaro, *aOscuro;
 
+    // Menu Capas: una accion por capa base del paquete (se rehace con
+    // actualizarMenuCapas) y el interruptor del panel de capas.
     QMenu *mCapas;
     QActionGroup *aG_Capas;
-    QAction *aSatelital, *aOSM;
+    QDockWidget *m_dockCapas = nullptr;
+    PanelCapas *m_panelCapas = nullptr;
+    void crearPanelCapas();
+    void actualizarMenuCapas();
+    void guardarCapas();
 
     QMenu *mTrayectoria;
     QAction *a10, *a20, *a100, *a500, *a1000, *aTodas;
@@ -149,7 +157,7 @@ private:
     Widget_Mandos *m_wMandos;
     Widget_Mandos_Cuadroptero *m_wMandosCuadroptero;
     Widget_Conexion *m_wConexion;
-    Widget_Graficas *m_wGraficas;
+    Widget_Graficas *m_wGraficas = nullptr;
     Widget_Puntos *m_wPuntos;
     Widget_Ganancias_Control *m_wGanancias;
 
@@ -229,7 +237,9 @@ private:
     QPushButton *overlayButton;
     // Posicionamiento inicial
     void updateOverlayPosition();
-    void updateRutaPosition();
+    // Panel de rutas (Widget_Puntos) abajo, en un QDockWidget.
+    QDockWidget *m_dockRuta = nullptr;
+    void crearPanelRutas();
 
     //rumboProximo punto
     float rumboProxPunto = 0;

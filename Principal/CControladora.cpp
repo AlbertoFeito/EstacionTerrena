@@ -51,6 +51,10 @@ tabOpciones = new QTabWidget(mPrincipal);
 
 
     crearMapa();
+    crearPanelCapas();
+    // Los paneles de abajo y de la derecha cambian el tamano del mapa sin
+    // cambiar el de la ventana: los overlays se recolocan con el mapa.
+    m_mapa->mapa ()->installEventFilter (this);
     initTabOpciones();
     preparaDataBase();
     m_wConexion->cBDrones ()->setCurrentIndex (0);
@@ -96,7 +100,7 @@ tabOpciones = new QTabWidget(mPrincipal);
 
     // Crear widget de puntos con el worker de alturas
     m_wPuntos = new Widget_Puntos(alturaWorkerPTR.get(), mPrincipal);
-    m_wPuntos->setVisible(false);
+    crearPanelRutas();
 
     actualizarMenuRutas();
     conecciones ();
@@ -108,15 +112,8 @@ tabOpciones = new QTabWidget(mPrincipal);
 
 bool CControladora::eventFilter(QObject *obj, QEvent *event)
 {
-    if (obj == mPrincipal) {
-        if (event->type() == QEvent::Move || event->type() == QEvent::Resize) {
-            if(m_wPuntos && m_wPuntos->isVisible()) {
-                QTimer::singleShot(50, this, [this]() {
-                    updateRutaPosition();
-                });
-            }
-        }
-    }
+    if (m_mapa && obj == m_mapa->mapa () && event->type () == QEvent::Resize)
+        updateOverlayPosition ();
     return QObject::eventFilter(obj, event);
 }
 
@@ -294,9 +291,7 @@ void CControladora::createMenus()
     mMenu = mPrincipal->menuBar ()->addMenu (tr("&Menu"));
     mMenu->addAction (aCerrar);
 
-    mCapas = mPrincipal->menuBar ()->addMenu (tr("&Capas"));
-    mCapas->addAction (aSatelital);
-    mCapas->addAction (aOSM);
+    mCapas = mPrincipal->menuBar ()->addMenu (tr("&Capas"));   // lo llena actualizarMenuCapas
 
     mTema = mPrincipal->menuBar ()->addMenu (tr("&Tema"));
     mTema->addAction (aClaro);
@@ -333,29 +328,8 @@ void CControladora::createActions()
     });
 
 
-    aSatelital = new QAction(tr("&Satelital"),mPrincipal);
-    aSatelital->setShortcut (QKeySequence(tr("Ctrl+S")));
-    aSatelital->setStatusTip(tr("Seleciona capa satelital"));
-    aSatelital->setCheckable (true);
-    aSatelital->setChecked (true);
-    connect (aSatelital,&QAction::triggered,[this]()
-    {
-        m_mapa->ponerCapaBase(MapaMision::CapaBase::Satelital);
-    });
-
-    aOSM = new QAction(tr("&OSM"),mPrincipal);
-    aOSM->setShortcut (QKeySequence(tr("Ctrl+O")));
-    aOSM->setStatusTip(tr("Seleciona capa Open Street Map (OSM)"));
-    aOSM->setCheckable (true);
-    aOSM->setChecked (false);
-    connect (aOSM,&QAction::triggered,[this]()
-    {
-        m_mapa->ponerCapaBase(MapaMision::CapaBase::OSM);
-    });
-
+    // Las capas base salen del paquete: sus acciones las pone actualizarMenuCapas.
     aG_Capas= new QActionGroup(mPrincipal);
-    aG_Capas->addAction (aSatelital);
-    aG_Capas->addAction (aOSM);
 
     aClaro = new QAction(tr("&Claro"),mPrincipal);
     aClaro->setShortcut (QKeySequence(tr("Ctrl+T+C")));
@@ -393,21 +367,12 @@ void CControladora::createActions()
     aVerGraficaDrone->setChecked (false);
 
 
-    // En createActions(), define aRuta:
-    aRuta = new QAction(tr("&Configuración de Rutas"), mPrincipal);
+    // Muestra u oculta el panel de rutas de abajo (se engancha a su
+    // QDockWidget en crearPanelRutas).
+    aRuta = new QAction(tr("Panel de &rutas"), mPrincipal);
     aRuta->setShortcut(QKeySequence(tr("Ctrl+R")));
-    aRuta->setStatusTip(tr("Abre la ventana de configuración de rutas"));
-    aRuta->setCheckable(true);  // Para que se mantenga marcado cuando está visible
-
-    connect(aRuta, &QAction::triggered, [this](bool checked) {
-        if (checked) {
-            m_wPuntos->show();
-            m_wPuntos->raise();
-            updateRutaPosition();   // posicionar en esquina inferior derecha
-        } else {
-            m_wPuntos->hide();
-        }
-    });   
+    aRuta->setStatusTip(tr("Muestra u oculta el panel de rutas, abajo"));
+    aRuta->setCheckable(true);
 
     aGestionarDrones = new QAction(tr("&Gestionar Drones..."), this);
     aGestionarDrones->setStatusTip(tr("Abrir el gestor de drones"));
@@ -701,20 +666,6 @@ void CControladora::conecciones()
 
     connect(mPrincipal,&Ci_Principal::resize,[this](){
         updateOverlayPosition();
-        // Solo actualizar posición de ruta si está visible
-        if(m_wPuntos && m_wPuntos->isVisible()) {
-            QTimer::singleShot(50, this, [this]() {
-                updateRutaPosition();
-            });
-        }
-    });
-
-    connect(mPrincipal,&Ci_Principal::move, [this]() {
-        if(m_wPuntos && m_wPuntos->isVisible()) {
-            QTimer::singleShot(50, this, [this]() {
-                updateRutaPosition();
-            });
-        }
     });
 
     ////acciones mapa en barra de herramientas
@@ -776,13 +727,9 @@ void CControladora::conecciones()
     });
 
     // Cerrar ventana → desmarcar acción de menú
-    connect(m_wPuntos, &Widget_Puntos::closed, [this]() {
-        if (aRuta) aRuta->setChecked(false);
-    });
-
-    // También, si se destruye (poco probable), desmarcar
-    connect(m_wPuntos, &Widget_Puntos::destroyed, [this]() {
-        if (aRuta) aRuta->setChecked(false);
+    // Doble clic en un punto de la tabla: el mapa se centra en el.
+    connect(m_wPuntos, &Widget_Puntos::sI_centrarEnPunto, this, [this](const QGeoCoordinate &pos) {
+        m_mapa->centrarEn (pos);
     });
 
     connect(m_wPuntos, &Widget_Puntos::sI_iniciarSeleccionPuntoInicial, [this]() {
@@ -1456,45 +1403,27 @@ void CControladora::updateOverlayPosition()
     }
 }
 
-void CControladora::updateRutaPosition()
+// Panel de rutas abajo, a todo lo ancho de la ventana (antes era una ventana
+// flotante que tapaba el mapa). Se muestra u oculta con Rutas → Panel de rutas
+// (Ctrl+R) o con su boton de cerrar, y conf.ini ([VENTANAS] rutas) recuerda
+// como se dejo.
+void CControladora::crearPanelRutas()
 {
-    if(!m_wPuntos || !m_mapa || !m_wPuntos->isVisible()) {
-        return;
-    }
+    m_dockRuta = new QDockWidget(tr("Rutas"), mPrincipal);
+    m_dockRuta->setObjectName (QStringLiteral("panelRutas"));
+    m_dockRuta->setAllowedAreas (Qt::BottomDockWidgetArea | Qt::TopDockWidgetArea);
+    m_dockRuta->setFeatures (QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable);
+    m_dockRuta->setWidget (m_wPuntos);
+    mPrincipal->addDockWidget (Qt::BottomDockWidgetArea, m_dockRuta);
 
-    //Usar el widget del mapa como referencia de pantalla
-    QWidget *mapWidget = m_mapa->mapa();
-
-    // 1. Obtener esquina inferior derecha del mapa en coordenadas GLOBALES
-    QPoint mapBottomRightGlobal = mapWidget->mapToGlobal(
-                QPoint(mapWidget->width(), mapWidget->height()));
-
-    // 2. Calcular posición global para m_wPuntos
-    int globalX = mapBottomRightGlobal.x() - m_wPuntos->width() - 20;
-    int globalY = mapBottomRightGlobal.y() - m_wPuntos->height() - 40;
-
-    // 3. Asegurar que esté en la misma pantalla que el mapa
-    QScreen *mapScreen = QGuiApplication::screenAt(mapWidget->mapToGlobal(QPoint(0, 0)));
-    if (mapScreen) {
-        QRect screenGeometry = mapScreen->availableGeometry();
-
-        // Ajustar si se sale de la pantalla
-        if (globalX + m_wPuntos->width() > screenGeometry.right()) {
-            globalX = screenGeometry.right() - m_wPuntos->width() - 20;
-        }
-        if (globalX < screenGeometry.left()) {
-            globalX = screenGeometry.left() + 20;
-        }
-        if (globalY + m_wPuntos->height() > screenGeometry.bottom()) {
-            globalY = screenGeometry.bottom() - m_wPuntos->height() - 40;
-        }
-        if (globalY < screenGeometry.top()) {
-            globalY = screenGeometry.top() + 40;
-        }
-    }
-
-    // 4. Mover a posición global
-    m_wPuntos->move(globalX, globalY);
+    const bool visible = MyQSetting().cargarSetting (Rutas::confIni (), "rutas", "VENTANAS", false).toBool ();
+    m_dockRuta->setVisible (visible);
+    aRuta->setChecked (visible);
+    connect (aRuta, &QAction::toggled, m_dockRuta, &QDockWidget::setVisible);
+    connect (m_dockRuta->toggleViewAction (), &QAction::toggled, aRuta, &QAction::setChecked);
+    connect (aRuta, &QAction::toggled, this, [](bool v) {
+        MyQSetting().guardarSettings (Rutas::confIni (), "VENTANAS", {{"rutas", v}});
+    });
 }
 
 void CControladora::loadInitialData()
@@ -1571,6 +1500,98 @@ void CControladora::crearMapa()
     }
     for (const QString &aviso : m_mapa->avisos())
         logHandler.appendLogMessage("Mapa: " + aviso);
+}
+
+// Claves de [CAPAS] en conf.ini que son listas de ids: se guardan unidas con
+// ';' para distinguir "ninguno" (cadena vacia) de "nunca guardado" (sin clave).
+static bool esListaDeCapas(const QString &clave)
+{
+    return clave != QLatin1String("base") && clave != QLatin1String("hibrido");
+}
+
+// Panel de capas a la derecha, como en la demo de libmapa, y menu Capas con las
+// capas base del paquete. Recupera de conf.ini ([CAPAS]) las capas que se
+// dejaron puestas y ([VENTANAS] capas) si el panel estaba abierto.
+void CControladora::crearPanelCapas()
+{
+    MyQSetting settings;
+    const QString ini = Rutas::confIni();
+    QStringList claves = {"base", "hibrido", "hibrido_ocultos", "fijas"};
+    for (const CapaMapa &b : m_mapa->capasBase())
+        claves.append("ocultos_" + b.id);
+    QVariantMap estado;
+    for (const QString &clave : claves) {
+        const QVariant v = settings.cargarSetting (ini, clave, "CAPAS");
+        if (!v.isValid ())
+            continue;
+        estado.insert (clave, esListaDeCapas (clave)
+                                  ? QVariant(v.toString ().split (';', Qt::SkipEmptyParts))
+                                  : v);
+    }
+    if (!estado.isEmpty ())
+        m_mapa->restaurarCapas (estado);
+
+    m_dockCapas = new QDockWidget(tr("Capas"), mPrincipal);
+    m_dockCapas->setObjectName (QStringLiteral("panelCapas"));
+    m_dockCapas->setAllowedAreas (Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    m_panelCapas = new PanelCapas(m_mapa, m_dockCapas);
+    m_dockCapas->setWidget (m_panelCapas);
+    m_dockCapas->setMinimumWidth (240);
+    mPrincipal->addDockWidget (Qt::RightDockWidgetArea, m_dockCapas);
+    m_dockCapas->setVisible (settings.cargarSetting (ini, "capas", "VENTANAS", false).toBool ());
+
+    QAction *ver = m_dockCapas->toggleViewAction ();
+    ver->setText (tr("Panel de &capas"));
+    ver->setShortcut (QKeySequence(tr("Ctrl+L")));
+    ver->setStatusTip (tr("Muestra u oculta el panel de capas del mapa"));
+    connect (ver, &QAction::toggled, this, [](bool visible) {
+        MyQSetting().guardarSettings (Rutas::confIni (), "VENTANAS", {{"capas", visible}});
+    });
+
+    // En cola: el aviso puede llegar desde una accion del propio menu, que
+    // actualizarMenuCapas borra al rehacerlo.
+    connect (m_mapa, &MapaMision::capasCambiadas, this, &CControladora::actualizarMenuCapas,
+             Qt::QueuedConnection);
+    connect (m_mapa, &MapaMision::capasCambiadas, this, &CControladora::guardarCapas);
+    actualizarMenuCapas ();
+}
+
+// Menu Capas: una accion por capa base del paquete (la activa marcada) y, al
+// final, el panel de capas. Se conservan los atajos de siempre para la
+// satelital (Ctrl+S) y OSM (Ctrl+O); el resto, Ctrl+1, Ctrl+2...
+void CControladora::actualizarMenuCapas()
+{
+    mCapas->clear ();
+    int n = 0;
+    for (const CapaMapa &b : m_mapa->capasBase()) {
+        QAction *a = mCapas->addAction (b.nombre);
+        a->setCheckable (true);
+        a->setChecked (b.visible);
+        a->setStatusTip (tr("Mapa base: %1").arg (b.nombre));
+        aG_Capas->addAction (a);
+        if (b.id == QLatin1String("satelital"))
+            a->setShortcut (QKeySequence(tr("Ctrl+S")));
+        else if (b.id == QLatin1String("osm"))
+            a->setShortcut (QKeySequence(tr("Ctrl+O")));
+        else if (++n <= 9)
+            a->setShortcut (QKeySequence(QStringLiteral("Ctrl+%1").arg (n)));
+        const QString id = b.id;
+        connect (a, &QAction::triggered, this, [this, id]() { m_mapa->ponerCapaBaseId (id); });
+    }
+    mCapas->addSeparator ();
+    if (m_dockCapas)
+        mCapas->addAction (m_dockCapas->toggleViewAction ());
+}
+
+// Guarda en conf.ini ([CAPAS]) como estan las capas; en otro hilo y solo si
+// algo cambio (MyQSetting).
+void CControladora::guardarCapas()
+{
+    QVariantMap valores = m_mapa->estadoCapas ();
+    for (auto it = valores.begin (); it != valores.end (); ++it)
+        if (esListaDeCapas (it.key ()))
+            it.value () = it.value ().toStringList ().join (';');
+    MyQSetting().guardarSettings (Rutas::confIni (), "CAPAS", valores);
 }
 
 // Pinta (u oculta) en el mapa la ruta del modelo de Widget_Puntos.
