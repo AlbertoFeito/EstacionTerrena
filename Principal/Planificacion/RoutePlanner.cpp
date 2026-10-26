@@ -275,8 +275,10 @@ QVector<PropuestaRuta> RoutePlanner::proponerRutas(const QGeoCoordinate &p1, con
         return propuestas;
     };
     if (largoRecta > tramos * droneChars.maxWaypointDistance)
-        return fallo(QStringLiteral("P1 y P10 están a %1 m: con 10 puntos y tramos de %2 m como mucho caben %3 m. "
-                                    "Acerca P10 a P1.")
+        return fallo(QStringLiteral("P1 y P10 están a %1 m. Una ruta son 10 puntos, 9 tramos, y este dron admite "
+                                    "%2 m como mucho entre puntos (su «Dist. máx entre waypoints»): caben %3 m. "
+                                    "Acerca P10 a P1, o sube esa distancia en los datos del dron si el dron real "
+                                    "lo admite.")
                          .arg(largoRecta, 0, 'f', 0).arg(droneChars.maxWaypointDistance, 0, 'f', 0)
                          .arg(tramos * droneChars.maxWaypointDistance, 0, 'f', 0));
     if (largoRecta < 1.0)
@@ -637,7 +639,8 @@ RevisionRuta RoutePlanner::revisar(const QList<E_Punto> &p, const FuncionTerreno
         if (d > droneChars.maxWaypointDistance)
             anadir(Gravedad::Error, QStringLiteral("tramo_largo"), i, i + 1,
                    QStringLiteral("Puntos demasiado separados"),
-                   QStringLiteral("De %1 a %2 hay %3 m y este dron admite %4 m como mucho entre puntos.")
+                   QStringLiteral("De %1 a %2 hay %3 m y este dron admite %4 m como mucho entre puntos (su "
+                                  "«Dist. máx entre waypoints»).")
                        .arg(an, bn, num(d), num(droneChars.maxWaypointDistance)),
                    QStringLiteral("Acerca %1 y %2 hasta que estén a menos de %3 m.")
                        .arg(an, bn, num(droneChars.maxWaypointDistance)));

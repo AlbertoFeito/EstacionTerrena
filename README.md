@@ -161,6 +161,12 @@ de 10 puntos en *Rutas*; para que la siga, *Mandos* en régimen automático.
    confirma la ruta enviada, el botón se pone verde y
    la barra de estado dice «✓ El dron ha confirmado el plan». Sin respuesta en
    3 s, aviso; si lo rechaza, se reenvía hasta 3 veces.
+   **Cuánto puede medir una ruta:** siempre son 10 puntos, es decir, 9 tramos, y
+   cada tramo va entre la distancia mínima y la máxima entre puntos del dron
+   («Dist. mín/máx entre waypoints» en sus datos). Con «Ala Fija Standard»
+   (500 m) la ruta mide como mucho 9 × 500 = 4.500 m: si P10 está más lejos de P1
+   no cabe, ni en recta. Para ir más lejos, se acerca P10 o, si el dron real lo
+   admite, se sube su distancia máxima (con 600 m caben 5.400 m).
 3. Con la ruta en el dron, este sigue dando vueltas a casa: solo la cumple en
    automático. *Mandos*: **Automático**, la misión y **Enviar** (verde y «✓ El dron ha
    confirmado los mandos»). El dron sigue la ruta: líneas de rumbo, puntos

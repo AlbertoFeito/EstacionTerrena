@@ -1217,6 +1217,17 @@ void Widget_Puntos::mostrarGuia()
             "y «S/terr.», la que queda sobre el terreno de debajo (editar una cambia la otra).</li>";
     guia += "<li>La altura mínima y la máxima del dron cuentan sobre el terreno.</li></ul>";
 
+    guia += "<h3>Cuánto puede medir una ruta</h3>";
+    guia += "<p>Una ruta son siempre <b>10 puntos</b> (lo pide el autopiloto), así que tiene <b>9 tramos</b>. "
+            "Cada tramo tiene que medir entre la <b>distancia mínima y la máxima entre puntos</b> del dron elegido "
+            "(«Dist. mín/máx entre waypoints» en sus datos, al crear la ruta con <b>Nueva</b>). Por eso:</p><ul>";
+    guia += "<li>La ruta mide como mucho <b>9 × distancia máxima</b>. Con «Ala Fija Standard» (500 m), 4.500 m. "
+            "Si P10 está más lejos de P1, no cabe ni en línea recta: «Proponer ruta» no puede hacer nada y la "
+            "revisión marca el tramo que se pasa.</li>";
+    guia += "<li>Para ir más lejos: acerca P10 (con margen, porque las propuestas se desvían a los lados) o, si "
+            "el dron real lo admite, sube su distancia máxima entre puntos. Con 600 m caben 5.400 m.</li>";
+    guia += "<li>La ruta mide como poco 9 × distancia mínima: P1 y P10 no pueden estar demasiado juntos.</li></ul>";
+
     guia += "<h3>Qué te dice la revisión</h3><ul>";
     guia += QStringLiteral("<li><span style='color:%1'><b>Error</b></span>: incumple un límite del dron o pasa por el "
                            "terreno. No se debería enviar.</li>").arg(InformeRuta::colorGravedad(Hallazgo::Gravedad::Error));

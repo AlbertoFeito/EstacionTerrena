@@ -17,6 +17,10 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
   manda la altura sobre el nivel del mar (§31) y el simulador no tiene terreno
   (trata el suelo como 0). Si espera altura sobre el terreno o sobre el punto
   de despegue, hay que convertirla al armar la trama, no en la ruta.
+- **Distancia máxima entre puntos** del ala fija: los datos de «Ala Fija
+  Standard» dicen 500 m, y con 10 puntos eso limita la ruta a 4.500 m (§34).
+  ¿Es un límite real del autopiloto (alcance de la radio, guiado) o un valor
+  por defecto? Si el dron admite más, basta con subirlo en sus datos.
 - La columna **Radio** de cada punto de la ruta no se manda: la trama del plan
   (`sPUNTOXYZ`) no la lleva (`parametro_00..02` van a 0) y el acercamiento es el
   radio de Mandos, uno para todos. ¿El autopiloto usa algún radio por punto? Si

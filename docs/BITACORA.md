@@ -1476,3 +1476,34 @@ La vista previa se curva hacia el paso y «Usar esta ruta» deja la tabla
 Lo que queda para después está en `PENDIENTES.md`: mover las estaciones a lo
 largo, afinar, A* para desvíos grandes, zonas a evitar y pesos ajustados con
 vuelos.
+
+## 34. Cuánto puede medir una ruta, dicho claro
+
+El usuario intentó «Proponer ruta» con P10 a 5.087 m de P1. Salió «No se pudo»
+y el mensaje «caben 4500 m». Preguntó si significaba que la distancia máxima
+entre puntos es de 500 m, y pidió que quedara claro en la documentación.
+
+La cuenta:
+
+- Una ruta son siempre 10 puntos, porque lo pide la trama del plan. Entre P1
+  y P10 hay, por tanto, 9 tramos.
+- Cada tramo tiene que medir entre la distancia mínima y la máxima entre
+  puntos del dron elegido. Ese límite no lo pone ni el protocolo ni el
+  algoritmo: es el campo «Dist. máx entre waypoints» de los datos del dron, y
+  en «Ala Fija Standard» vale 500 m.
+- Así que la ruta mide como mucho 9 × 500 = 4.500 m. A 5.087 m, P10 no cabe
+  ni en línea recta. En su ruta, el último tramo medía 1.680 m y la revisión
+  lo marcaba en rojo.
+
+Dónde queda escrito ahora:
+
+- **Guía de la app**: una sección nueva, «Cuánto puede medir una ruta», con
+  la cuenta, el ejemplo de 500 m, qué hacer (acercar P10 dejando margen para
+  los desvíos, o subir la distancia máxima del dron si el dron real lo admite:
+  con 600 m caben 5.400 m) y el mínimo (9 × distancia mínima).
+- **Mensajes**: el de «Proponer ruta» y el de «Puntos demasiado separados»
+  dicen de dónde sale el límite («su “Dist. máx entre waypoints”») y los dos
+  arreglos.
+- **README**: el mismo párrafo, en «Probar una misión».
+- **PENDIENTES**: la pregunta para quien programa el autopiloto. ¿Es 500 m un
+  límite real (alcance de la radio, guiado) o un valor por defecto?
