@@ -758,6 +758,35 @@ void MapaMision::ponerPropuesta(const QVector<QGeoCoordinate> &camino)
     m_propuesta = m_mapa->addFeature(linea);
 }
 
+// El pasillo del optimizador: un poligono cian translucido con el borde
+// suave, en la capa de la mision, no seleccionable. Se pone debajo de la
+// propuesta (si ya habia una, se vuelve a poner encima).
+void MapaMision::ponerPasillo(const QVector<QGeoCoordinate> &contorno)
+{
+    if (m_pasillo >= 0)
+        m_mapa->removeFeature(m_pasillo);
+    m_pasillo = -1;
+    if (contorno.size() < 3)
+        return;
+    MapFeature zona;
+    zona.layerId = kCapaMision;
+    zona.kind = GeometryKind::Polygon;
+    zona.type = QStringLiteral("pasillo");
+    zona.name = QStringLiteral("Pasillo de búsqueda");
+    zona.selectable = false;
+    zona.style.lineColor = QColor(0, 229, 255, 140);
+    zona.style.fillColor = QColor(0, 229, 255, 40);
+    zona.style.lineWidth = 1.0;
+    zona.style.labelVisible = false;
+    zona.geometry = contorno;
+    m_pasillo = m_mapa->addFeature(zona);
+    if (m_propuesta >= 0)
+        if (auto f = m_mapa->feature(m_propuesta)) {
+            const QVector<QGeoCoordinate> camino = f->geometry;
+            ponerPropuesta(camino);
+        }
+}
+
 // Pinta de verde un punto ya cumplido: el punto y su circulo.
 void MapaMision::marcarPuntoCumplido(int indice)
 {

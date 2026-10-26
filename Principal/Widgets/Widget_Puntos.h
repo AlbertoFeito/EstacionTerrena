@@ -134,6 +134,7 @@ signals:
     void sI_centrarEnPunto(const QGeoCoordinate &pos);          ///< Doble clic en un punto: centrar el mapa ahí.
     void sI_encuadrarRuta();                                    ///< Se pidió ver la ruta: encuadrarla en el mapa.
     void sI_rutaPropuesta(const QVector<QGeoCoordinate> &camino); ///< Vista previa de una ruta propuesta (vacía: quitarla).
+    void sI_pasilloPropuesto(const QVector<QGeoCoordinate> &contorno); ///< Pasillo en que se buscaron (vacío: quitarlo).
 
 public slots:
     /**

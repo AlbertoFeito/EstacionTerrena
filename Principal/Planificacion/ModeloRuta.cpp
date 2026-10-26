@@ -447,12 +447,12 @@ double MiModelo::cotaTerreno(const QGeoCoordinate &pos) const
 
 // Las rutas propuestas por el optimizador, con el terreno del mapa.
 QVector<PropuestaRuta> MiModelo::proponerRutas(const QGeoCoordinate &p1, const QGeoCoordinate &p10,
-                                               double sobreTerreno, double anchoPasillo) const
+                                               double sobreTerreno, double anchoPasillo, PasilloRuta *pasillo) const
 {
     if (!isDroneConfigured())
         return {};
     return planner->proponerRutas(p1, p10, sobreTerreno,
-                                  [this](const QGeoCoordinate &c) { return cotaTerreno(c); }, anchoPasillo);
+                                  [this](const QGeoCoordinate &c) { return cotaTerreno(c); }, anchoPasillo, pasillo);
 }
 
 // La trayectoria probable de la ruta actual (vacia sin dron).

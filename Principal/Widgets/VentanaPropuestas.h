@@ -28,8 +28,9 @@ class VentanaPropuestas : public QDialog
 public:
     VentanaPropuestas(AlturaWorker *alturaWorker, QWidget *padre = nullptr);
 
-    //! Pone las propuestas y elige la Equilibrada (o la primera que se pudo).
-    void mostrar(const QVector<PropuestaRuta> &propuestas);
+    //! Pone las propuestas y elige la Equilibrada (o la primera que se pudo);
+    //! \a pasillo dice cuanto podia apartarse y se dibuja en el mapa.
+    void mostrar(const QVector<PropuestaRuta> &propuestas, const PasilloRuta &pasillo);
     //! Ancho del pasillo a cada lado de la recta, en metros.
     double anchoPasillo() const;
 
@@ -38,6 +39,8 @@ signals:
     void calcular();
     //! La ruta elegida, para verla en el mapa; vacia, quitarla.
     void vistaPrevia(const QVector<QGeoCoordinate> &camino);
+    //! El pasillo en que se ha buscado, para dibujarlo; vacio, quitarlo.
+    void pasilloPrevio(const QVector<QGeoCoordinate> &contorno);
     //! El operador se queda con esta ruta.
     void usar(const QList<E_Punto> &puntos);
 
@@ -51,6 +54,7 @@ private:
     QTableWidget *m_tabla = nullptr;
     PerfilAltitudWidget *m_perfil = nullptr;
     QLabel *m_detalle = nullptr;
+    QLabel *m_alcance = nullptr;   // cuanto puede apartarse de verdad
     QPushButton *m_usar = nullptr;
     QVector<PropuestaRuta> m_propuestas;
 };

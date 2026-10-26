@@ -87,6 +87,14 @@ struct RevisionRuta
 //! se pudo hacer, por que.
 struct PropuestaRuta;
 
+//! El pasillo en que busca el optimizador, para dibujarlo y explicarlo.
+struct PasilloRuta
+{
+    QVector<QGeoCoordinate> contorno;   //!< poligono (un lado de P1 a P10 y el otro de vuelta)
+    double desvioPosible = 0.0;         //!< lo que puede apartarse de la recta en el centro, m
+    double largoTramo = 0.0;            //!< tramo en recta (largo / 9), m
+};
+
 /**
  * @brief Revisa rutas segun las caracteristicas del dron.
  *
@@ -152,13 +160,16 @@ public:
      *        Segura, una Equilibrada y una Rapida, y la Recta para comparar.
      *
      * Busca en un pasillo de ±\a anchoPasillo m alrededor de la recta (ver el
-     * .cpp: programacion dinamica sobre desplazamientos laterales). Las
+     * .cpp: programacion dinamica sobre desplazamientos laterales), recortado
+     * a lo que cabe con la distancia maxima entre puntos; \a pasillo, si se
+     * da, recibe ese pasillo de verdad. Las
      * alturas y velocidades salen de puntosPorPosiciones y cada propuesta va
      * revisada. Si es imposible (P10 demasiado lejos para 10 puntos), devuelve
      * una sola con el motivo.
      */
     QVector<PropuestaRuta> proponerRutas(const QGeoCoordinate &p1, const QGeoCoordinate &p10, double sobreTerreno,
-                                         const FuncionTerreno &terreno, double anchoPasillo = 1000.0) const;
+                                         const FuncionTerreno &terreno, double anchoPasillo = 1000.0,
+                                         PasilloRuta *pasillo = nullptr) const;
 
     //! Los puntos por esas posiciones con altura (\a sobreTerreno m sobre lo
     //! mas alto de sus tramos) y velocidad que el dron pueda seguir.

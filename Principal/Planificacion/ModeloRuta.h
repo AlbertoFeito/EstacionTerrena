@@ -190,7 +190,7 @@ public:
     //! Rutas propuestas de \a p1 a \a p10 con el terreno del mapa
     //! (RoutePlanner::proponerRutas); vacio sin dron.
     QVector<PropuestaRuta> proponerRutas(const QGeoCoordinate &p1, const QGeoCoordinate &p10, double sobreTerreno,
-                                         double anchoPasillo) const;
+                                         double anchoPasillo, PasilloRuta *pasillo = nullptr) const;
 
     //! Por donde iria el dron en planta (RoutePlanner::trayectoriaProbable),
     //! con \a radioAcercamiento en metros sobre el terreno.

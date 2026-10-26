@@ -79,6 +79,7 @@ private slots:
     void laderaQueElDronNoSube();
     void trayectoriaProbable();
     void proponerRutas();
+    void pasilloQueCabe();
     void loVeTodoNoSoloElPrimero();
     void separacionEntrePuntos();
     void aceleracionConSuDistancia();
@@ -351,6 +352,38 @@ void TestPlanificador::proponerRutas()
     QCOMPARE(lejos.size(), 1);
     QVERIFY(!lejos.first().ok);
     QVERIFY2(lejos.first().motivo.contains("9000 m"), qPrintable(lejos.first().motivo));
+}
+
+// El caso del usuario: P10 a 4158 m y 500 m como mucho entre puntos. Cada
+// tramo en recta mide 462 m, asi que solo puede apartarse sqrt(500² - 462²) =
+// 191 m por tramo: 764 m en el centro, aunque se pidan 5 km de pasillo. Antes
+// los saltos eran pasillo/10 (500 m) y no cabia ninguno: salia solo la recta.
+// Con una loma que cruza y un paso a 300-600 m al norte, la Segura lo usa.
+void TestPlanificador::pasilloQueCabe()
+{
+    DroneCharacteristics d = alaFija();
+    d.maxWaypointDistance = 500.0;
+    d.minWaypointDistance = 100.0;
+    RoutePlanner rp(d);
+    const QGeoCoordinate p1(23.1, -82.4);
+    const QGeoCoordinate p10 = p1.atDistanceAndAzimuth(4158, 90);
+    auto loma = [p1](const QGeoCoordinate &c) {
+        const double dist = p1.distanceTo(c), az = qDegreesToRadians(p1.azimuthTo(c));
+        const double este = dist * std::sin(az), norte = dist * std::cos(az);
+        return (este > 1800 && este < 2400 && !(norte > 300 && norte < 600)) ? 500.0 : 100.0;
+    };
+    PasilloRuta pasillo;
+    const auto rutas = rp.proponerRutas(p1, p10, 50, loma, 5000, &pasillo);
+    QVERIFY2(qAbs(pasillo.desvioPosible - 4.0 * std::sqrt(500.0 * 500.0 - 462.0 * 462.0)) < 5.0,
+             qPrintable(QString::number(pasillo.desvioPosible)));
+    QVERIFY(qAbs(pasillo.largoTramo - 462.0) < 0.5);
+    QCOMPARE(pasillo.contorno.size(), 20);
+    QVERIFY(pasillo.contorno.first().distanceTo(p1) < 1.0);   // empieza en P1, sin ancho
+    const PropuestaRuta &segura = rutas[0], &recta = rutas[3];
+    QVERIFY2(segura.revision.alturaMax < 300.0, qPrintable(QString::number(segura.revision.alturaMax)));
+    QVERIFY(recta.revision.alturaMax > 500.0);
+    for (int i = 0; i + 1 < segura.puntos.size(); ++i)
+        QVERIFY(segura.puntos[i].distanciaA(segura.puntos[i + 1]) <= 500.5);
 }
 
 // Antes la validacion se paraba en el primer problema; ahora salen todos, y

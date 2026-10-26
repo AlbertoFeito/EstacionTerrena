@@ -1507,3 +1507,49 @@ Dónde queda escrito ahora:
 - **README**: el mismo párrafo, en «Probar una misión».
 - **PENDIENTES**: la pregunta para quien programa el autopiloto. ¿Es 500 m un
   límite real (alcance de la radio, guiado) o un valor por defecto?
+
+## 35. El pasillo de «Proponer ruta»: saltos finos y dibujado en el mapa
+
+El usuario probó «Proponer ruta» con P10 a 4.158 m de P1 y 5.000 m de pasillo.
+Las cuatro propuestas salieron iguales: la recta.
+
+**Por qué.** Los desplazamientos laterales eran saltos de una décima del
+pasillo, así que con 5.000 m el más pequeño era de 500 m. Pero cada tramo en
+recta ya medía 462 m y la distancia máxima entre puntos es 500 m, de modo que
+un tramo solo podía apartarse √(500² − 462²) ≈ 191 m. Ningún desvío cabía y
+solo quedaba la recta: ensanchar el pasillo había empeorado el resultado, al
+revés de lo esperado.
+
+**Arreglo.**
+
+- **Saltos finos y fijos.** Se calcula primero lo que cabe de verdad. Un
+  tramo entre dos estaciones con diferencia lateral D mide √(a² + D²), con
+  a = largo / 9, y no puede pasar de la distancia máxima. El desvío crece como
+  mucho eso por tramo desde P1 y se cierra igual hacia P10. En la estación k
+  el límite es mín(pasillo, D·mín(k, 9 − k)), y en el centro, 4·D. Los saltos
+  son de 50 m (o la mitad de lo que cabe por tramo si es menos), con 20 por
+  lado como mucho. Las posiciones fuera del límite de cada estación ni se
+  prueban.
+- **La ventana dice cuánto se puede apartar**: «Puede apartarse hasta 764 m
+  de la recta, en el centro…». Si se ha pedido más, añade que pedir más
+  pasillo no cambia nada y que, para tener sitio, hay que acercar P10. Si no
+  cabe ningún desvío, lo dice.
+- **El pasillo se dibuja en el mapa** como un polígono cian translúcido, con
+  el borde suave y la propuesta encima: estrecho junto a P1 y P10, ancho en el
+  centro. Lo devuelve `proponerRutas` en `PasilloRuta` (contorno, desvío
+  posible y largo de tramo) y lo pone `MapaMision::ponerPasillo` en la capa de
+  la misión. Se quita al cerrar la ventana.
+- La guía lo explica en «Cuánto puede medir una ruta».
+
+**Pruebas.** `pasilloQueCabe` reproduce el caso del usuario: P10 a 4.158 m,
+500 m de máximo y 5.000 m de pasillo.
+
+- El desvío posible sale 4·√(500² − 462²) ≈ 764 m.
+- El contorno empieza en P1 sin ancho.
+- Con una loma que cruza y un paso a 300–600 m al norte, la Segura lo usa
+  (menos de 300 m de altura frente a más de 500 de la recta), sin pasarse de
+  500 m en ningún tramo.
+
+En total pasan 123 pruebas. En la app, con la cresta sintética: con 1.000 m de
+pasillo se ve el sombreado recortado a 1.000 m; con 5.000 m, «hasta 1.600 m…
+pedir más pasillo no cambia nada», y las propuestas cruzan por el paso.

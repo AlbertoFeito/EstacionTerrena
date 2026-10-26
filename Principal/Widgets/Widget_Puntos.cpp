@@ -533,6 +533,7 @@ void Widget_Puntos::proponerRutas()
         m_propuestas = new VentanaPropuestas(m_alturaWorker, this);
         connect(m_propuestas, &VentanaPropuestas::calcular, this, &Widget_Puntos::calcularPropuestas);
         connect(m_propuestas, &VentanaPropuestas::vistaPrevia, this, &Widget_Puntos::sI_rutaPropuesta);
+        connect(m_propuestas, &VentanaPropuestas::pasilloPrevio, this, &Widget_Puntos::sI_pasilloPropuesto);
         connect(m_propuestas, &VentanaPropuestas::usar, this, [this](const QList<E_Punto> &puntos) {
             ponerPuntos(puntos);
             m_propuestas->close();
@@ -550,10 +551,11 @@ void Widget_Puntos::calcularPropuestas()
         return;
     const QList<E_Punto> &puntos = modelo->obtenerLista();
     QApplication::setOverrideCursor(Qt::WaitCursor);
+    PasilloRuta pasillo;
     const QVector<PropuestaRuta> propuestas = modelo->proponerRutas(
-        puntos.first().pos, puntos.last().pos, m_spinSobreTerreno->value(), m_propuestas->anchoPasillo());
+        puntos.first().pos, puntos.last().pos, m_spinSobreTerreno->value(), m_propuestas->anchoPasillo(), &pasillo);
     QApplication::restoreOverrideCursor();
-    m_propuestas->mostrar(propuestas);
+    m_propuestas->mostrar(propuestas, pasillo);
 }
 
 // Sustituye los puntos de la ruta por estos (una propuesta elegida).
@@ -1227,6 +1229,10 @@ void Widget_Puntos::mostrarGuia()
     guia += "<li>Para ir más lejos: acerca P10 (con margen, porque las propuestas se desvían a los lados) o, si "
             "el dron real lo admite, sube su distancia máxima entre puntos. Con 600 m caben 5.400 m.</li>";
     guia += "<li>La ruta mide como poco 9 × distancia mínima: P1 y P10 no pueden estar demasiado juntos.</li></ul>";
+    guia += "<p><b>Proponer ruta</b> puede apartarse de la recta P1-P10 para buscar un camino mejor, pero cada "
+            "desvío alarga los tramos, y ninguno puede pasar de la distancia máxima. Cuanto más cerca de ese límite "
+            "esté P10, menos sitio queda a los lados (con P10 a 9 × distancia máxima, ninguno). La ventana dice "
+            "cuánto puede apartarse de verdad y el mapa lo sombrea; pedir más pasillo que eso no cambia nada.</p>";
 
     guia += "<h3>Qué te dice la revisión</h3><ul>";
     guia += QStringLiteral("<li><span style='color:%1'><b>Error</b></span>: incumple un límite del dron o pasa por el "

@@ -259,12 +259,14 @@ QString RoutePlanner::nombrePrioridad(Prioridad p)
 // propuesta se revisa entera (revisar) para compararlas.
 QVector<PropuestaRuta> RoutePlanner::proponerRutas(const QGeoCoordinate &p1, const QGeoCoordinate &p10,
                                                    double sobreTerreno, const FuncionTerreno &terreno,
-                                                   double anchoPasillo) const
+                                                   double anchoPasillo, PasilloRuta *pasilloUsado) const
 {
     QVector<PropuestaRuta> propuestas;
-    const int n = 10, tramos = n - 1, opciones = 21, centro = opciones / 2;
+    const int n = 10, tramos = n - 1;
     const double largoRecta = p1.distanceTo(p10);
     const double rumbo = p1.azimuthTo(p10);
+    if (pasilloUsado)
+        *pasilloUsado = PasilloRuta();
 
     auto fallo = [&](const QString &motivo) {
         PropuestaRuta pr;
@@ -284,8 +286,37 @@ QVector<PropuestaRuta> RoutePlanner::proponerRutas(const QGeoCoordinate &p1, con
     if (largoRecta < 1.0)
         return fallo(QStringLiteral("P1 y P10 están en el mismo sitio."));
 
-    // Posiciones candidatas: estacion k (0..9), desplazamiento m (0..20).
-    const double paso = anchoPasillo / centro;
+    // Cuanto puede apartarse de verdad. Las estaciones van a lo largo de la
+    // recta cada a = largo/9 m; un tramo entre dos estaciones con una
+    // diferencia lateral D mide sqrt(a² + D²), que no puede pasar de la
+    // distancia maxima: D <= sqrt(max² - a²). Desde P1 (y hacia P10) el desvio
+    // crece como mucho eso por tramo, asi que en la estacion k el limite es
+    // min(pasillo, D·min(k, 9-k)), y en el centro, 4·D.
+    const double a = largoRecta / tramos;
+    const double porTramo = std::sqrt(std::max(0.0, droneChars.maxWaypointDistance * droneChars.maxWaypointDistance - a * a));
+    auto limite = [&](int k) { return std::min(anchoPasillo, porTramo * std::min(k, tramos - k)); };
+    const double alcance = std::min(anchoPasillo, porTramo * 4.0);
+    // Saltos finos que no dependen del ancho pedido (antes eran pasillo/10: con
+    // 5 km de pasillo el menor desvio era de 500 m y ninguno cabia): 50 m, o
+    // la mitad de lo que cabe por tramo si es menos, y como mucho 20 por lado.
+    const int porLado = alcance < 1.0 ? 0
+            : std::min(20, int(std::ceil(alcance / std::max(5.0, std::min(50.0, porTramo / 2.0)))));
+    const double paso = porLado > 0 ? alcance / porLado : 0.0;
+    const int opciones = 2 * porLado + 1, centro = porLado;
+    if (pasilloUsado) {
+        pasilloUsado->desvioPosible = alcance;
+        pasilloUsado->largoTramo = a;
+        pasilloUsado->contorno.clear();
+        for (int lado : {1, -1})
+            for (int i = 0; i < n; ++i) {
+                const int k = lado > 0 ? i : n - 1 - i;
+                const QGeoCoordinate eje = p1.atDistanceAndAzimuth(largoRecta * k / tramos, rumbo);
+                const double l = limite(k);
+                pasilloUsado->contorno.append(l < 0.5 ? eje : eje.atDistanceAndAzimuth(l, rumbo + 90.0 * lado));
+            }
+    }
+
+    // Posiciones candidatas: estacion k (0..9), desplazamiento m (0..2·porLado).
     auto cota = [&terreno](const QGeoCoordinate &c) {
         return terreno ? terreno(c) : std::numeric_limits<double>::quiet_NaN();
     };
@@ -303,7 +334,9 @@ QVector<PropuestaRuta> RoutePlanner::proponerRutas(const QGeoCoordinate &p1, con
             suelo[k][m] = std::isfinite(c) ? c : 0.0;
         }
     }
-    auto libre = [&](int k, int m) { return (k == 0 || k == n - 1) ? m == centro : true; };
+    auto libre = [&](int k, int m) {
+        return (k == 0 || k == n - 1) ? m == centro : std::fabs((m - centro) * paso) <= limite(k) + 0.5;
+    };
 
     // Cada tramo posible: largo, lo mas alto y lo mas bajo del terreno debajo.
     struct Tramo { double largo = 0, techo = 0, fondo = 0; bool vale = false; };

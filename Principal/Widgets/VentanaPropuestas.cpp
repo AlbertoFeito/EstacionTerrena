@@ -45,6 +45,9 @@ VentanaPropuestas::VentanaPropuestas(AlturaWorker *alturaWorker, QWidget *padre)
     arriba->addWidget(recalcular);
     arriba->addStretch();
 
+    m_alcance = new QLabel(this);
+    m_alcance->setWordWrap(true);
+
     m_tabla = new QTableWidget(this);
     m_tabla->setColumnCount(7);
     m_tabla->setHorizontalHeaderLabels({tr("Ruta"), tr("Distancia"), tr("Tiempo"), tr("Altura máx."),
@@ -78,6 +81,7 @@ VentanaPropuestas::VentanaPropuestas(AlturaWorker *alturaWorker, QWidget *padre)
 
     auto *capa = new QVBoxLayout(this);
     capa->addLayout(arriba);
+    capa->addWidget(m_alcance);
     capa->addWidget(m_tabla);
     capa->addWidget(m_detalle);
     capa->addWidget(m_perfil, 1);
@@ -90,10 +94,27 @@ double VentanaPropuestas::anchoPasillo() const
     return m_pasillo->value();
 }
 
-// Una fila por propuesta, con lo que hace falta para compararlas.
-void VentanaPropuestas::mostrar(const QVector<PropuestaRuta> &propuestas)
+// Una fila por propuesta, con lo que hace falta para compararlas, y cuanto
+// podia apartarse de la recta (el pasillo se dibuja en el mapa).
+void VentanaPropuestas::mostrar(const QVector<PropuestaRuta> &propuestas, const PasilloRuta &pasillo)
 {
     m_propuestas = propuestas;
+    if (pasillo.contorno.isEmpty()) {
+        m_alcance->clear();
+    } else if (pasillo.desvioPosible < 1.0) {
+        m_alcance->setText(tr("Con P1 y P10 a esta distancia, cada tramo en recta ya mide %1 m (el máximo entre "
+                              "puntos del dron): la ruta no puede apartarse de la recta. Acerca P10 para dejar "
+                              "sitio.").arg(pasillo.largoTramo, 0, 'f', 0));
+    } else {
+        QString texto = tr("Puede apartarse hasta <b>%1 m</b> de la recta, en el centro (zona sombreada en el mapa). "
+                           "Cada tramo en recta mide %2 m y el máximo entre puntos del dron recorta lo que cabe "
+                           "a los lados.")
+                            .arg(pasillo.desvioPosible, 0, 'f', 0).arg(pasillo.largoTramo, 0, 'f', 0);
+        if (pasillo.desvioPosible < anchoPasillo() - 1.0)
+            texto += tr(" Pedir más pasillo no cambia nada: para tener más sitio, acerca P10.");
+        m_alcance->setText(texto);
+    }
+    emit pasilloPrevio(pasillo.contorno);
     m_tabla->blockSignals(true);
     m_tabla->setRowCount(propuestas.size());
     int elegida = -1;
@@ -183,9 +204,10 @@ void VentanaPropuestas::elegir(int fila)
     m_detalle->setText(texto);
 }
 
-// Al cerrar, fuera la vista previa del mapa.
+// Al cerrar, fuera la vista previa y el pasillo del mapa.
 void VentanaPropuestas::hideEvent(QHideEvent *event)
 {
     emit vistaPrevia({});
+    emit pasilloPrevio({});
     QDialog::hideEvent(event);
 }

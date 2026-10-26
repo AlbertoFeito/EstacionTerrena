@@ -758,6 +758,9 @@ void CControladora::conecciones()
     connect(m_wPuntos, &Widget_Puntos::sI_rutaPropuesta, this, [this](const QVector<QGeoCoordinate> &camino) {
         m_mapa->ponerPropuesta(camino);
     });
+    connect(m_wPuntos, &Widget_Puntos::sI_pasilloPropuesto, this, [this](const QVector<QGeoCoordinate> &contorno) {
+        m_mapa->ponerPasillo(contorno);
+    });
     connect(m_wPuntos, &Widget_Puntos::sI_encuadrarRuta, this, [this]() {
         m_mapa->encuadrarRuta ();
     });
