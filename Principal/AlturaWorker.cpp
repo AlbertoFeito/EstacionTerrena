@@ -23,6 +23,12 @@ void AlturaWorker::setMapa(MapaMision *mapa)
     m_mapa = mapa;
 }
 
+// Cota tal cual del mapa (NaN donde no hay dato), para la revision de la ruta.
+double AlturaWorker::cota(const QGeoCoordinate &pos) const
+{
+    return m_mapa ? m_mapa->alturaTerreno(pos) : std::numeric_limits<double>::quiet_NaN();
+}
+
 // Pide la cota al mapa. Un hueco o la falta de datos dan 0, que es lo que
 // devolvia la lectura antigua de los .hgt cuando no encontraba el fichero.
 qint16 AlturaWorker::obtenerAltura(double lat, double lon)

@@ -2,6 +2,7 @@
 #define ALTURAWORKER_H
 
 #include <QtCore/QObject>
+#include <QGeoCoordinate>
 
 class MapaMision;
 
@@ -22,6 +23,11 @@ public:
 
     //! Mapa del que sacar la elevacion. Sin mapa, la altura es 0.
     void setMapa(MapaMision *mapa);
+    //! true si ya tiene mapa del que sacar la elevacion.
+    bool hayMapa() const { return m_mapa != nullptr; }
+    //! Cota en metros, sin redondear, o NaN si no hay dato (ni mapa). No emite
+    //! nada: la revision de la ruta la pide cada pocos metros de cada tramo.
+    double cota(const QGeoCoordinate &pos) const;
 
 public slots:
     //! Cota en metros (redondeada), o 0 si no hay dato, como antes.

@@ -755,6 +755,12 @@ void CControladora::conecciones()
     connect(m_wPuntos, &Widget_Puntos::sI_centrarEnPunto, this, [this](const QGeoCoordinate &pos) {
         m_mapa->centrarEn (pos);
     });
+    connect(m_wPuntos, &Widget_Puntos::sI_rutaPropuesta, this, [this](const QVector<QGeoCoordinate> &camino) {
+        m_mapa->ponerPropuesta(camino);
+    });
+    connect(m_wPuntos, &Widget_Puntos::sI_pasilloPropuesto, this, [this](const QVector<QGeoCoordinate> &contorno) {
+        m_mapa->ponerPasillo(contorno);
+    });
     connect(m_wPuntos, &Widget_Puntos::sI_encuadrarRuta, this, [this]() {
         m_mapa->encuadrarRuta ();
     });
@@ -1335,7 +1341,21 @@ void CControladora::pintarRutaEnMapa(bool visible)
     for (const auto &punto : m_wPuntos->getModelo()->obtenerLista())
         puntos.append({punto.pos, punto.nombre});
     m_mapa->pintarRuta(puntos, visible);
-    // Repintar no borra lo ya cumplido.
+    // Por donde iria el dron con sus caracteristicas: el radio de acercamiento
+    // va en metros Mercator (como al autopiloto) y la simulacion, en metros
+    // sobre el terreno: por cos(lat).
+    if (visible && puntos.size() >= 2) {
+        const double radio = m_mapa->radioAcercamiento() * std::cos(qDegreesToRadians(puntos.first().pos.latitude()));
+        m_mapa->ponerTrayectoria(m_wPuntos->getModelo()->trayectoriaProbable(radio));
+    } else {
+        m_mapa->ponerTrayectoria({});
+    }
+    // Los cumplidos son del plan que confirmo el dron: si la ruta que se ve ya
+    // no es ese plan (se ha movido un punto, se ha abierto otra), van en rojo.
+    if (sL_cambiaProyeccion () != m_planEnDron) {
+        m_mapa->olvidarCumplidos ();
+        return;
+    }
     for (int i = 0; i < puntos.size(); ++i)
         if (m_cumplidos.cumplido (i))
             m_mapa->marcarPuntoCumplido (i);
@@ -1353,6 +1373,8 @@ void CControladora::enviarMandos()
 {
     m_wConexion->sL_EnviaMandosDron (Tramas::mandos (mandos));
     m_mapa->ponerRadioAcercamiento (mandos.Radio_Acercamiento);
+    if (m_mapa->rutaVisible ())
+        pintarRutaEnMapa (true);   // la trayectoria probable depende del radio
     if (m_Conectado)
         m_esperaAcuseMandos->start ();
 }

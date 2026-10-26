@@ -146,11 +146,27 @@ de 10 puntos en *Rutas*; para que la siga, *Mandos* en régimen automático.
    posición que llega fija la casa (la «H»).
 2. *Rutas → Panel de rutas* (Ctrl+R; flota abajo, encima del mapa, y se recuerda si se dejó
    abierto) → **Nueva**: elegir el dron y el nombre de la ruta; después, clic
-   derecho en el mapa en el punto inicial (se generan los 10 puntos, que se
+   derecho en el mapa en el punto inicial (se generan los 10 puntos a la altura
+   *Sobre el terreno* del panel, 50 m si no se cambia, como mínimo en toda la
+   ruta; «Alt.» es la altura sobre el mar y «S/terr.», sobre el terreno; los puntos se
    pueden arrastrar o editar en la tabla; doble clic en uno centra el mapa en
-   él) y **Enviar al dron**. Cuando el dron confirma, el botón se pone verde y
+   él) y **Enviar al dron**. Antes, la revisión de la ruta dice qué está mal y
+   cómo arreglarlo: icono y color en cada fila de la tabla (el detalle, con el
+   ratón encima), cuántos errores y avisos en el estado de abajo, y el
+   **Análisis** completo (no modal: se rehace solo mientras se corrige y lleva a
+   cada punto). Con P1 y P10 donde se quiere empezar y acabar, **Proponer ruta…**
+   busca por el terreno tres rutas (segura, equilibrada y rápida), las compara con
+   la recta y deja usar la que se elija (vista previa en el mapa y en el perfil; la
+   trayectoria probable del dron se ve discontinua en los dos). Cuando el dron
+   confirma la ruta enviada, el botón se pone verde y
    la barra de estado dice «✓ El dron ha confirmado el plan». Sin respuesta en
    3 s, aviso; si lo rechaza, se reenvía hasta 3 veces.
+   **Cuánto puede medir una ruta:** siempre son 10 puntos, es decir, 9 tramos, y
+   cada tramo va entre la distancia mínima y la máxima entre puntos del dron
+   («Dist. mín/máx entre waypoints» en sus datos). Con «Ala Fija Standard»
+   (500 m) la ruta mide como mucho 9 × 500 = 4.500 m: si P10 está más lejos de P1
+   no cabe, ni en recta. Para ir más lejos, se acerca P10 o, si el dron real lo
+   admite, se sube su distancia máxima (con 600 m caben 5.400 m).
 3. Con la ruta en el dron, este sigue dando vueltas a casa: solo la cumple en
    automático. *Mandos*: **Automático**, la misión y **Enviar** (verde y «✓ El dron ha
    confirmado los mandos»). El dron sigue la ruta: líneas de rumbo, puntos

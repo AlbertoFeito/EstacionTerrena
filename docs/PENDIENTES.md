@@ -13,6 +13,18 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
   cambiados (como la librería antigua, §27). ¿Es a propósito o un error?
 - Si hay una trama en la que el dron devuelve el plan (`newPlanificacionReceived`
   existe en la estación, pero nada la emite).
+- **Qué altura espera el autopiloto en `z`** de cada punto del plan: la estación
+  manda la altura sobre el nivel del mar (§31) y el simulador no tiene terreno
+  (trata el suelo como 0). Si espera altura sobre el terreno o sobre el punto
+  de despegue, hay que convertirla al armar la trama, no en la ruta.
+- **Distancia máxima entre puntos** del ala fija: los datos de «Ala Fija
+  Standard» dicen 500 m, y con 10 puntos eso limita la ruta a 4.500 m (§34).
+  ¿Es un límite real del autopiloto (alcance de la radio, guiado) o un valor
+  por defecto? Si el dron admite más, basta con subirlo en sus datos.
+- La columna **Radio** de cada punto de la ruta no se manda: la trama del plan
+  (`sPUNTOXYZ`) no la lleva (`parametro_00..02` van a 0) y el acercamiento es el
+  radio de Mandos, uno para todos. ¿El autopiloto usa algún radio por punto? Si
+  no, la columna sobra (§30: ya no se revisa).
 - **Pérdida de enlace**: cómo la detecta el autopiloto. La estación solo
   manda algo cuando el operador envía mandos o una ruta (no hay una trama
   periódica de «sigo aquí»), así que tiene que ser por la radio o por tiempo
@@ -25,6 +37,23 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
 - **Guardar los polígonos del operador**: con `autosaveFeatures = false` no se
   guardan; se puede hacer a mano con `saveFeaturesTo` / `loadFeaturesFrom`.
 
+## Rutas
+
+- En **Repetir misión** el dron vuelve de P10 a P1 y empieza otra vez: la
+  revisión (§30) no mira ese tramo de cierre ni los giros en P10 y P1. Se puede
+  añadir cuando se sepa qué hace el autopiloto al acabar cada vuelta.
+- La revisión supone que el dron gira al llegar al punto. Con el radio de
+  acercamiento de Mandos empieza antes; si se le pasa ese radio, el aviso de
+  giro cerrado sería más justo.
+
+- **Proponer ruta** (§33), lo que se dejó para después:
+  - mover también las estaciones a lo largo de la recta, no solo a los lados;
+  - afinar la elegida moviendo cada punto un poco y midiendo con la revisión;
+  - una búsqueda por toda la rejilla (A*, con el rumbo si hace falta el radio de
+    giro) para desvíos grandes que no caben en el pasillo;
+  - zonas a evitar (las capas fijas del paquete) como coste;
+  - ajustar los pesos de las tres prioridades con vuelos reales.
+
 ## Fase 2: mejora del código (por orden)
 
 1. ~~Orden del repo~~: hecho en §12.
@@ -35,7 +64,7 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
    - ~~Telemetría~~: sacada en §27 (`Protocolo/Telemetria` y `VistaTelemetria`;
      con ella se fue el vector de índices `m_ParametrosValues`).
    - Menús y paneles de `CControladora`.
-   - En `Widget_Puntos`, la validación de rutas y la base de datos, aparte de
-     la parte visual.
+   - ~~`Widget_Puntos`~~: partido en §28 (`Planificacion/RoutePlanner`,
+     `ModeloRuta` y `CaracteristicasDron`).
 5. ~~Código muerto~~: quitado en §17 (`Reporte/` se queda: lo usa «Imprimir»).
 6. ~~Rendimiento~~: los `appendLogMessage` de cada trama, quitados en §13.

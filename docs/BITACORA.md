@@ -949,3 +949,617 @@ Visto con la app contra el simulador (ala fija, automático y «Repetir»):
 
 El cuadróptero queda cubierto por `test_telemetria`, pero sin verlo en
 pantalla: en la base de datos de prueba no hay un dron de ese tipo.
+
+## 28. Widget_Puntos partido: planificador, modelo y panel
+
+Segundo paso del punto 4 (partir las clases grandes). `Widget_Puntos.cpp`
+tenía unas 3.900 líneas con tres clases dentro: el motor que valida y analiza
+las rutas (`RoutePlanner`), el modelo de la tabla con su base de datos
+(`MiModelo`) y el panel visible (`Widget_Puntos`). Ahora cada una tiene su
+fichero, en la carpeta nueva `Principal/Planificacion/`:
+
+- **`CaracteristicasDron.h`**: `DroneCharacteristics` y `DroneType`, que
+  estaban en `dronedialog.h` junto a un diálogo. `dronedialog.h` los sigue
+  dando, porque lo incluye.
+- **`RoutePlanner.h/.cpp`** (unas 760 líneas): la validación y el análisis.
+  Solo Qt Core y Positioning, sin interfaz.
+- **`ModeloRuta.h/.cpp`** (unas 1.480 líneas): `MiModelo`, los 10 puntos y su
+  guardado en SQLite (tablas `drones`, `rutas_metadata` y una por ruta).
+- **`Widgets/Widget_Puntos`** se queda con el panel: unas 1.730 líneas.
+
+Los nombres de las clases no cambian y `Widget_Puntos.h` sigue incluyendo los
+otros dos, así que nadie más ha tenido que tocarse. La base de datos tampoco
+cambia.
+
+Lo que gana de verdad: **`RoutePlanner` ya tiene pruebas**. Hasta ahora las
+reglas con las que se acepta o rechaza una ruta antes de mandarla al dron no
+tenían ninguna. `test_planificador` (9 casos) prueba:
+
+- la distancia entre puntos (mínima y máxima);
+- la altura y la velocidad, incluida la mínima del ala fija, mientras que el
+  cuadróptero puede ir parado;
+- las aceleraciones y las tasas de subida, con cuentas a mano;
+- el radio de giro, contra la fórmula de un giro coordinado con 30° de
+  alabeo, r = v² / (g·tan 30°): 70,7 m a 20 m/s;
+- una ruta de 10 puntos válida, con su distancia total y su tiempo;
+- una ruta que se pasa de la autonomía.
+
+De paso, `RoutePlanner` usaba `abs()` sin `std::` con valores con decimales.
+Según el compilador eso puede acabar en `int abs(int)` y redondear: una
+pendiente de 30,5° pasaría por 30° y se daría por buena. Con GCC no ocurre (la
+prueba `pendienteNoSeRedondea` lo comprueba), pero ahora es `std::abs` y no
+depende del compilador.
+
+Visto con la app: el panel de rutas carga la ruta, la valida y la dibuja como
+antes.
+
+## 29. Los puntos de la ruta: un símbolo, un solo repintado y la selección se queda
+
+El usuario vio algo raro con los puntos: el rótulo P3 suelto de su vértice,
+puntos verdes que no venían a cuento y la sensación de que la ruta se repintaba
+demasiado. Pidió un centro con una circunferencia alrededor, menos repintado y
+poder seleccionar un solo vértice sin que afectara al resto.
+
+Lo que pasaba:
+
+- **Cada arrastre rehacía la ruta tres veces.** `Widget_Puntos::onPointMoved`
+  cambiaba la latitud, la longitud y la altura con tres `setData`. Cada uno
+  guardaba en la base, revalidaba la ruta entera y emitía `dataChanged`, y la
+  estación redibujaba la ruta desde cero. Además, el primero dejaba el punto
+  un momento con la latitud nueva y la longitud vieja.
+- **Rehacer desde cero cambiaba los ids.** `MapaMision::pintarRuta` borraba la
+  capa y creaba la línea y los puntos otra vez. La selección y el arrastre de
+  libmapa se quedaban apuntando a entidades que ya no existían.
+- **Los verdes eran de otro plan.** Los puntos cumplidos se volvían a marcar
+  por número en cada repintado, aunque la ruta ya no fuera la que el dron
+  había confirmado.
+
+Lo hecho:
+
+- **`MiModelo::moverPunto(fila, pos, altura)`** cambia la posición y la altura
+  de una vez, con un guardado y una revalidación (un solo `dataChanged`).
+  `onPointMoved` lo usa.
+- **`pintarRuta` actualiza en el sitio** cuando la ruta tiene los mismos puntos
+  (`actualizarRuta`). Solo se mueven los puntos que cambiaron, y el vértice de
+  la línea se comprueba aparte, para que nunca quede despegado del punto. Cada
+  punto conserva su id, así que la selección no se pierde, y los anillos lo
+  siguen solos (van atados al id). Si cambia el número de puntos, se rehace.
+- **Los cumplidos solo se marcan sobre el plan que confirmó el dron.** Si la
+  ruta que se ve es otra (se ha movido un punto o se ha abierto otra ruta),
+  `olvidarCumplidos` la vuelve a poner en rojo.
+- **El símbolo del punto** es ahora un centro marcado y una circunferencia de
+  9 px, con borde oscuro para que se vea sobre el satélite: rojo si está
+  pendiente y verde si está cumplido. Se dibuja una vez (a doble resolución,
+  nítido en pantallas con escala) y se reutiliza. El rótulo va junto a la
+  circunferencia.
+
+Pruebas nuevas en `test_mapamision`:
+
+- `repintarMueveSoloElPuntoCambiado`: los ids y la selección se mantienen, la
+  línea sigue al punto y P1 ni se toca.
+- `cumplidosSeOlvidan`.
+- `puntoConCentroYCircunferencia`: comprueba el centro, el hueco y el anillo
+  en los píxeles del icono.
+
+Son 112 pruebas en total.
+
+## 30. La revisión de la ruta: qué pasa, por qué y cómo arreglarlo
+
+El usuario pidió revisar el análisis y la validación de las rutas: «creo debe
+quedar mejor explicado los problemas y las soluciones», y que se mirara cómo se
+hace y qué se le dice al operador.
+
+### Lo que había
+
+Se miró `RoutePlanner`, `MiModelo` y el panel. Había más fallos de fondo que de
+redacción:
+
+- **Se paraba en el primer problema.** `validarRuta` devolvía el primer error
+  que encontraba. Con tres problemas se veía uno; al arreglarlo salía otro.
+- **Lo mismo era error en un sitio y aviso en otro.** Al radio de giro y al
+  cambio de velocidad la tabla los marcaba como advertencia, pero bastaban para
+  que el estado dijera «No válida». La tabla podía estar toda en ámbar y la
+  ruta, inválida, sin saber por qué.
+- **Se comprobaba algo que el dron no recibe.** La columna Radio se validaba
+  contra el radio de giro teórico, pero no viaja en la trama del plan
+  (`sPUNTOXYZ` no la lleva) y el acercamiento es el radio de Mandos, uno para
+  todos.
+- **El terreno no se comprobaba.** El perfil marcaba en rojo dónde se acercaba
+  la ruta al terreno, pero la validación no lo miraba: una ruta que atravesaba
+  una loma salía «Válida».
+- **Cifras sin base.** Mostraba como datos de seguridad cosas inventadas:
+  - un «margen de seguridad» que restaba puntos a ojo;
+  - un «estrés de ruta»;
+  - un «factor de carga» que no era el de un giro;
+  - un consumo en Wh con potencias de 150 y 300 W sacadas de la nada;
+  - una «eficiencia» que comparaba con la línea recta de P1 a P10.
+  Parecían medidas y no lo eran.
+- **Los giros se medían mal.** El ángulo salía de restar grados de latitud y
+  longitud: a 60° de latitud, un ángulo recto daba unos 63°.
+- **El arreglo, si lo había, era vago.** «Considere suavizar la trayectoria»,
+  «Aumente el radio». La ventana de puntos críticos calculaba explicaciones y
+  soluciones, pero no las enseñaba.
+- **Repartido y repetido.** Había reglas de «punto crítico» con umbrales
+  distintos en el modelo y en el planificador. El estado se calculaba en dos
+  sitios. Cada cambio rehacía el análisis varias veces.
+
+### Lo que hay ahora
+
+**`RoutePlanner::revisar`** devuelve una `RevisionRuta`: todos los hallazgos de
+una vez, ordenados (errores, avisos y notas) y cada uno con cuatro cosas:
+
+- dónde («P4», «P7 → P8», «Ruta»);
+- un título corto;
+- la explicación, con los números y el límite del dron;
+- **cómo arreglarlo, con el valor que hace falta**: «Baja P9 a 105 m, o separa
+  los puntos hasta 813 m», «Baja la velocidad en P6 a 16.8 m/s o menos».
+
+Las tres gravedades:
+
+- **Error**: incumple un límite del dron o pasa por el terreno. Solo los errores
+  hacen la ruta «No válida».
+- **Aviso**: el dron la vuela, pero no como está planeada.
+- **Nota**: algo que no se ha podido comprobar.
+
+Lo que se revisa, y por qué así:
+
+- **Altura y velocidad de cada punto** contra el dron (error). Por debajo de la
+  mínima del ala fija se explica qué es entrar en pérdida.
+- **Distancia entre puntos**, mínima y máxima (error).
+- **Velocidad**: si le da para acelerar o frenar entre dos puntos, con
+  v² = v₀² ± 2·a·d, que es como cambia de velocidad. Antes se usaba el tiempo a
+  velocidad media. Es aviso, porque llega más despacio pero llega. El arreglo da
+  la velocidad que alcanza y la distancia que haría falta.
+- **Subidas y bajadas** con su tasa máxima (aviso). Si no le da, llega más bajo
+  y **el tramo siguiente empieza ahí**: se simula la altura a la que va de
+  verdad. Antes era error, pero un dron que no llega a la altura sigue
+  volando; el peligro es el terreno, y eso tiene su propia comprobación.
+- **Terreno**: se mira cada 20 m de cada tramo, con esa altura real y no con la
+  del plan:
+  - a menos de 10 m es error (atraviesa o roza);
+  - a menos de 30 m, aviso;
+  - el arreglo da la altura que libra lo más alto del tramo con margen.
+
+  Si la zona no tiene elevación, una nota lo dice: antes se suponía terreno a
+  0 m sin avisar. La cota la da `AlturaWorker::cota`, que devuelve NaN sin dato
+  y no emite una señal por cada consulta.
+- **Giros del ala fija**: el radio sale de la velocidad, r = v²/(g·tan 30°), y
+  nunca es menor que el radio mínimo del dron. Si el punto siguiente queda
+  dentro del círculo de giro (d < 2·r·sen θ), no puede ir directo: se pasa y da
+  una vuelta. Es aviso. El arreglo da la velocidad con la que cabe, a qué
+  distancia alejar el punto o cuánto abrir el giro. El ángulo se mide ahora con
+  acimutes geodésicos.
+- **Autonomía**, en distancia y en tiempo: pasarse es error; usar más del 80 %,
+  aviso, porque además hay que ir hasta P1 y volver.
+
+Lo que se quitó:
+
+- las cifras sin base (margen, estrés, factor de carga, consumo, eficiencia);
+- la validación de la columna Radio;
+- las comprobaciones sueltas (`validarAltitud`, `validarRadioGiro`...);
+- `advertencias` y `puntoCritico` de `E_Punto`, y `erroresPorPunto` del modelo.
+
+La revisión vive en un solo sitio, `MiModelo::revision()`. Se rehace sola
+cuando cambia algo que la afecta: compara una firma con las posiciones,
+alturas, velocidades y nombres de los puntos, el dron y si ya hay mapa.
+
+### Lo que ve el operador
+
+- **Tabla**: el icono y un tinte translúcido de la gravedad en cada fila. Un
+  fondo claro fijo dejaba la letra clara del tema oscuro sin contraste; el
+  tinte se lee con los dos temas. Con el ratón encima, el detalle de ese punto:
+  cada problema con su porqué y su arreglo.
+- **Estado** (abajo): «No válida: 2 errores y 1 aviso». En el tooltip, cuáles
+  son; al pulsarlo, se abre el análisis.
+- **Análisis** (`Widgets/VentanaInforme`, con el texto de
+  `Planificacion/InformeRuta`): sustituye al cuadro de texto con emojis. Trae:
+  - el estado y las cifras de la ruta;
+  - «Qué revisar»;
+  - la tabla de tramos (distancia, tiempo, qué pide en vertical, a qué altura
+    llega de verdad y cuánto pasa sobre el terreno);
+  - «Cómo se revisa»: lo que se comprueba y lo que se supone, para que se sepa
+    de dónde sale cada cosa.
+
+  No es modal: se deja abierto mientras se corrige y se rehace solo. Pinchar en
+  un problema o en un tramo selecciona su punto en la tabla. **Exportar** guarda
+  el mismo informe en texto.
+- **Enviar** con errores: dice cuáles y ofrece «Ver el análisis», «Enviar
+  igualmente» o «Cancelar». Antes era un Sí/No/Cancelar en el que «No» abría el
+  análisis.
+- La **guía** explica las tres gravedades, dónde se ve cada cosa y la misma
+  lista de «Cómo se revisa» que el informe (sale de
+  `InformeRuta::comoSeRevisa`, una sola vez).
+
+### Pruebas
+
+`test_planificador` pasa a 13 casos, cada uno con números hechos a mano:
+
+- una recta sin problemas;
+- límites de altura y velocidad;
+- que salen todos los problemas, no solo el primero;
+- la separación entre puntos;
+- la aceleración, con v² = v₀² ± 2·a·d;
+- la subida que no llega y arrastra al tramo siguiente;
+- el terreno: una loma que se choca, se roza, se libra justa o se libra, y un
+  caso en que el plan la libra pero la altura real no;
+- la nota cuando no hay terreno;
+- el giro cerrado y la velocidad que cabe;
+- el ángulo a 60° de latitud;
+- el radio de giro;
+- la autonomía;
+- el informe.
+
+En total pasan 117 pruebas.
+
+Con la app, sobre una ruta con P4 bajo el mínimo, un tramo de 612 m y una
+subida de 150 m en 300 m:
+
+- el estado dice «No válida: 2 errores y 1 aviso»;
+- las filas se marcan;
+- el análisis explica cada cosa y su arreglo;
+- un enlace selecciona su punto;
+- al subir P4 a 60 m en la tabla, el informe abierto se rehace sin ese error.
+
+Se ha mirado con los dos temas.
+
+## 31. Altura sobre el terreno: la ruta nueva ya no atraviesa las lomas
+
+El usuario preguntó cómo maneja una ruta nueva la altura del terreno y la altura
+sobre el terreno, y mandó una captura: terreno de 470 a 660 m y la ruta plana a
+500 m, metida en las lomas, con «No válida: 9 errores».
+
+### Lo que pasaba
+
+Cada punto tenía una sola altura, sobre el nivel del mar. Al crear la ruta se
+calculaba así: terreno del punto + 50 m, recortada entre la altura mínima y la
+máxima del dron, y nunca menos de 50 m. Esto tenía varios fallos:
+
+- **Mezclaba referencias.** La altura mínima y la máxima del dron (50 y 500 m
+  en el ala fija estándar) son alturas sobre el terreno, pero se aplicaban a la
+  altura sobre el mar. Con terreno a 600 m, 600 + 50 = 650 se recortaba a 500,
+  **100 m bajo tierra**, sin aviso. Es la captura.
+- **Solo miraba el terreno en el punto**, no entre puntos.
+- **Sin elevación, suponía terreno a 0 m** sin decirlo.
+- **Arrastrar un punto pisaba la altura puesta a mano** (volvía a +50).
+- **«Restablecer» llevaba la ruta a un punto fijo** (23° N, 82° O), con otra
+  separación.
+
+### Lo que hay ahora
+
+- **Los límites de altura del dron cuentan sobre el terreno.** La revisión
+  resta a la altura de cada punto la cota de debajo (`RevisionRuta::cotas`). Sin
+  cota, cuenta desde el nivel del mar y lo dice. El arreglo da las dos cifras:
+  «Sube P4 a 650 m sobre el mar o más (50 m sobre el terreno)». Hay medio metro
+  de tolerancia porque las alturas se guardan en `float`: un punto puesto justo
+  en el límite salía como error, con 49,99 m.
+- **El panel tiene «Sobre el terreno»** (50 m por defecto; se guarda en
+  `conf.ini`, `[RUTAS] sobre_terreno`). Sirve al crear la ruta con el clic
+  derecho y al restablecerla.
+- **La ruta nueva libra el terreno en toda su longitud, no solo en los puntos**
+  (`RoutePlanner::generarRuta`). Cada punto queda por encima de lo más alto
+  del terreno en los tramos que lo tocan (mirado cada 20 m). Como los dos
+  extremos de cada tramo libran su punto más alto, la recta entre ellos nunca
+  baja de esa altura sobre el terreno. Con la cota solo en cada punto, la
+  primera prueba en la app seguía chocando entre puntos.
+- **Sin elevación**, la ruta se genera desde el nivel del mar y un aviso dice
+  que esas alturas no se han podido comprobar.
+- **Arrastrar conserva la altura sobre el terreno** del punto
+  (`MiModelo::moverPunto`): si iba a 30 m sobre una loma, sigue a 30 m sobre lo
+  que haya en el sitio nuevo. Sin cota en alguno de los dos sitios, se queda la
+  altura sobre el mar.
+- **La tabla muestra las dos alturas.** «Alt.» es sobre el mar (la que se manda
+  al dron) y la columna nueva «S/terr.», sobre el terreno, con «—» si no hay
+  dato. Editar «S/terr.» cambia «Alt.». El tooltip de cada fila trae las dos, y
+  el informe dice entre qué alturas sobre el terreno van los puntos.
+- **«Restablecer»** rehace los 10 puntos desde el P1 que hay, igual que el clic
+  derecho. Se quitaron `generarPuntosPorDefecto`, `calcularAltitudVuelo` y
+  `ajustarAPuntosFijos` (este no lo usaba nadie).
+
+Lo que se manda al dron no cambia: la altura sobre el mar, como hasta ahora.
+Queda en `PENDIENTES.md` confirmar que es lo que espera el autopiloto en `z`.
+
+### Pruebas
+
+`test_planificador` pasa a 15 casos:
+
+- `alturaSobreElTerreno`: la meseta a 600 m, con un punto bajo, uno bajo
+  tierra (el de la captura), uno demasiado alto y uno bien;
+- `generarRutaSobreElTerreno`: un pico entre P3 y P4 deja esos dos a 50 m
+  sobre el pico y los demás a 50 m sobre el llano; sin elevación, a 50 m sobre
+  el mar.
+
+En total pasan 119 pruebas.
+
+En la app, con un `.hgt` sintético de lomas de 300 m añadido al paquete de
+prueba:
+
+- la ruta vieja, plana a 50 m, sale con alturas negativas sobre el terreno y
+  19 errores;
+- «Restablecer» deja «Válida, con 2 avisos», pasa a 50 m del terreno como
+  mínimo, y los avisos son de bajadas que el dron hace más despacio, llegando
+  más alto;
+- editar «S/terr.» de P1 a 120 m cambia «Alt.» de 672 a 570 m, y la revisión
+  avisa de que así el tramo P1 → P2 ya no libra la cresta.
+
+## 32. Cuando el dron no le da para subir, y la trayectoria probable
+
+El usuario mandó la ruta «hhh» (ala fija, 16,3 m/s, puntos a 100–206 m sobre el
+terreno) con «No válida: 1 error y 8 avisos» y pidió que se le explicara.
+
+El terreno subía de unos 510 a 1.085 m en 2,7 km, una pendiente media del
+21 %. El dron, a 16,3 m/s y subiendo a 3 m/s como mucho, sube al 18 %. Tramo
+a tramo se quedaba por debajo del plan (17, 11… 177 m al llegar a P9), y en
+P9 → P10 acababa 21 m dentro de la ladera, aunque los puntos estuvieran bien
+altos.
+
+La revisión lo detectaba, pero **el arreglo que daba no servía**: «Sube P9 y
+P10 hasta 1.115 m». Subir los puntos del plan no hace que el dron suba más
+rápido. El usuario pidió las dos mejoras propuestas y, además, que se dibujara
+la trayectoria posible según las características del dron.
+
+### El choque dice de dónde viene
+
+Cuando el dron atraviesa o roza el terreno (o pasa con poco margen), la
+revisión mira también la recta del plan en ese sitio:
+
+- **Si el plan va bajo**, el arreglo sigue siendo subir los puntos.
+- **Si el plan libra el terreno pero el dron no llega a su altura**, el error lo
+  dice: «El plan pasa ahí a 101 m sobre el terreno, pero el dron no llega a esa
+  altura: desde P1 no le da para subir lo que pide la ruta (va 98 m por debajo
+  del plan). Subir los puntos no lo arregla.» Y propone lo que sí funciona:
+  - **volar más despacio** desde el último punto al que llegó a la altura del
+    plan: la velocidad media con la que le da, y a qué pendiente sube así;
+  - **empezar la subida más alto**: ese punto, con los metros que le faltan;
+  - **hacer la subida más larga**: puntos más separados, o en zigzag u otro
+    rumbo en vez de ir de frente contra la ladera.
+
+### Aviso de ladera
+
+Un aviso de ruta, «El terreno sube más de lo que puede subir el dron», sale
+cuando, en un trozo de varios puntos, el terreno sube más empinado (más de
+50 m) que tasa de subida ÷ velocidad. Además el dron tiene que quedarse de
+verdad por debajo del plan en algún tramo: si la ruta ya va por encima, no
+hace falta seguir la ladera. En la primera prueba avisaba por eso en una ruta
+correcta.
+
+Se queda con el trozo en el que más metros pierde: la subida entera, no el
+pedazo más empinado, que es lo que elegía al principio. Da las pendientes, los
+metros que se quedará por debajo y los mismos tres arreglos, con la velocidad
+que le basta («Vuela de P1 a P10 a 12 m/s o menos, así sube al 25 %»). Si ni a
+su velocidad mínima puede, lo dice.
+
+### El generador ya no hace rutas que el dron no puede subir
+
+`RoutePlanner::generarRuta`, después de librar el terreno:
+
+- baja la velocidad de los dos puntos de cada tramo que sube más de lo que le
+  da su tasa, hasta la mínima del ala fija;
+- si ni así le da, sube los puntos de antes (recorriendo la ruta de atrás
+  adelante) para que empiece la subida más alto.
+
+Solo sube alturas: el terreno queda igual de librado. Las bajadas que no le dan
+se dejan, porque llega más alto y es seguro.
+
+En una ladera sintética al 25 %, «Restablecer» deja la ruta a 12 m/s y
+«Válida», sin nada que revisar.
+
+### La trayectoria probable
+
+- **En el perfil** (el del panel y «Ampliar perfil»): una línea amarilla
+  discontinua con la altura a la que va de verdad, limitada por sus tasas.
+  Sale de `RevisionRuta::perfilReal`, una muestra cada 20 m. Solo se dibuja si
+  se aparta del plan. Las cruces rojas de «terreno a menos de 10 m» miran ahora
+  esa altura, no la del plan.
+- **En el mapa**: otra línea amarilla discontinua, no seleccionable
+  (`MapaMision::ponerTrayectoria`). Sale de
+  `RoutePlanner::trayectoriaProbable`, que simula el vuelo en planta:
+  - a la velocidad de cada tramo;
+  - el ala fija gira con el radio de su velocidad (alabeo de 30°); el
+    cuadróptero, con su radio mínimo;
+  - el rumbo va siempre hacia el punto al que se dirige;
+  - pasa al siguiente al entrar en el radio de acercamiento de Mandos (el que
+    usa el autopiloto, pasado a metros sobre el terreno).
+
+  Se ve dónde se pasa de una esquina (con 20 m de acercamiento y 70 m de
+  radio, unos 50 m) y dónde da vueltas sin alcanzar un punto que queda dentro
+  de su círculo de giro. Se rehace al cambiar la ruta o el radio de
+  acercamiento. Es una estimación: sin viento ni la ley de guiado real del
+  autopiloto, y así lo dice «Cómo se revisa».
+
+El aviso de giro cerrado decía «dará una vuelta para alcanzarlo». La
+simulación muestra que, girando al máximo, puede no alcanzarlo nunca, y ahora
+lo dice así.
+
+### Pruebas
+
+Dos casos nuevos en `test_planificador`:
+
+- `laderaQueElDronNoSube`: la ladera al 25 % con la ruta a 100 m sobre ella.
+  El choque dice que subir los puntos no sirve y da la velocidad y la altura de
+  P1. El aviso de ladera da 25 % contra 19 % y 12 m/s. Con un plan bajo, el
+  arreglo sigue siendo subir los puntos. La ruta generada sale sin choques ni
+  subidas imposibles.
+- `trayectoriaProbable`: en recta mide lo que la ruta; en un giro de 90° se
+  pasa unos 50 m; con el punto dentro del círculo de giro da vueltas; y el
+  perfil real acaba a la altura a la que llega.
+
+En total pasan 121 pruebas.
+
+En la app, con la ladera sintética:
+
+- el perfil enseña la trayectoria probable metiéndose en la ladera mientras la
+  ruta la libra;
+- el mapa enseña cómo se pasa de P7 en el giro;
+- el análisis da la causa real y los arreglos que sirven;
+- «Restablecer» deja una ruta válida a 12 m/s.
+
+## 33. Proponer ruta: de P1 a P10 por el terreno, y el operador elige
+
+El usuario preguntó si, a partir de la ruta inicial en línea, con el punto
+inicial y el final colocados, la estación podía poner sola el resto de puntos,
+conociendo el terreno y las características del dron, para tener una ruta
+óptima. Primero pidió solo la explicación (dónde está el límite: 10 puntos y
+tramos entre la distancia mínima y la máxima del dron; qué es «óptima»; por
+fases). Después eligió «una mezcla, pero si se puede calcula las tres y que el
+operador decida».
+
+### Cómo busca (`RoutePlanner::proponerRutas`)
+
+- **Pasillo.** La recta de P1 a P10 se parte en 9 tramos iguales. En cada una
+  de las 8 estaciones intermedias se prueban 21 desplazamientos a un lado y a
+  otro, hasta el ancho del pasillo (1 km por defecto). Así la ruta puede ir por
+  un valle o rodear una loma en vez de subirla.
+- **Coste por tramos y por giros.** Cuentan:
+  - el largo, que es tiempo;
+  - lo que sube lo más alto del terreno de un tramo al siguiente, que es lo que
+    tendrá que subir el dron;
+  - mucho más caro, lo que pase de lo que le da su tasa de subida a su
+    velocidad (ahí se quedaría por debajo, §32);
+  - lo accidentado del terreno bajo el tramo;
+  - los giros, y mucho más si el punto siguiente queda dentro del círculo de
+    giro del ala fija;
+  - pasarse de la altura máxima del dron sobre el terreno.
+
+  Los tramos fuera de la distancia mínima o máxima no se admiten.
+- **Programación dinámica (Viterbi).** Como el coste se reparte así, y un giro
+  depende de tres puntos seguidos, la mejor combinación sale recorriendo las
+  estaciones con parejas de desplazamientos, sin probar los 21⁸ casos. Las
+  tres prioridades salen en una fracción de segundo.
+- **Tres prioridades**, que solo cambian los pesos:
+  - **Segura** prima las subidas suaves, no quedarse por debajo y el terreno
+    tranquilo, aunque sea más larga;
+  - **Rápida** prima el largo;
+  - **Equilibrada** es una mezcla.
+- **Alturas y velocidades** como en el generador, ahora en una función común
+  (`puntosPorPosiciones`): cada punto sobre lo más alto de sus tramos, más
+  despacio donde hace falta subir y más alto antes si ni así le da.
+- **Cada propuesta se revisa entera** (`revisar`), con la trayectoria real.
+  También la **recta**, para comparar.
+- **Si es imposible**, lo dice. Por ejemplo, P10 más lejos de lo que caben 9
+  tramos: «caben 4500 m; acerca P10 a P1».
+
+### Lo que ve el operador
+
+**Proponer ruta…** está en el panel y usa el P1 y el P10 de la ruta, que el
+operador coloca antes arrastrándolos. La ventana trae:
+
+- una fila por propuesta (Segura, Equilibrada, Rápida y Recta) con distancia,
+  tiempo, altura máxima, subida total, el margen mínimo sobre el terreno a la
+  altura real y el estado de la revisión;
+- la elegida en el perfil (con su trayectoria probable) y en el mapa como
+  vista previa: cian, a trazos y punto, en la capa de la misión para que no se
+  borre al repintar la ruta;
+- **Usar esta ruta**, que la pasa a la tabla, y el ancho del pasillo con
+  **Calcular** para repetir.
+
+### Pruebas
+
+- `proponerRutas` en `test_planificador`:
+  - en llano, las cuatro salen rectas;
+  - con una cresta de 300 m que cruza la recta y un paso a un lado, la Segura
+    va por el paso (menos de 200 m de altura frente a más de 400, válida y sin
+    subidas imposibles) y la Rápida no es más larga que la Segura;
+  - con P10 a 10 km lo dice.
+- En total pasan 122 pruebas.
+
+En la app, con una cresta sintética de 400 m y un paso a 400–700 m al norte:
+
+| Ruta | Distancia | Sube en total | Estado |
+|---|---|---|---|
+| Recta | 2.700 m | 269 m (hasta 738 m) | 4 avisos |
+| Segura | 2.890 m | 0 m (por el paso) | Válida |
+| Equilibrada y Rápida | 2.858 m | 3 m | Válida |
+
+La vista previa se curva hacia el paso y «Usar esta ruta» deja la tabla
+«Válida».
+
+Lo que queda para después está en `PENDIENTES.md`: mover las estaciones a lo
+largo, afinar, A* para desvíos grandes, zonas a evitar y pesos ajustados con
+vuelos.
+
+## 34. Cuánto puede medir una ruta, dicho claro
+
+El usuario intentó «Proponer ruta» con P10 a 5.087 m de P1. Salió «No se pudo»
+y el mensaje «caben 4500 m». Preguntó si significaba que la distancia máxima
+entre puntos es de 500 m, y pidió que quedara claro en la documentación.
+
+La cuenta:
+
+- Una ruta son siempre 10 puntos, porque lo pide la trama del plan. Entre P1
+  y P10 hay, por tanto, 9 tramos.
+- Cada tramo tiene que medir entre la distancia mínima y la máxima entre
+  puntos del dron elegido. Ese límite no lo pone ni el protocolo ni el
+  algoritmo: es el campo «Dist. máx entre waypoints» de los datos del dron, y
+  en «Ala Fija Standard» vale 500 m.
+- Así que la ruta mide como mucho 9 × 500 = 4.500 m. A 5.087 m, P10 no cabe
+  ni en línea recta. En su ruta, el último tramo medía 1.680 m y la revisión
+  lo marcaba en rojo.
+
+Dónde queda escrito ahora:
+
+- **Guía de la app**: una sección nueva, «Cuánto puede medir una ruta», con
+  la cuenta, el ejemplo de 500 m, qué hacer (acercar P10 dejando margen para
+  los desvíos, o subir la distancia máxima del dron si el dron real lo admite:
+  con 600 m caben 5.400 m) y el mínimo (9 × distancia mínima).
+- **Mensajes**: el de «Proponer ruta» y el de «Puntos demasiado separados»
+  dicen de dónde sale el límite («su “Dist. máx entre waypoints”») y los dos
+  arreglos.
+- **README**: el mismo párrafo, en «Probar una misión».
+- **PENDIENTES**: la pregunta para quien programa el autopiloto. ¿Es 500 m un
+  límite real (alcance de la radio, guiado) o un valor por defecto?
+
+## 35. El pasillo de «Proponer ruta»: saltos finos y dibujado en el mapa
+
+El usuario probó «Proponer ruta» con P10 a 4.158 m de P1 y 5.000 m de pasillo.
+Las cuatro propuestas salieron iguales: la recta.
+
+**Por qué.** Los desplazamientos laterales eran saltos de una décima del
+pasillo, así que con 5.000 m el más pequeño era de 500 m. Pero cada tramo en
+recta ya medía 462 m y la distancia máxima entre puntos es 500 m, de modo que
+un tramo solo podía apartarse √(500² − 462²) ≈ 191 m. Ningún desvío cabía y
+solo quedaba la recta: ensanchar el pasillo había empeorado el resultado, al
+revés de lo esperado.
+
+**Arreglo.**
+
+- **Saltos finos y fijos.** Se calcula primero lo que cabe de verdad. Un
+  tramo entre dos estaciones con diferencia lateral D mide √(a² + D²), con
+  a = largo / 9, y no puede pasar de la distancia máxima. El desvío crece como
+  mucho eso por tramo desde P1 y se cierra igual hacia P10. En la estación k
+  el límite es mín(pasillo, D·mín(k, 9 − k)), y en el centro, 4·D. Los saltos
+  son de 50 m (o la mitad de lo que cabe por tramo si es menos), con 20 por
+  lado como mucho. Las posiciones fuera del límite de cada estación ni se
+  prueban.
+- **La ventana dice cuánto se puede apartar**: «Puede apartarse hasta 764 m
+  de la recta, en el centro…». Si se ha pedido más, añade que pedir más
+  pasillo no cambia nada y que, para tener sitio, hay que acercar P10. Si no
+  cabe ningún desvío, lo dice.
+- **El pasillo se dibuja en el mapa** como un polígono cian translúcido, con
+  el borde suave y la propuesta encima: estrecho junto a P1 y P10, ancho en el
+  centro. Lo devuelve `proponerRutas` en `PasilloRuta` (contorno, desvío
+  posible y largo de tramo) y lo pone `MapaMision::ponerPasillo` en la capa de
+  la misión. Se quita al cerrar la ventana.
+- La guía lo explica en «Cuánto puede medir una ruta».
+
+**Pruebas.** `pasilloQueCabe` reproduce el caso del usuario: P10 a 4.158 m,
+500 m de máximo y 5.000 m de pasillo.
+
+- El desvío posible sale 4·√(500² − 462²) ≈ 764 m.
+- El contorno empieza en P1 sin ancho.
+- Con una loma que cruza y un paso a 300–600 m al norte, la Segura lo usa
+  (menos de 300 m de altura frente a más de 500 de la recta), sin pasarse de
+  500 m en ningún tramo.
+
+En total pasan 123 pruebas. En la app, con la cresta sintética: con 1.000 m de
+pasillo se ve el sombreado recortado a 1.000 m; con 5.000 m, «hasta 1.600 m…
+pedir más pasillo no cambia nada», y las propuestas cruzan por el paso.
+
+**Después.** El usuario preguntó cuál era el pasillo mínimo y pidió que se viera
+en la ventana. Ahora hay una línea fija en gris bajo el campo del pasillo:
+
+- el campo va de 100 a 5.000 m a cada lado;
+- junto a P1 y P10 el pasillo mide 0 y se ensancha hacia el centro;
+- si P10 está cerca de 9 × la distancia máxima, cabe poco o nada a los lados;
+- para ir justo por la recta, está la fila «Recta».
+
+El tooltip del campo dice el rango y el valor por defecto (1.000 m).

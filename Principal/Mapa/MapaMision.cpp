@@ -37,8 +37,11 @@ const double kSeparacionRotuloPx = 34.0;
 // (sin plan llega 0,0, que cae en el golfo de Guinea): no se dibuja la linea.
 const double kMaxProximoM = 100000.0;
 const QColor kColorLineaRuta(255, 150, 10);
+const QColor kColorTrayectoria(255, 213, 79);   // amarillo claro: lo que haria el dron
 const QColor kColorPunto(Qt::red);
 const QColor kColorCumplido(Qt::green);
+// Radio en pantalla de la circunferencia de cada punto de la ruta.
+const double kRadioSimboloPx = 9.0;
 }
 
 // Abre el mapa sobre el paquete como los ejemplos de libmapa (dataDir y sin
@@ -484,6 +487,32 @@ void MapaMision::refrescarRumbos()
     poner(m_lineaDeseado, true, deseado);
 }
 
+// Simbolo de un punto de la ruta: un centro marcado y una circunferencia
+// alrededor, con borde oscuro para que se vea sobre el satelite. En pixeles:
+// igual a cualquier zoom.
+QPixmap MapaMision::simboloPuntoRuta(const QColor &color)
+{
+    const int lado = int(2 * kRadioSimboloPx + 4);
+    const qreal dpr = 2.0;   // nitido en pantallas con escala
+    QPixmap px(int(lado * dpr), int(lado * dpr));
+    px.setDevicePixelRatio(dpr);
+    px.fill(Qt::transparent);
+    QPainter p(&px);
+    p.setRenderHint(QPainter::Antialiasing);
+    const QPointF c(lado / 2.0, lado / 2.0);
+    // Circunferencia: borde oscuro y el color encima.
+    p.setBrush(Qt::NoBrush);
+    p.setPen(QPen(QColor(0, 0, 0, 170), 4.0));
+    p.drawEllipse(c, kRadioSimboloPx, kRadioSimboloPx);
+    p.setPen(QPen(color, 2.2));
+    p.drawEllipse(c, kRadioSimboloPx, kRadioSimboloPx);
+    // Centro: punto del color con borde oscuro.
+    p.setPen(QPen(QColor(0, 0, 0, 200), 1.2));
+    p.setBrush(color);
+    p.drawEllipse(c, 3.0, 3.0);
+    return px;
+}
+
 // Dibuja la "H" de la casa: circulo verde de 40 px con la letra en blanco.
 QPixmap MapaMision::simboloHome()
 {
@@ -545,16 +574,25 @@ void MapaMision::limpiarVuelo()
     m_home = -1;
 }
 
-// Rehace la ruta desde cero: la linea, un punto arrastrable por vertice con su
-// rotulo y los circulos de acercamiento. Se rehace entera porque cambia poco
-// (al editarla), no con cada trama.
+// Dibuja la ruta: la linea, un punto arrastrable por vertice con su rotulo y
+// los circulos de acercamiento. Si ya estaba con los mismos puntos solo se
+// mueve lo que cambio; si no, se rehace desde cero.
 void MapaMision::pintarRuta(const QVector<PuntoRutaMapa> &puntos, bool visible)
 {
+    // La misma ruta (mismos puntos, otras posiciones o nombres): se actualiza
+    // en el sitio. Rehacerla entera con cada cambio (al arrastrar un punto el
+    // modelo avisaba tres veces) cambiaba los ids de todo: la seleccion y el
+    // arrastre se quedaban con puntos que ya no existian.
+    if (visible && m_linea >= 0 && !puntos.isEmpty() && puntos.size() == m_puntos.size()) {
+        actualizarRuta(puntos);
+        return;
+    }
     for (qint64 id : qAsConst(m_anillos))
         m_mapa->removeRangeMark(id);
     m_anillos.clear();
     m_mapa->clearFeatureLayer(kCapaRuta);
     m_linea = -1;
+    m_trayectoria = -1;
     m_puntos.clear();
     m_cumplidos.clear();
 
@@ -584,10 +622,7 @@ void MapaMision::pintarRuta(const QVector<PuntoRutaMapa> &puntos, bool visible)
         punto.geometry = {puntos.at(i).pos};
         punto.attributes.insert(QStringLiteral("indice"), i);
         punto.draggable = true;
-        punto.style.lineColor = kColorPunto;
-        punto.style.fillColor = kColorPunto;
-        punto.style.pointRadiusPx = 4.0;
-        punto.style.labelColor = Qt::black;
+        estiloPuntoRuta(punto, false);
         m_puntos.append(m_mapa->addFeature(punto));
     }
     m_cumplidos.fill(false, m_puntos.size());
@@ -668,6 +703,90 @@ void MapaMision::ponerZonaTapada(int abajoPx, int derechaPx)
     m_tapadoDerecha = std::max(0, derechaPx);
 }
 
+// La trayectoria probable: una linea discontinua amarilla, no seleccionable,
+// que se mueve en el sitio si ya estaba.
+void MapaMision::ponerTrayectoria(const QVector<QGeoCoordinate> &camino)
+{
+    if (camino.size() < 2) {
+        if (m_trayectoria >= 0)
+            m_mapa->removeFeature(m_trayectoria);
+        m_trayectoria = -1;
+        return;
+    }
+    if (m_trayectoria >= 0) {
+        if (auto f = m_mapa->feature(m_trayectoria)) {
+            MapFeature linea = *f;
+            linea.geometry = camino;
+            m_mapa->updateFeature(linea);
+            return;
+        }
+    }
+    MapFeature linea;
+    linea.layerId = kCapaRuta;
+    linea.kind = GeometryKind::Polyline;
+    linea.type = QStringLiteral("trayectoria");
+    linea.name = QStringLiteral("Trayectoria probable");
+    linea.selectable = false;
+    linea.style.lineColor = kColorTrayectoria;
+    linea.style.lineWidth = 2.0;
+    linea.style.lineStyle = Qt::DashLine;
+    linea.style.labelVisible = false;
+    linea.geometry = camino;
+    m_trayectoria = m_mapa->addFeature(linea);
+}
+
+// La vista previa de una ruta propuesta, en la capa de la mision (no se
+// borra al repintar la ruta): cian, a trazos y punto, no seleccionable.
+void MapaMision::ponerPropuesta(const QVector<QGeoCoordinate> &camino)
+{
+    if (m_propuesta >= 0)
+        m_mapa->removeFeature(m_propuesta);
+    m_propuesta = -1;
+    if (camino.size() < 2)
+        return;
+    MapFeature linea;
+    linea.layerId = kCapaMision;
+    linea.kind = GeometryKind::Polyline;
+    linea.type = QStringLiteral("propuesta");
+    linea.name = QStringLiteral("Ruta propuesta");
+    linea.selectable = false;
+    linea.style.lineColor = QColor(0, 229, 255);
+    linea.style.lineWidth = 3.0;
+    linea.style.lineStyle = Qt::DashDotLine;
+    linea.style.labelVisible = false;
+    linea.geometry = camino;
+    m_propuesta = m_mapa->addFeature(linea);
+}
+
+// El pasillo del optimizador: un poligono cian translucido con el borde
+// suave, en la capa de la mision, no seleccionable. Se pone debajo de la
+// propuesta (si ya habia una, se vuelve a poner encima).
+void MapaMision::ponerPasillo(const QVector<QGeoCoordinate> &contorno)
+{
+    if (m_pasillo >= 0)
+        m_mapa->removeFeature(m_pasillo);
+    m_pasillo = -1;
+    if (contorno.size() < 3)
+        return;
+    MapFeature zona;
+    zona.layerId = kCapaMision;
+    zona.kind = GeometryKind::Polygon;
+    zona.type = QStringLiteral("pasillo");
+    zona.name = QStringLiteral("Pasillo de búsqueda");
+    zona.selectable = false;
+    zona.style.lineColor = QColor(0, 229, 255, 140);
+    zona.style.fillColor = QColor(0, 229, 255, 40);
+    zona.style.lineWidth = 1.0;
+    zona.style.labelVisible = false;
+    zona.geometry = contorno;
+    m_pasillo = m_mapa->addFeature(zona);
+    if (m_propuesta >= 0)
+        if (auto f = m_mapa->feature(m_propuesta)) {
+            const QVector<QGeoCoordinate> camino = f->geometry;
+            ponerPropuesta(camino);
+        }
+}
+
 // Pinta de verde un punto ya cumplido: el punto y su circulo.
 void MapaMision::marcarPuntoCumplido(int indice)
 {
@@ -676,12 +795,75 @@ void MapaMision::marcarPuntoCumplido(int indice)
     m_cumplidos[indice] = true;
     if (auto f = m_mapa->feature(m_puntos.at(indice))) {
         MapFeature punto = *f;
-        punto.style.lineColor = kColorCumplido;
-        punto.style.fillColor = kColorCumplido;
+        estiloPuntoRuta(punto, true);
         punto.draggable = true;   // no se persiste: hay que volver a ponerlo
         m_mapa->updateFeature(punto);
     }
     refrescarAnillos();
+}
+
+// Vuelve a poner todos los puntos como pendientes (la ruta ya no es el plan que
+// tiene el dron: lo que cumplio era de otra).
+void MapaMision::olvidarCumplidos()
+{
+    if (!m_cumplidos.contains(true))
+        return;
+    for (int i = 0; i < m_puntos.size(); ++i) {
+        if (!m_cumplidos.value(i))
+            continue;
+        m_cumplidos[i] = false;
+        if (auto f = m_mapa->feature(m_puntos.at(i))) {
+            MapFeature punto = *f;
+            estiloPuntoRuta(punto, false);
+            punto.draggable = true;
+            m_mapa->updateFeature(punto);
+        }
+    }
+    refrescarAnillos();
+}
+
+// Mueve y renombra en el sitio los puntos que cambiaron, y los vertices de la
+// linea que les tocan: cada punto conserva su id (seleccion, arrastre) y los
+// anillos lo siguen solos.
+void MapaMision::actualizarRuta(const QVector<PuntoRutaMapa> &puntos)
+{
+    bool movido = false;
+    const auto linea = m_mapa->feature(m_linea);
+    const QVector<QGeoCoordinate> vertices = linea ? linea->geometry : QVector<QGeoCoordinate>();
+    for (int i = 0; i < puntos.size(); ++i) {
+        const QGeoCoordinate &pos = puntos.at(i).pos;
+        // El vertice se mira aparte: tras un arrastre el punto ya esta en su
+        // sitio y la linea podria no estarlo.
+        if (i < vertices.size() && vertices.at(i) != pos)
+            m_mapa->moveVertex(m_linea, i, pos);
+        const auto f = m_mapa->feature(m_puntos.at(i));
+        if (!f || f->geometry.isEmpty())
+            continue;
+        const bool otraPos = f->geometry.first() != pos;
+        if (!otraPos && f->name == puntos.at(i).nombre)
+            continue;
+        MapFeature punto = *f;
+        punto.geometry = {pos};
+        punto.name = puntos.at(i).nombre;
+        punto.draggable = true;   // no se persiste: hay que volver a ponerlo
+        m_mapa->updateFeature(punto);
+        movido = movido || otraPos;
+    }
+    if (movido)
+        refrescarRotulosRuta();
+}
+
+// Estilo de un punto de la ruta: su simbolo (centro y circunferencia, rojo
+// pendiente o verde cumplido) y el rotulo al lado del circulo.
+void MapaMision::estiloPuntoRuta(MapFeature &punto, bool cumplido)
+{
+    static const QPixmap pendiente = simboloPuntoRuta(kColorPunto);
+    static const QPixmap hecho = simboloPuntoRuta(kColorCumplido);
+    punto.style.icon = cumplido ? hecho : pendiente;
+    punto.style.lineColor = cumplido ? kColorCumplido : kColorPunto;
+    punto.style.fillColor = punto.style.lineColor;
+    punto.style.pointRadiusPx = kRadioSimboloPx;   // el rotulo va junto al circulo
+    punto.style.labelColor = Qt::black;
 }
 
 // Cambia el radio de acercamiento de todos los puntos.

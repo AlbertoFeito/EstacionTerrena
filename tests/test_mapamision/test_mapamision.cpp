@@ -190,6 +190,9 @@ private slots:
     void rotulosArrastradosSeQuedan();
     void limpiarVueloDejaLaRuta();
     void arrastrarUnPuntoAvisa();
+    void repintarMueveSoloElPuntoCambiado();
+    void cumplidosSeOlvidan();
+    void puntoConCentroYCircunferencia();
 
 private:
     QTemporaryDir m_dir;
@@ -590,6 +593,101 @@ void TestMapaMision::arrastrarUnPuntoAvisa()
         m_mision->actualizarVehiculo(QGeoCoordinate(23.104, -82.398), 45.0, Qt::yellow, avion, "V: 42 km/h\nH: 125 m");
         m_mision->ponerRumbos(45.0, 60.0, pos, true);
         QVERIFY(m_mision->mapa()->renderImage().save(captura));
+    }
+}
+
+// Repintar la misma ruta con un punto movido no la rehace: los ids siguen
+// (la seleccion no se pierde), solo cambian ese punto y su vertice de la linea.
+void TestMapaMision::repintarMueveSoloElPuntoCambiado()
+{
+    m_mision->pintarRuta(rutaDePrueba(), true);
+    auto ids = [&]() {
+        QVector<qint64> v;
+        for (const auto &f : m_mision->mapa()->featuresInLayer(QStringLiteral("ruta")))
+            v.append(f.id);
+        std::sort(v.begin(), v.end());
+        return v;
+    };
+    const QVector<qint64> antes = ids();
+    qint64 p2 = -1;
+    for (const auto &f : m_mision->mapa()->featuresInLayer(QStringLiteral("ruta")))
+        if (f.kind == libmapa::GeometryKind::Point && f.attributes.value(QStringLiteral("indice")).toInt() == 1)
+            p2 = f.id;
+    QVERIFY(p2 >= 0);
+    m_mision->mapa()->selectFeature(p2);
+
+    QVector<PuntoRutaMapa> ruta = rutaDePrueba();
+    ruta[1].pos = QGeoCoordinate(23.12, -82.37);
+    QSignalSpy cambios(m_mision->mapa(), &libmapa::MapWidget::featureUpdated);
+    m_mision->pintarRuta(ruta, true);
+    m_mision->pintarRuta(ruta, true);   // otra vez lo mismo: nada que tocar
+
+    QCOMPARE(ids(), antes);
+    QCOMPARE(m_mision->mapa()->selectedFeature(), p2);
+    for (const auto &f : m_mision->mapa()->featuresInLayer(QStringLiteral("ruta"))) {
+        if (f.kind == libmapa::GeometryKind::Polyline) {
+            QCOMPARE(f.geometry.at(1), ruta.at(1).pos);
+            QCOMPARE(f.geometry.at(0), ruta.at(0).pos);
+            QCOMPARE(f.geometry.at(2), ruta.at(2).pos);
+        } else {
+            const int i = f.attributes.value(QStringLiteral("indice")).toInt();
+            QCOMPARE(f.geometry.first(), ruta.at(i).pos);
+            QVERIFY(f.draggable);
+        }
+    }
+    // Se tocan el punto y su vertice; los demas puntos, como mucho su rotulo
+    // (al moverse P2 puede que ya no quepan). P1 siempre va rotulado: ni se toca.
+    const qint64 p1 = antes.at(1);
+    for (const auto &c : cambios)
+        QVERIFY(c.at(0).toLongLong() != p1);
+
+    // Otro numero de puntos: se rehace.
+    ruta.removeLast();
+    m_mision->pintarRuta(ruta, true);
+    QCOMPARE(m_mision->mapa()->featuresInLayer(QStringLiteral("ruta")).size(), 3);
+}
+
+// olvidarCumplidos vuelve a poner en rojo los puntos y sus anillos.
+void TestMapaMision::cumplidosSeOlvidan()
+{
+    m_mision->pintarRuta(rutaDePrueba(), true);
+    m_mision->marcarPuntoCumplido(0);
+    m_mision->marcarPuntoCumplido(1);
+    m_mision->olvidarCumplidos();
+    for (const auto &f : m_mision->mapa()->featuresInLayer(QStringLiteral("ruta")))
+        if (f.kind == libmapa::GeometryKind::Point) {
+            QVERIFY(f.style.fillColor != QColor(Qt::green));
+            QVERIFY(f.draggable);
+        }
+    for (qint64 id : m_mision->mapa()->rangeMarks()) {
+        const auto anillo = m_mision->mapa()->rangeRings(id);
+        QVERIFY(anillo && anillo->color != QColor(Qt::green));
+    }
+    // Se puede volver a cumplir.
+    m_mision->marcarPuntoCumplido(0);
+    int verdes = 0;
+    for (const auto &f : m_mision->mapa()->featuresInLayer(QStringLiteral("ruta")))
+        if (f.kind == libmapa::GeometryKind::Point && f.style.fillColor == QColor(Qt::green))
+            ++verdes;
+    QCOMPARE(verdes, 1);
+}
+
+// Cada punto se dibuja como un simbolo: centro marcado y circunferencia vacia
+// alrededor (el centro y el anillo pintados, entre ellos transparente).
+void TestMapaMision::puntoConCentroYCircunferencia()
+{
+    m_mision->pintarRuta(rutaDePrueba(), true);
+    const auto ruta = m_mision->mapa()->featuresInLayer(QStringLiteral("ruta"));
+    for (const auto &f : ruta) {
+        if (f.kind != libmapa::GeometryKind::Point)
+            continue;
+        QVERIFY(!f.style.icon.isNull());
+        const QImage img = f.style.icon.toImage();
+        const int c = img.width() / 2;
+        const qreal dpr = f.style.icon.devicePixelRatio();
+        QVERIFY(qAlpha(img.pixel(c, c)) > 200);                          // centro
+        QVERIFY(qAlpha(img.pixel(c + int(6 * dpr), c)) < 40);            // hueco
+        QVERIFY(qAlpha(img.pixel(c + int(9 * dpr), c)) > 200);           // circunferencia
     }
 }
 
