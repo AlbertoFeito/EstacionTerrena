@@ -10,6 +10,7 @@
 
 #include <QGeoCoordinate>
 #include <QList>
+#include <QPointF>
 #include <QString>
 #include <QVector>
 
@@ -65,6 +66,9 @@ struct RevisionRuta
     double subida = 0.0, bajada = 0.0;               //!< m acumulados
     double holguraTerreno = std::numeric_limits<double>::quiet_NaN();  //!< m, la menor de la ruta
     QVector<double> cotas;         //!< terreno bajo cada punto, m (NaN sin dato)
+    //! La altura a la que va de verdad (limitada por sus tasas de subida y
+    //! bajada) cada kPasoTerreno m: x = distancia por la ruta desde P1, y = m.
+    QVector<QPointF> perfilReal;
     double sobreTerrenoMin = std::numeric_limits<double>::quiet_NaN();  //!< altura de los puntos sobre
     double sobreTerrenoMax = std::numeric_limits<double>::quiet_NaN();  //!< el terreno, m (NaN sin dato)
     bool hayTerreno = false;       //!< se ha podido comprobar el terreno (algun dato)
@@ -122,6 +126,17 @@ public:
      */
     QList<E_Punto> generarRuta(const QGeoCoordinate &p1, double sobreTerreno, const FuncionTerreno &terreno,
                                bool *conTerreno = nullptr) const;
+
+    /**
+     * @brief Por donde iria el dron en planta con estas caracteristicas: a la
+     *        velocidad de cada tramo, girando con su radio de giro y pasando al
+     *        punto siguiente al entrar en \a radioAcercamiento (m sobre el
+     *        terreno) del que tiene delante, como el autopiloto.
+     *
+     * Es una estimacion (sin viento ni la ley de guiado real del autopiloto):
+     * sirve para ver por donde corta los giros o donde se pasa y da la vuelta.
+     */
+    QVector<QGeoCoordinate> trayectoriaProbable(const QList<E_Punto> &puntos, double radioAcercamiento) const;
 
     //! Radio de giro del ala fija a \a velocidad m/s: el de un giro coordinado
     //! con kAlabeoGrados de alabeo, r = v² / (g·tan φ), y nunca menos que el

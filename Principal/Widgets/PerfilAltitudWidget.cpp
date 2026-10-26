@@ -94,10 +94,11 @@ void PerfilAltitudWidget::changeEvent(QEvent *event)
     }
 }
 
-// Pone la ruta y rehace el perfil.
-void PerfilAltitudWidget::setRuta(const QList<E_Punto> &puntos)
+// Pone la ruta (y la trayectoria probable, si la hay) y rehace el perfil.
+void PerfilAltitudWidget::setRuta(const QList<E_Punto> &puntos, const QVector<QPointF> &trayectoria)
 {
     m_puntos = puntos;
+    m_trayectoria = trayectoria;
     generarPerfil();
 }
 
@@ -158,8 +159,8 @@ void PerfilAltitudWidget::muestrearTerreno()
 }
 
 // Terreno relleno abajo, la ruta en el naranja del mapa con sus puntos
-// rotulados (P1...P10) y, en rojo, donde el terreno queda a menos de 10 m de
-// la altura de vuelo.
+// rotulados (P1...P10), la trayectoria probable si se aparta del plan y, en
+// rojo, donde el terreno queda a menos de 10 m de la altura a la que va.
 void PerfilAltitudWidget::dibujarPerfil()
 {
     m_plot->clearGraphs();
@@ -206,19 +207,51 @@ void PerfilAltitudWidget::dibujarPerfil()
         rotulo->setFont(f);
     }
 
-    // Donde el terreno se acerca a menos de 10 m de la altura de vuelo.
+    // La trayectoria probable (la altura a la que va de verdad, limitada por
+    // su tasa de subida), discontinua, solo si se aparta del plan.
+    auto planEn = [this](double d) {
+        const int idx = int(std::upper_bound(m_distanciasAcumuladas.begin(), m_distanciasAcumuladas.end(), d)
+                            - m_distanciasAcumuladas.begin()) - 1;
+        if (idx < 0)
+            return m_alturasVuelo.first();
+        if (idx >= m_distanciasAcumuladas.size() - 1)
+            return m_alturasVuelo.last();
+        const double tramo = m_distanciasAcumuladas[idx + 1] - m_distanciasAcumuladas[idx];
+        const double frac = tramo > 0.0 ? (d - m_distanciasAcumuladas[idx]) / tramo : 0.0;
+        return m_alturasVuelo[idx] + frac * (m_alturasVuelo[idx + 1] - m_alturasVuelo[idx]);
+    };
+    bool seAparta = false;
+    QVector<double> trayX, trayY;
+    for (const QPointF &q : qAsConst(m_trayectoria)) {
+        trayX.append(q.x());
+        trayY.append(q.y());
+        seAparta = seAparta || std::fabs(q.y() - planEn(q.x())) > 1.0;
+    }
+    auto vueloEn = [&](double d) {
+        if (!seAparta)
+            return planEn(d);
+        const int j = int(std::lower_bound(trayX.begin(), trayX.end(), d) - trayX.begin());
+        if (j <= 0)
+            return trayY.first();
+        if (j >= trayX.size())
+            return trayY.last();
+        const double f = (d - trayX[j - 1]) / std::max(1e-9, trayX[j] - trayX[j - 1]);
+        return trayY[j - 1] + f * (trayY[j] - trayY[j - 1]);
+    };
+    if (seAparta) {
+        QCPGraph *probable = m_plot->addGraph();
+        probable->setData(trayX, trayY);
+        probable->setName(QStringLiteral("Trayectoria probable"));
+        QPen pluma(QColor(255, 213, 79), 2, Qt::DashLine);
+        probable->setPen(pluma);
+    }
+
+    // Donde el terreno se acerca a menos de 10 m de la altura a la que va.
     const double margenSeguridad = 10.0;
     QVector<double> distPeligro, altPeligro;
     for (int i = 0; i < m_distanciasMuestreo.size(); ++i) {
         const double d = m_distanciasMuestreo[i];
-        const int idx = int(std::upper_bound(m_distanciasAcumuladas.begin(), m_distanciasAcumuladas.end(), d)
-                            - m_distanciasAcumuladas.begin()) - 1;
-        if (idx < 0 || idx >= m_distanciasAcumuladas.size() - 1)
-            continue;
-        const double tramo = m_distanciasAcumuladas[idx + 1] - m_distanciasAcumuladas[idx];
-        const double frac = tramo > 0.0 ? (d - m_distanciasAcumuladas[idx]) / tramo : 0.0;
-        const double altVuelo = m_alturasVuelo[idx] + frac * (m_alturasVuelo[idx + 1] - m_alturasVuelo[idx]);
-        if (m_alturasTerreno[i] + margenSeguridad > altVuelo) {
+        if (m_alturasTerreno[i] + margenSeguridad > vueloEn(d)) {
             distPeligro.append(d);
             altPeligro.append(m_alturasTerreno[i]);
         }

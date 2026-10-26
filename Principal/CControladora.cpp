@@ -1335,6 +1335,15 @@ void CControladora::pintarRutaEnMapa(bool visible)
     for (const auto &punto : m_wPuntos->getModelo()->obtenerLista())
         puntos.append({punto.pos, punto.nombre});
     m_mapa->pintarRuta(puntos, visible);
+    // Por donde iria el dron con sus caracteristicas: el radio de acercamiento
+    // va en metros Mercator (como al autopiloto) y la simulacion, en metros
+    // sobre el terreno: por cos(lat).
+    if (visible && puntos.size() >= 2) {
+        const double radio = m_mapa->radioAcercamiento() * std::cos(qDegreesToRadians(puntos.first().pos.latitude()));
+        m_mapa->ponerTrayectoria(m_wPuntos->getModelo()->trayectoriaProbable(radio));
+    } else {
+        m_mapa->ponerTrayectoria({});
+    }
     // Los cumplidos son del plan que confirmo el dron: si la ruta que se ve ya
     // no es ese plan (se ha movido un punto, se ha abierto otra), van en rojo.
     if (sL_cambiaProyeccion () != m_planEnDron) {
@@ -1358,6 +1367,8 @@ void CControladora::enviarMandos()
 {
     m_wConexion->sL_EnviaMandosDron (Tramas::mandos (mandos));
     m_mapa->ponerRadioAcercamiento (mandos.Radio_Acercamiento);
+    if (m_mapa->rutaVisible ())
+        pintarRutaEnMapa (true);   // la trayectoria probable depende del radio
     if (m_Conectado)
         m_esperaAcuseMandos->start ();
 }

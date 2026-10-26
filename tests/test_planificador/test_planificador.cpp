@@ -76,6 +76,8 @@ private slots:
     void alturaYVelocidadFueraDeLimites();
     void alturaSobreElTerreno();
     void generarRutaSobreElTerreno();
+    void laderaQueElDronNoSube();
+    void trayectoriaProbable();
     void loVeTodoNoSoloElPrimero();
     void separacionEntrePuntos();
     void aceleracionConSuDistancia();
@@ -201,6 +203,108 @@ void TestPlanificador::generarRutaSobreElTerreno()
     const QList<E_Punto> sin = rp.generarRuta(p1, 50, nada, &conTerreno);
     QVERIFY(!conTerreno);
     QVERIFY(qAbs(sin[5].altura - 50.0) < 0.01);
+}
+
+// Una ladera al 25 % (como la ruta "hhh" del usuario, algo mas empinada) y
+// la ruta a 100 m sobre ella a 16 m/s: el dron sube al 3/16 = 19 %, pierde
+// unos 20 m por tramo y acaba chocando aunque el plan libre el terreno. El
+// error tiene que decir que el plan va bien y que subir los puntos no sirve,
+// y proponer lo que si (mas despacio, empezar mas alto, subida mas larga). Un
+// aviso de ruta lo dice de entrada. El generador, en la misma ladera, baja la
+// velocidad y la ruta sale sin choques ni subidas imposibles.
+void TestPlanificador::laderaQueElDronNoSube()
+{
+    RoutePlanner rp(alaFija());
+    const QGeoCoordinate p1(23.1, -82.4);
+    auto ladera = [p1](const QGeoCoordinate &c) { return 500.0 + 0.25 * p1.distanceTo(c); };
+    QList<E_Punto> ruta;
+    for (int i = 0; i < 10; ++i) {
+        E_Punto pt = punto(QStringLiteral("P%1").arg(i + 1), 300.0 * i, 0, 16);
+        pt.altura = float(ladera(pt.pos) + 100.0);
+        ruta.append(pt);
+    }
+    const RevisionRuta r = rp.revisar(ruta, ladera);
+    QVector<Hallazgo> choque = conCodigo(r, "terreno_choca");
+    choque += conCodigo(r, "terreno_roza");
+    QVERIFY(!choque.isEmpty());
+    const Hallazgo &c = choque.first();
+    QVERIFY2(c.explicacion.contains("Subir los puntos no lo arregla"), qPrintable(c.explicacion));
+    QVERIFY2(c.explicacion.contains("desde P1"), qPrintable(c.explicacion));
+    QVERIFY2(c.solucion.contains("m/s o menos"), qPrintable(c.solucion));
+    QVERIFY(c.solucion.contains("empieza la subida más alto: P1 a"));
+    QVERIFY(!c.solucion.contains("Sube P"));
+
+    const auto empinado = conCodigo(r, "terreno_empinado");
+    QCOMPARE(empinado.size(), 1);
+    QVERIFY2(empinado.first().explicacion.contains("25 %"), qPrintable(empinado.first().explicacion));
+    QVERIFY(empinado.first().explicacion.contains("19 %"));
+    QVERIFY2(empinado.first().solucion.contains("12.0 m/s o menos"), qPrintable(empinado.first().solucion));
+
+    // Con un plan bajo (no por la subida), el arreglo sigue siendo subir los puntos.
+    auto meseta = [](const QGeoCoordinate &) { return 600.0; };
+    const RevisionRuta bajo = rp.revisar(recta(2, 300, 590, 16), meseta);
+    QVERIFY(conCodigo(bajo, "terreno_choca").value(0).solucion.startsWith("Sube P1 y P2"));
+
+    // El generador en la misma ladera: mas despacio donde sube, sin choques.
+    const QList<E_Punto> generada = rp.generarRuta(p1, 100, ladera);
+    QVERIFY(generada[3].velocidad < 16.25f);
+    QVERIFY(generada[3].velocidad >= 10.0f);
+    const RevisionRuta rg = rp.revisar(generada, ladera);
+    QVERIFY(conCodigo(rg, "terreno_choca").isEmpty() && conCodigo(rg, "terreno_roza").isEmpty());
+    QVERIFY(conCodigo(rg, "sube_rapido").isEmpty());
+    QVERIFY(conCodigo(rg, "terreno_empinado").isEmpty());
+}
+
+// Por donde iria en planta. En recta, por la recta (y lo que mide). En un giro
+// de 90° a 20 m/s (radio 70,6 m) con acercamiento de 20 m: cambia de punto a
+// 20 m de P2, pero se pasa de la esquina unos 50 m mientras gira. Con P3 a 100 m (dentro
+// de su circulo de giro) da vueltas sin alcanzarlo: el camino es mucho mas
+// largo que los 400 m del plan. Y en el perfil, la altura real.
+void TestPlanificador::trayectoriaProbable()
+{
+    RoutePlanner rp(alaFija());
+    auto largo = [](const QVector<QGeoCoordinate> &c) {
+        double m = 0.0;
+        for (int i = 1; i < c.size(); ++i)
+            m += c[i - 1].distanceTo(c[i]);
+        return m;
+    };
+    auto masCerca = [](const QVector<QGeoCoordinate> &c, const QGeoCoordinate &a) {
+        double m = 1e12;
+        for (const QGeoCoordinate &q : c)
+            m = std::min(m, q.distanceTo(a));
+        return m;
+    };
+    const auto recto = rp.trayectoriaProbable(recta(4, 300, 100, 16), 20);
+    QVERIFY(qAbs(largo(recto) - 880.0) < 15.0);   // 900 m menos los 20 del ultimo acercamiento
+
+    auto ruta = recta(2, 300, 100, 20);
+    ruta.append(punto("P3", 0, 100, 20));
+    ruta[2].pos = ruta[1].pos.atDistanceAndAzimuth(300, 0);
+    const auto giro = rp.trayectoriaProbable(ruta, 20);
+    // Cambia a 20 m de P2, pero con 70,6 m de radio sigue hacia el este
+    // mientras gira: se pasa unos r - 20 = 50 m de la esquina.
+    double pasa = 0.0;
+    for (const QGeoCoordinate &q : giro) {
+        const double az = ruta[1].pos.azimuthTo(q);
+        pasa = std::max(pasa, ruta[1].pos.distanceTo(q) * std::sin(qDegreesToRadians(az)));
+    }
+    QVERIFY2(qAbs(pasa - 50.6) < 6.0, qPrintable(QString::number(pasa)));
+    QVERIFY(masCerca(giro, ruta[2].pos) <= 21.0);
+
+    ruta[2].pos = ruta[1].pos.atDistanceAndAzimuth(100, 0);
+    const auto vuelta = rp.trayectoriaProbable(ruta, 20);
+    // Dentro del circulo de giro no lo alcanza girando al maximo: da vueltas
+    // (la simulacion corta tras unas cuantas), mucho mas camino que el plan.
+    QVERIFY2(largo(vuelta) > 400.0 + 200.0, qPrintable(QString::number(largo(vuelta))));
+
+    // Perfil real: empieza en P1 y acaba a la altura a la que llega al final.
+    QList<E_Punto> sube{punto("P1", 0, 100, 15), punto("P2", 300, 200, 15)};
+    const RevisionRuta r = rp.revisar(sube);
+    QVERIFY(!r.perfilReal.isEmpty());
+    QVERIFY(qAbs(r.perfilReal.first().y() - 100.0) < 0.01);
+    QVERIFY(qAbs(r.perfilReal.last().x() - 300.0) < 1.0);
+    QVERIFY(qAbs(r.perfilReal.last().y() - 160.0) < 0.5);
 }
 
 // Antes la validacion se paraba en el primer problema; ahora salen todos, y

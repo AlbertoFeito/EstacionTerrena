@@ -37,6 +37,7 @@ const double kSeparacionRotuloPx = 34.0;
 // (sin plan llega 0,0, que cae en el golfo de Guinea): no se dibuja la linea.
 const double kMaxProximoM = 100000.0;
 const QColor kColorLineaRuta(255, 150, 10);
+const QColor kColorTrayectoria(255, 213, 79);   // amarillo claro: lo que haria el dron
 const QColor kColorPunto(Qt::red);
 const QColor kColorCumplido(Qt::green);
 // Radio en pantalla de la circunferencia de cada punto de la ruta.
@@ -591,6 +592,7 @@ void MapaMision::pintarRuta(const QVector<PuntoRutaMapa> &puntos, bool visible)
     m_anillos.clear();
     m_mapa->clearFeatureLayer(kCapaRuta);
     m_linea = -1;
+    m_trayectoria = -1;
     m_puntos.clear();
     m_cumplidos.clear();
 
@@ -699,6 +701,38 @@ void MapaMision::ponerZonaTapada(int abajoPx, int derechaPx)
 {
     m_tapadoAbajo = std::max(0, abajoPx);
     m_tapadoDerecha = std::max(0, derechaPx);
+}
+
+// La trayectoria probable: una linea discontinua amarilla, no seleccionable,
+// que se mueve en el sitio si ya estaba.
+void MapaMision::ponerTrayectoria(const QVector<QGeoCoordinate> &camino)
+{
+    if (camino.size() < 2) {
+        if (m_trayectoria >= 0)
+            m_mapa->removeFeature(m_trayectoria);
+        m_trayectoria = -1;
+        return;
+    }
+    if (m_trayectoria >= 0) {
+        if (auto f = m_mapa->feature(m_trayectoria)) {
+            MapFeature linea = *f;
+            linea.geometry = camino;
+            m_mapa->updateFeature(linea);
+            return;
+        }
+    }
+    MapFeature linea;
+    linea.layerId = kCapaRuta;
+    linea.kind = GeometryKind::Polyline;
+    linea.type = QStringLiteral("trayectoria");
+    linea.name = QStringLiteral("Trayectoria probable");
+    linea.selectable = false;
+    linea.style.lineColor = kColorTrayectoria;
+    linea.style.lineWidth = 2.0;
+    linea.style.lineStyle = Qt::DashLine;
+    linea.style.labelVisible = false;
+    linea.geometry = camino;
+    m_trayectoria = m_mapa->addFeature(linea);
 }
 
 // Pinta de verde un punto ya cumplido: el punto y su circulo.

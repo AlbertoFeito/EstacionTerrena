@@ -1091,7 +1091,7 @@ void Widget_Puntos::mostrarPerfil()
     auto *caja = new QVBoxLayout(ventana);
     auto *grande = new PerfilAltitudWidget(m_alturaWorker, ventana);
     caja->addWidget(grande);
-    grande->setRuta(modelo->obtenerLista());
+    grande->setRuta(modelo->obtenerLista(), modelo->revision().perfilReal);
     connect(grande, &PerfilAltitudWidget::puntoSeleccionado, this, [this](int i) {
         tw_puntosRuta->selectRow(i);
     });
@@ -1104,7 +1104,7 @@ void Widget_Puntos::refrescarPerfil()
 {
     const QList<E_Punto> &puntos = modelo->obtenerLista();
     if (modelo->isDroneConfigured() && puntos.size() >= 2)
-        m_perfilWidget->setRuta(puntos);
+        m_perfilWidget->setRuta(puntos, modelo->revision().perfilReal);
     else
         m_perfilWidget->limpiar();
     ajustarAnchoTabla();

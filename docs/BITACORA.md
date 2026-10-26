@@ -1280,3 +1280,115 @@ prueba:
   más alto;
 - editar «S/terr.» de P1 a 120 m cambia «Alt.» de 672 a 570 m, y la revisión
   avisa de que así el tramo P1 → P2 ya no libra la cresta.
+
+## 32. Cuando el dron no le da para subir, y la trayectoria probable
+
+El usuario mandó la ruta «hhh» (ala fija, 16,3 m/s, puntos a 100–206 m sobre el
+terreno) con «No válida: 1 error y 8 avisos» y pidió que se le explicara.
+
+El terreno subía de unos 510 a 1.085 m en 2,7 km, una pendiente media del
+21 %. El dron, a 16,3 m/s y subiendo a 3 m/s como mucho, sube al 18 %. Tramo
+a tramo se quedaba por debajo del plan (17, 11… 177 m al llegar a P9), y en
+P9 → P10 acababa 21 m dentro de la ladera, aunque los puntos estuvieran bien
+altos.
+
+La revisión lo detectaba, pero **el arreglo que daba no servía**: «Sube P9 y
+P10 hasta 1.115 m». Subir los puntos del plan no hace que el dron suba más
+rápido. El usuario pidió las dos mejoras propuestas y, además, que se dibujara
+la trayectoria posible según las características del dron.
+
+### El choque dice de dónde viene
+
+Cuando el dron atraviesa o roza el terreno (o pasa con poco margen), la
+revisión mira también la recta del plan en ese sitio:
+
+- **Si el plan va bajo**, el arreglo sigue siendo subir los puntos.
+- **Si el plan libra el terreno pero el dron no llega a su altura**, el error lo
+  dice: «El plan pasa ahí a 101 m sobre el terreno, pero el dron no llega a esa
+  altura: desde P1 no le da para subir lo que pide la ruta (va 98 m por debajo
+  del plan). Subir los puntos no lo arregla.» Y propone lo que sí funciona:
+  - **volar más despacio** desde el último punto al que llegó a la altura del
+    plan: la velocidad media con la que le da, y a qué pendiente sube así;
+  - **empezar la subida más alto**: ese punto, con los metros que le faltan;
+  - **hacer la subida más larga**: puntos más separados, o en zigzag u otro
+    rumbo en vez de ir de frente contra la ladera.
+
+### Aviso de ladera
+
+Un aviso de ruta, «El terreno sube más de lo que puede subir el dron», sale
+cuando, en un trozo de varios puntos, el terreno sube más empinado (más de
+50 m) que tasa de subida ÷ velocidad. Además el dron tiene que quedarse de
+verdad por debajo del plan en algún tramo: si la ruta ya va por encima, no
+hace falta seguir la ladera. En la primera prueba avisaba por eso en una ruta
+correcta.
+
+Se queda con el trozo en el que más metros pierde: la subida entera, no el
+pedazo más empinado, que es lo que elegía al principio. Da las pendientes, los
+metros que se quedará por debajo y los mismos tres arreglos, con la velocidad
+que le basta («Vuela de P1 a P10 a 12 m/s o menos, así sube al 25 %»). Si ni a
+su velocidad mínima puede, lo dice.
+
+### El generador ya no hace rutas que el dron no puede subir
+
+`RoutePlanner::generarRuta`, después de librar el terreno:
+
+- baja la velocidad de los dos puntos de cada tramo que sube más de lo que le
+  da su tasa, hasta la mínima del ala fija;
+- si ni así le da, sube los puntos de antes (recorriendo la ruta de atrás
+  adelante) para que empiece la subida más alto.
+
+Solo sube alturas: el terreno queda igual de librado. Las bajadas que no le dan
+se dejan, porque llega más alto y es seguro.
+
+En una ladera sintética al 25 %, «Restablecer» deja la ruta a 12 m/s y
+«Válida», sin nada que revisar.
+
+### La trayectoria probable
+
+- **En el perfil** (el del panel y «Ampliar perfil»): una línea amarilla
+  discontinua con la altura a la que va de verdad, limitada por sus tasas.
+  Sale de `RevisionRuta::perfilReal`, una muestra cada 20 m. Solo se dibuja si
+  se aparta del plan. Las cruces rojas de «terreno a menos de 10 m» miran ahora
+  esa altura, no la del plan.
+- **En el mapa**: otra línea amarilla discontinua, no seleccionable
+  (`MapaMision::ponerTrayectoria`). Sale de
+  `RoutePlanner::trayectoriaProbable`, que simula el vuelo en planta:
+  - a la velocidad de cada tramo;
+  - el ala fija gira con el radio de su velocidad (alabeo de 30°); el
+    cuadróptero, con su radio mínimo;
+  - el rumbo va siempre hacia el punto al que se dirige;
+  - pasa al siguiente al entrar en el radio de acercamiento de Mandos (el que
+    usa el autopiloto, pasado a metros sobre el terreno).
+
+  Se ve dónde se pasa de una esquina (con 20 m de acercamiento y 70 m de
+  radio, unos 50 m) y dónde da vueltas sin alcanzar un punto que queda dentro
+  de su círculo de giro. Se rehace al cambiar la ruta o el radio de
+  acercamiento. Es una estimación: sin viento ni la ley de guiado real del
+  autopiloto, y así lo dice «Cómo se revisa».
+
+El aviso de giro cerrado decía «dará una vuelta para alcanzarlo». La
+simulación muestra que, girando al máximo, puede no alcanzarlo nunca, y ahora
+lo dice así.
+
+### Pruebas
+
+Dos casos nuevos en `test_planificador`:
+
+- `laderaQueElDronNoSube`: la ladera al 25 % con la ruta a 100 m sobre ella.
+  El choque dice que subir los puntos no sirve y da la velocidad y la altura de
+  P1. El aviso de ladera da 25 % contra 19 % y 12 m/s. Con un plan bajo, el
+  arreglo sigue siendo subir los puntos. La ruta generada sale sin choques ni
+  subidas imposibles.
+- `trayectoriaProbable`: en recta mide lo que la ruta; en un giro de 90° se
+  pasa unos 50 m; con el punto dentro del círculo de giro da vueltas; y el
+  perfil real acaba a la altura a la que llega.
+
+En total pasan 121 pruebas.
+
+En la app, con la ladera sintética:
+
+- el perfil enseña la trayectoria probable metiéndose en la ladera mientras la
+  ruta la libra;
+- el mapa enseña cómo se pasa de P7 en el giro;
+- el análisis da la causa real y los arreglos que sirven;
+- «Restablecer» deja una ruta válida a 12 m/s.

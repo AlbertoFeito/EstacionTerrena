@@ -124,6 +124,11 @@ public:
     void pintarRuta(const QVector<PuntoRutaMapa> &puntos, bool visible);
     //! Ajusta la vista para que quepa la ruta entera en la parte que se ve.
     void encuadrarRuta();
+    //! La trayectoria probable del dron (RoutePlanner::trayectoriaProbable),
+    //! discontinua encima de la ruta. Vacia, se quita.
+    void ponerTrayectoria(const QVector<QGeoCoordinate> &camino);
+    //! true si la ruta esta dibujada.
+    bool rutaVisible() const { return !m_puntos.isEmpty(); }
     //! Pinta de verde el punto \a indice, ya cumplido por el dron.
     void marcarPuntoCumplido(int indice);
     //! Vuelve a poner en rojo los puntos cumplidos (la ruta ya no es el plan
@@ -197,6 +202,7 @@ private:
 
     // Ruta: la linea, un punto por vertice y su anillo de acercamiento.
     qint64 m_linea = -1;
+    qint64 m_trayectoria = -1;   // trayectoria probable (discontinua)
     QVector<qint64> m_puntos;
     QVector<qint64> m_anillos;
     QVector<bool> m_cumplidos;

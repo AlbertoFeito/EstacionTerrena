@@ -187,6 +187,10 @@ public:
      */
     QList<E_Punto> generarRuta(const QGeoCoordinate &p1, double sobreTerreno, bool *conTerreno = nullptr) const;
 
+    //! Por donde iria el dron en planta (RoutePlanner::trayectoriaProbable),
+    //! con \a radioAcercamiento en metros sobre el terreno.
+    QVector<QGeoCoordinate> trayectoriaProbable(double radioAcercamiento) const;
+
     //! Cota del terreno en metros, o NaN si no hay dato.
     double cotaTerreno(const QGeoCoordinate &pos) const;
 

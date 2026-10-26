@@ -69,6 +69,15 @@ QStringList comoSeRevisa()
             .arg(RoutePlanner::kPasoTerreno, 0, 'f', 0)
             .arg(RoutePlanner::kHolguraMinima, 0, 'f', 0)
             .arg(RoutePlanner::kHolguraAviso, 0, 'f', 0),
+        QStringLiteral("Si el choque viene de que el dron no llega a la altura del plan (no le da para subir), el "
+                       "arreglo no es subir los puntos: volar más despacio, empezar la subida más alto o hacerla más "
+                       "larga."),
+        QStringLiteral("La ladera: si el terreno sube más empinado de lo que sube el dron a esa velocidad (tasa de "
+                       "subida ÷ velocidad), aviso, aunque los puntos estén altos."),
+        QStringLiteral("La trayectoria probable (discontinua en el mapa y en el perfil): en planta, con el radio de "
+                       "giro de cada velocidad y cambiando de punto al entrar en el radio de acercamiento de Mandos; "
+                       "en altura, con sus tasas de subida y bajada. Es una estimación: sin viento ni la ley de "
+                       "guiado real del autopiloto."),
         QStringLiteral("Los giros del ala fija: el radio sale de la velocidad con %1° de alabeo; si el punto "
                        "siguiente queda dentro del círculo de giro, no puede ir directo.")
             .arg(RoutePlanner::kAlabeoGrados, 0, 'f', 0),

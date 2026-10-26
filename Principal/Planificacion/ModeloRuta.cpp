@@ -445,6 +445,14 @@ double MiModelo::cotaTerreno(const QGeoCoordinate &pos) const
     return m_alturaWorker ? m_alturaWorker->cota(pos) : std::numeric_limits<double>::quiet_NaN();
 }
 
+// La trayectoria probable de la ruta actual (vacia sin dron).
+QVector<QGeoCoordinate> MiModelo::trayectoriaProbable(double radioAcercamiento) const
+{
+    if (!isDroneConfigured())
+        return {};
+    return planner->trayectoriaProbable(listaDatos, radioAcercamiento);
+}
+
 // La ruta por defecto desde p1 (la genera RoutePlanner con el terreno del mapa).
 QList<E_Punto> MiModelo::generarRuta(const QGeoCoordinate &p1, double sobreTerreno, bool *conTerreno) const
 {
