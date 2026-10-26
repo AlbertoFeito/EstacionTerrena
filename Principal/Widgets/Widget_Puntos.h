@@ -46,6 +46,7 @@
  * y el mapa. Permite crear, cargar, editar, validar y enviar rutas de 10 puntos.
  */
 class VentanaInforme;
+class VentanaPropuestas;
 
 class Widget_Puntos : public QWidget
 {
@@ -132,6 +133,7 @@ signals:
     void sI_visibilidadCambiada(const QString &routeName, bool visible); ///< Cambió visibilidad de una ruta.
     void sI_centrarEnPunto(const QGeoCoordinate &pos);          ///< Doble clic en un punto: centrar el mapa ahí.
     void sI_encuadrarRuta();                                    ///< Se pidió ver la ruta: encuadrarla en el mapa.
+    void sI_rutaPropuesta(const QVector<QGeoCoordinate> &camino); ///< Vista previa de una ruta propuesta (vacía: quitarla).
 
 public slots:
     /**
@@ -261,6 +263,10 @@ private:
     void ajustarAnchoTabla();
     QString obtenerNombreTablaLimpio(const QString &nombreTablaConFormato);
     void refrescarInforme(bool aunqueOculta = false);
+    void proponerRutas();
+    void calcularPropuestas();
+    void ponerPuntos(const QList<E_Punto> &puntos);
+    VentanaPropuestas *m_propuestas = nullptr;   // rutas propuestas (se crea al abrirla)
     VentanaInforme *m_informe = nullptr;   // ventana del analisis (se crea al abrirla)
 
 protected:

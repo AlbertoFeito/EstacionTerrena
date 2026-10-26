@@ -1392,3 +1392,87 @@ En la app, con la ladera sintética:
 - el mapa enseña cómo se pasa de P7 en el giro;
 - el análisis da la causa real y los arreglos que sirven;
 - «Restablecer» deja una ruta válida a 12 m/s.
+
+## 33. Proponer ruta: de P1 a P10 por el terreno, y el operador elige
+
+El usuario preguntó si, a partir de la ruta inicial en línea, con el punto
+inicial y el final colocados, la estación podía poner sola el resto de puntos,
+conociendo el terreno y las características del dron, para tener una ruta
+óptima. Primero pidió solo la explicación (dónde está el límite: 10 puntos y
+tramos entre la distancia mínima y la máxima del dron; qué es «óptima»; por
+fases). Después eligió «una mezcla, pero si se puede calcula las tres y que el
+operador decida».
+
+### Cómo busca (`RoutePlanner::proponerRutas`)
+
+- **Pasillo.** La recta de P1 a P10 se parte en 9 tramos iguales. En cada una
+  de las 8 estaciones intermedias se prueban 21 desplazamientos a un lado y a
+  otro, hasta el ancho del pasillo (1 km por defecto). Así la ruta puede ir por
+  un valle o rodear una loma en vez de subirla.
+- **Coste por tramos y por giros.** Cuentan:
+  - el largo, que es tiempo;
+  - lo que sube lo más alto del terreno de un tramo al siguiente, que es lo que
+    tendrá que subir el dron;
+  - mucho más caro, lo que pase de lo que le da su tasa de subida a su
+    velocidad (ahí se quedaría por debajo, §32);
+  - lo accidentado del terreno bajo el tramo;
+  - los giros, y mucho más si el punto siguiente queda dentro del círculo de
+    giro del ala fija;
+  - pasarse de la altura máxima del dron sobre el terreno.
+
+  Los tramos fuera de la distancia mínima o máxima no se admiten.
+- **Programación dinámica (Viterbi).** Como el coste se reparte así, y un giro
+  depende de tres puntos seguidos, la mejor combinación sale recorriendo las
+  estaciones con parejas de desplazamientos, sin probar los 21⁸ casos. Las
+  tres prioridades salen en una fracción de segundo.
+- **Tres prioridades**, que solo cambian los pesos:
+  - **Segura** prima las subidas suaves, no quedarse por debajo y el terreno
+    tranquilo, aunque sea más larga;
+  - **Rápida** prima el largo;
+  - **Equilibrada** es una mezcla.
+- **Alturas y velocidades** como en el generador, ahora en una función común
+  (`puntosPorPosiciones`): cada punto sobre lo más alto de sus tramos, más
+  despacio donde hace falta subir y más alto antes si ni así le da.
+- **Cada propuesta se revisa entera** (`revisar`), con la trayectoria real.
+  También la **recta**, para comparar.
+- **Si es imposible**, lo dice. Por ejemplo, P10 más lejos de lo que caben 9
+  tramos: «caben 4500 m; acerca P10 a P1».
+
+### Lo que ve el operador
+
+**Proponer ruta…** está en el panel y usa el P1 y el P10 de la ruta, que el
+operador coloca antes arrastrándolos. La ventana trae:
+
+- una fila por propuesta (Segura, Equilibrada, Rápida y Recta) con distancia,
+  tiempo, altura máxima, subida total, el margen mínimo sobre el terreno a la
+  altura real y el estado de la revisión;
+- la elegida en el perfil (con su trayectoria probable) y en el mapa como
+  vista previa: cian, a trazos y punto, en la capa de la misión para que no se
+  borre al repintar la ruta;
+- **Usar esta ruta**, que la pasa a la tabla, y el ancho del pasillo con
+  **Calcular** para repetir.
+
+### Pruebas
+
+- `proponerRutas` en `test_planificador`:
+  - en llano, las cuatro salen rectas;
+  - con una cresta de 300 m que cruza la recta y un paso a un lado, la Segura
+    va por el paso (menos de 200 m de altura frente a más de 400, válida y sin
+    subidas imposibles) y la Rápida no es más larga que la Segura;
+  - con P10 a 10 km lo dice.
+- En total pasan 122 pruebas.
+
+En la app, con una cresta sintética de 400 m y un paso a 400–700 m al norte:
+
+| Ruta | Distancia | Sube en total | Estado |
+|---|---|---|---|
+| Recta | 2.700 m | 269 m (hasta 738 m) | 4 avisos |
+| Segura | 2.890 m | 0 m (por el paso) | Válida |
+| Equilibrada y Rápida | 2.858 m | 3 m | Válida |
+
+La vista previa se curva hacia el paso y «Usar esta ruta» deja la tabla
+«Válida».
+
+Lo que queda para después está en `PENDIENTES.md`: mover las estaciones a lo
+largo, afinar, A* para desvíos grandes, zonas a evitar y pesos ajustados con
+vuelos.

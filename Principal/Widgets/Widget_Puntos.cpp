@@ -4,6 +4,7 @@
 
 #include "Widget_Puntos.h"
 #include "VentanaInforme.h"
+#include "VentanaPropuestas.h"
 #include "Planificacion/InformeRuta.h"
 #include "dronedialog.h"
 
@@ -254,7 +255,13 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     acciones->addWidget(pb_Mostrar, 0, 0, 1, 2);
     acciones->addWidget(m_btnPerfil, 1, 0);
     acciones->addWidget(pB_AnalisisDetallado, 1, 1);
-    acciones->addWidget(btnGuia, 2, 0, 1, 2);
+    // Rutas propuestas: de P1 a P10 por el terreno, para elegir.
+    auto *btnProponer = new QPushButton(tr("Proponer ruta…"), this);
+    btnProponer->setToolTip(tr("Busca rutas de P1 a P10 según el terreno y el dron (segura, equilibrada y "
+                               "rápida) para comparar y elegir"));
+    connect(btnProponer, &QPushButton::clicked, this, &Widget_Puntos::proponerRutas);
+    acciones->addWidget(btnProponer, 2, 0);
+    acciones->addWidget(btnGuia, 2, 1);
     der->addLayout(acciones);
     der->addStretch();
     pB_EnviaRuta->setObjectName(QStringLiteral("enviar"));
@@ -510,6 +517,54 @@ void Widget_Puntos::mostrarAnalisisDetallado()
     m_informe->show();
     m_informe->raise();
     m_informe->activateWindow();
+}
+
+// Abre la ventana de rutas propuestas entre el P1 y el P10 que hay (el
+// operador los coloca primero: clic derecho para la ruta y arrastrando).
+void Widget_Puntos::proponerRutas()
+{
+    if (!modelo->isDroneConfigured() || modelo->rowCount() != 10) {
+        QMessageBox::information(this, tr("Proponer ruta"),
+                                 tr("Hace falta una ruta de 10 puntos: crea la ruta (clic derecho en el mapa) y "
+                                    "lleva P1 y P10 a donde quieras empezar y acabar."));
+        return;
+    }
+    if (!m_propuestas) {
+        m_propuestas = new VentanaPropuestas(m_alturaWorker, this);
+        connect(m_propuestas, &VentanaPropuestas::calcular, this, &Widget_Puntos::calcularPropuestas);
+        connect(m_propuestas, &VentanaPropuestas::vistaPrevia, this, &Widget_Puntos::sI_rutaPropuesta);
+        connect(m_propuestas, &VentanaPropuestas::usar, this, [this](const QList<E_Punto> &puntos) {
+            ponerPuntos(puntos);
+            m_propuestas->close();
+        });
+    }
+    m_propuestas->show();
+    m_propuestas->raise();
+    calcularPropuestas();
+}
+
+// Calcula las propuestas con el P1 y el P10 actuales y las pone en la ventana.
+void Widget_Puntos::calcularPropuestas()
+{
+    if (!m_propuestas || modelo->rowCount() != 10)
+        return;
+    const QList<E_Punto> &puntos = modelo->obtenerLista();
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const QVector<PropuestaRuta> propuestas = modelo->proponerRutas(
+        puntos.first().pos, puntos.last().pos, m_spinSobreTerreno->value(), m_propuestas->anchoPasillo());
+    QApplication::restoreOverrideCursor();
+    m_propuestas->mostrar(propuestas);
+}
+
+// Sustituye los puntos de la ruta por estos (una propuesta elegida).
+void Widget_Puntos::ponerPuntos(const QList<E_Punto> &puntos)
+{
+    modelo->borraTodosLosElementos();
+    for (const E_Punto &punto : puntos)
+        modelo->agregarElemento(punto);
+    updateUIForDroneConfigured(true);
+    modelo->revalidarRutaCompleta();
+    emit sI_pintaRuta(pb_Mostrar->isChecked());
 }
 
 // El informe al dia con la revision, si la ventana esta abierta (o \a aunqueOculta).

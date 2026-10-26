@@ -154,6 +154,11 @@ de 10 puntos en *Rutas*; para que la siga, *Mandos* en régimen automático.
    cómo arreglarlo: icono y color en cada fila de la tabla (el detalle, con el
    ratón encima), cuántos errores y avisos en el estado de abajo, y el
    **Análisis** completo (no modal: se rehace solo mientras se corrige y lleva a
+   cada punto). Con P1 y P10 donde se quiere empezar y acabar, **Proponer ruta…**
+   busca por el terreno tres rutas (segura, equilibrada y rápida), las compara con
+   la recta y deja usar la que se elija (vista previa en el mapa y en el perfil; la
+   trayectoria probable del dron se ve discontinua en los dos). Volviendo al
+   **Análisis** (no modal: se rehace solo mientras se corrige y lleva a
    cada punto). Cuando el dron confirma, el botón se pone verde y
    la barra de estado dice «✓ El dron ha confirmado el plan». Sin respuesta en
    3 s, aviso; si lo rechaza, se reenvía hasta 3 veces.

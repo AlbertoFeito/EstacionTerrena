@@ -127,6 +127,9 @@ public:
     //! La trayectoria probable del dron (RoutePlanner::trayectoriaProbable),
     //! discontinua encima de la ruta. Vacia, se quita.
     void ponerTrayectoria(const QVector<QGeoCoordinate> &camino);
+    //! Una ruta propuesta por el optimizador, como vista previa (cian, con
+    //! trazos y puntos); vacia, se quita.
+    void ponerPropuesta(const QVector<QGeoCoordinate> &camino);
     //! true si la ruta esta dibujada.
     bool rutaVisible() const { return !m_puntos.isEmpty(); }
     //! Pinta de verde el punto \a indice, ya cumplido por el dron.
@@ -203,6 +206,7 @@ private:
     // Ruta: la linea, un punto por vertice y su anillo de acercamiento.
     qint64 m_linea = -1;
     qint64 m_trayectoria = -1;   // trayectoria probable (discontinua)
+    qint64 m_propuesta = -1;     // vista previa de una ruta propuesta
     QVector<qint64> m_puntos;
     QVector<qint64> m_anillos;
     QVector<bool> m_cumplidos;

@@ -72,6 +72,7 @@ SOURCES += \
     Planificacion/ModeloRuta.cpp \
     Planificacion/RoutePlanner.cpp \
     Widgets/VentanaInforme.cpp \
+    Widgets/VentanaPropuestas.cpp \
     Widgets/Widget_Puntos.cpp \
     Widgets/dronedialog.cpp \
     Widgets/widget_mandos.cpp \
@@ -128,6 +129,7 @@ HEADERS += \
     Planificacion/ModeloRuta.h \
     Planificacion/RoutePlanner.h \
     Widgets/VentanaInforme.h \
+    Widgets/VentanaPropuestas.h \
     Widgets/Widget_Puntos.h \
     Widgets/dronedialog.h \
     Widgets/widget_mandos.h \

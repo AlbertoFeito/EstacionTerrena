@@ -735,6 +735,29 @@ void MapaMision::ponerTrayectoria(const QVector<QGeoCoordinate> &camino)
     m_trayectoria = m_mapa->addFeature(linea);
 }
 
+// La vista previa de una ruta propuesta, en la capa de la mision (no se
+// borra al repintar la ruta): cian, a trazos y punto, no seleccionable.
+void MapaMision::ponerPropuesta(const QVector<QGeoCoordinate> &camino)
+{
+    if (m_propuesta >= 0)
+        m_mapa->removeFeature(m_propuesta);
+    m_propuesta = -1;
+    if (camino.size() < 2)
+        return;
+    MapFeature linea;
+    linea.layerId = kCapaMision;
+    linea.kind = GeometryKind::Polyline;
+    linea.type = QStringLiteral("propuesta");
+    linea.name = QStringLiteral("Ruta propuesta");
+    linea.selectable = false;
+    linea.style.lineColor = QColor(0, 229, 255);
+    linea.style.lineWidth = 3.0;
+    linea.style.lineStyle = Qt::DashDotLine;
+    linea.style.labelVisible = false;
+    linea.geometry = camino;
+    m_propuesta = m_mapa->addFeature(linea);
+}
+
 // Pinta de verde un punto ya cumplido: el punto y su circulo.
 void MapaMision::marcarPuntoCumplido(int indice)
 {

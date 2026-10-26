@@ -42,6 +42,14 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
   acercamiento de Mandos empieza antes; si se le pasa ese radio, el aviso de
   giro cerrado sería más justo.
 
+- **Proponer ruta** (§33), lo que se dejó para después:
+  - mover también las estaciones a lo largo de la recta, no solo a los lados;
+  - afinar la elegida moviendo cada punto un poco y midiendo con la revisión;
+  - una búsqueda por toda la rejilla (A*, con el rumbo si hace falta el radio de
+    giro) para desvíos grandes que no caben en el pasillo;
+  - zonas a evitar (las capas fijas del paquete) como coste;
+  - ajustar los pesos de las tres prioridades con vuelos reales.
+
 ## Fase 2: mejora del código (por orden)
 
 1. ~~Orden del repo~~: hecho en §12.

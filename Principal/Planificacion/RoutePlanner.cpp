@@ -112,21 +112,25 @@ double RoutePlanner::calcularTiempoVuelo(const QList<E_Punto> &puntos) const
     return total;
 }
 
-// La ruta por defecto desde p1: 10 puntos hacia el este, separados la media
-// entre la distancia minima y la maxima del dron, a la velocidad por defecto
-// (mas despacio donde hace falta para poder subir).
-// Cada punto queda \a sobreTerreno m por encima de lo mas alto del terreno en
-// los tramos que lo tocan (mirado cada kPasoTerreno m): como los
+// Velocidad con la que se generan las rutas: el 65 % de la maxima en el ala
+// fija y el 45 % en el cuadroptero, nunca por debajo de la minima.
+double RoutePlanner::velocidadPorDefecto() const
+{
+    const double v = droneChars.maxSpeed * (droneChars.type == DroneType::FIXED_WING ? 0.65 : 0.45);
+    return std::max(v, droneChars.minSpeed);
+}
+
+// Los 10 puntos por esas posiciones, con altura y velocidad que el dron pueda
+// seguir. Cada punto queda \a sobreTerreno m por encima de lo mas alto del
+// terreno en los tramos que lo tocan (mirado cada kPasoTerreno m): como los
 // dos extremos de cada tramo libran su punto mas alto, la recta entre ellos
 // nunca baja de esa altura sobre el terreno. Donde no hay cota se cuenta desde
 // el nivel del mar, y \a conTerreno sale false.
-QList<E_Punto> RoutePlanner::generarRuta(const QGeoCoordinate &p1, double sobreTerreno, const FuncionTerreno &terreno,
-                                         bool *conTerreno) const
+QList<E_Punto> RoutePlanner::puntosPorPosiciones(const QVector<QGeoCoordinate> &pos, double sobreTerreno,
+                                                 const FuncionTerreno &terreno, bool *conTerreno) const
 {
-    const int n = 10;
-    const double separacion = (droneChars.minWaypointDistance + droneChars.maxWaypointDistance) / 2.0;
-    double velocidad = droneChars.maxSpeed * (droneChars.type == DroneType::FIXED_WING ? 0.65 : 0.45);
-    velocidad = std::max(velocidad, droneChars.minSpeed);
+    const int n = pos.size();
+    const double velocidad = velocidadPorDefecto();
     // La columna Radio no viaja al dron; se rellena como siempre.
     double radio = 10.0;
     if (droneChars.type == DroneType::FIXED_WING)
@@ -135,23 +139,24 @@ QList<E_Punto> RoutePlanner::generarRuta(const QGeoCoordinate &p1, double sobreT
     auto cota = [&terreno](const QGeoCoordinate &c) {
         return terreno ? terreno(c) : std::numeric_limits<double>::quiet_NaN();
     };
-    QVector<QGeoCoordinate> pos;
-    pos.append(p1);
-    for (int i = 1; i < n; ++i)
-        pos.append(pos.last().atDistanceAndAzimuth(separacion, 90.0));
+    QVector<double> largo(std::max(0, n - 1));
+    for (int i = 0; i + 1 < n; ++i)
+        largo[i] = pos[i].distanceTo(pos[i + 1]);
 
     // Lo mas alto bajo cada punto y bajo cada tramo (NaN: sin ningun dato).
     bool todoConCota = true;
     auto mayor = [](double a, double b) { return std::isfinite(a) ? (std::isfinite(b) ? std::max(a, b) : a) : b; };
-    QVector<double> bajoPunto(n), bajoTramo(n - 1, std::numeric_limits<double>::quiet_NaN());
+    QVector<double> bajoPunto(n), bajoTramo(std::max(0, n - 1), std::numeric_limits<double>::quiet_NaN());
     for (int i = 0; i < n; ++i) {
         bajoPunto[i] = cota(pos[i]);
         todoConCota = todoConCota && std::isfinite(bajoPunto[i]);
     }
-    const int pasos = std::max(1, int(std::ceil(separacion / kPasoTerreno)));
-    for (int i = 0; i + 1 < n; ++i)
+    for (int i = 0; i + 1 < n; ++i) {
+        const double rumbo = pos[i].azimuthTo(pos[i + 1]);
+        const int pasos = std::max(1, int(std::ceil(largo[i] / kPasoTerreno)));
         for (int k = 0; k <= pasos; ++k)
-            bajoTramo[i] = mayor(bajoTramo[i], cota(pos[i].atDistanceAndAzimuth(separacion * k / pasos, 90.0)));
+            bajoTramo[i] = mayor(bajoTramo[i], cota(pos[i].atDistanceAndAzimuth(largo[i] * k / pasos, rumbo)));
+    }
 
     QVector<double> alt(n), vel(n, velocidad);
     for (int i = 0; i < n; ++i) {
@@ -175,13 +180,13 @@ QList<E_Punto> RoutePlanner::generarRuta(const QGeoCoordinate &p1, double sobreT
             const double dh = alt[i + 1] - alt[i];
             if (dh <= 0.0)
                 continue;
-            const double cabe = std::max(vMinima, droneChars.maxClimbRate * separacion / dh);
+            const double cabe = std::max(vMinima, droneChars.maxClimbRate * largo[i] / dh);
             vel[i] = std::min(vel[i], cabe);
             vel[i + 1] = std::min(vel[i + 1], cabe);
         }
         for (int i = n - 2; i >= 0; --i) {
             const double media = (vel[i] + vel[i + 1]) / 2.0;
-            const double puedeSubir = droneChars.maxClimbRate * separacion / media;
+            const double puedeSubir = droneChars.maxClimbRate * largo[i] / media;
             if (alt[i + 1] - alt[i] > puedeSubir)
                 alt[i] = alt[i + 1] - puedeSubir;
         }
@@ -197,7 +202,7 @@ QList<E_Punto> RoutePlanner::generarRuta(const QGeoCoordinate &p1, double sobreT
         p.altura = float(alt[i]);
         p.velocidad = float(vel[i]);
         p.radio = float(radio);
-        p.distanciaAnterior = i == 0 ? 0.0 : separacion;
+        p.distanciaAnterior = i == 0 ? 0.0 : largo[i - 1];
         p.altitudObjetivo = p.altura;
         p.tiempoTransicion = 0;
         p.tasaAscenso = 0.0;
@@ -206,6 +211,241 @@ QList<E_Punto> RoutePlanner::generarRuta(const QGeoCoordinate &p1, double sobreT
     if (conTerreno)
         *conTerreno = todoConCota;
     return puntos;
+}
+
+// La ruta por defecto desde p1: 10 puntos hacia el este, separados la media
+// entre la distancia minima y la maxima del dron (ver puntosPorPosiciones).
+QList<E_Punto> RoutePlanner::generarRuta(const QGeoCoordinate &p1, double sobreTerreno, const FuncionTerreno &terreno,
+                                         bool *conTerreno) const
+{
+    const double separacion = (droneChars.minWaypointDistance + droneChars.maxWaypointDistance) / 2.0;
+    QVector<QGeoCoordinate> pos{p1};
+    for (int i = 1; i < 10; ++i)
+        pos.append(pos.last().atDistanceAndAzimuth(separacion, 90.0));
+    return puntosPorPosiciones(pos, sobreTerreno, terreno, conTerreno);
+}
+
+// Nombre de cada prioridad, como lo ve el operador.
+QString RoutePlanner::nombrePrioridad(Prioridad p)
+{
+    switch (p) {
+    case Prioridad::Segura: return QStringLiteral("Segura");
+    case Prioridad::Equilibrada: return QStringLiteral("Equilibrada");
+    case Prioridad::Rapida: return QStringLiteral("Rápida");
+    default: return QStringLiteral("Recta");
+    }
+}
+
+// Rutas de P1 a P10 por un pasillo de ±anchoPasillo m alrededor de la recta,
+// una por prioridad y la recta para comparar.
+//
+// La recta se parte en 9 tramos iguales y en cada una de las 8 estaciones
+// intermedias se prueban desplazamientos a un lado y a otro (21, cada
+// anchoPasillo/10 m). El coste de una ruta se reparte por tramos y por cada
+// giro (que depende de tres puntos seguidos), asi que la mejor combinacion se
+// encuentra con programacion dinamica (Viterbi) sobre parejas de
+// desplazamientos, sin probar los millones de combinaciones. Lo que cuenta:
+// - el largo (tiempo de vuelo);
+// - la subida: lo que sube lo mas alto del terreno de un tramo al siguiente
+//   (es lo que tendra que subir el dron) y, mucho mas caro, lo que pase de lo
+//   que le da su tasa a su velocidad (ahi se quedaria por debajo);
+// - lo accidentado del terreno bajo el tramo (con pendientes fuertes, un error
+//   de posicion o de la elevacion pesa mas);
+// - los giros, y mucho mas si el punto siguiente queda dentro del circulo de
+//   giro del ala fija;
+// - pasarse de la altura maxima del dron sobre el terreno en un punto.
+// Los tramos fuera de la distancia minima o maxima no se admiten. Despues, la
+// altura y la velocidad de cada punto salen de puntosPorPosiciones y cada
+// propuesta se revisa entera (revisar) para compararlas.
+QVector<PropuestaRuta> RoutePlanner::proponerRutas(const QGeoCoordinate &p1, const QGeoCoordinate &p10,
+                                                   double sobreTerreno, const FuncionTerreno &terreno,
+                                                   double anchoPasillo) const
+{
+    QVector<PropuestaRuta> propuestas;
+    const int n = 10, tramos = n - 1, opciones = 21, centro = opciones / 2;
+    const double largoRecta = p1.distanceTo(p10);
+    const double rumbo = p1.azimuthTo(p10);
+
+    auto fallo = [&](const QString &motivo) {
+        PropuestaRuta pr;
+        pr.prioridad = Prioridad::Recta;
+        pr.nombre = nombrePrioridad(Prioridad::Recta);
+        pr.motivo = motivo;
+        propuestas = {pr};
+        return propuestas;
+    };
+    if (largoRecta > tramos * droneChars.maxWaypointDistance)
+        return fallo(QStringLiteral("P1 y P10 están a %1 m: con 10 puntos y tramos de %2 m como mucho caben %3 m. "
+                                    "Acerca P10 a P1.")
+                         .arg(largoRecta, 0, 'f', 0).arg(droneChars.maxWaypointDistance, 0, 'f', 0)
+                         .arg(tramos * droneChars.maxWaypointDistance, 0, 'f', 0));
+    if (largoRecta < 1.0)
+        return fallo(QStringLiteral("P1 y P10 están en el mismo sitio."));
+
+    // Posiciones candidatas: estacion k (0..9), desplazamiento m (0..20).
+    const double paso = anchoPasillo / centro;
+    auto cota = [&terreno](const QGeoCoordinate &c) {
+        return terreno ? terreno(c) : std::numeric_limits<double>::quiet_NaN();
+    };
+    QVector<QVector<QGeoCoordinate>> pos(n, QVector<QGeoCoordinate>(opciones));
+    QVector<QVector<double>> suelo(n, QVector<double>(opciones, 0.0));
+    bool hayCota = false;
+    for (int k = 0; k < n; ++k) {
+        const QGeoCoordinate eje = k == 0 ? p1 : (k == n - 1 ? p10 : p1.atDistanceAndAzimuth(largoRecta * k / tramos, rumbo));
+        for (int m = 0; m < opciones; ++m) {
+            const double lado = (m - centro) * paso;
+            pos[k][m] = (k == 0 || k == n - 1 || m == centro)
+                    ? eje : eje.atDistanceAndAzimuth(std::fabs(lado), rumbo + (lado > 0 ? 90.0 : -90.0));
+            const double c = cota(pos[k][m]);
+            hayCota = hayCota || std::isfinite(c);
+            suelo[k][m] = std::isfinite(c) ? c : 0.0;
+        }
+    }
+    auto libre = [&](int k, int m) { return (k == 0 || k == n - 1) ? m == centro : true; };
+
+    // Cada tramo posible: largo, lo mas alto y lo mas bajo del terreno debajo.
+    struct Tramo { double largo = 0, techo = 0, fondo = 0; bool vale = false; };
+    QVector<QVector<QVector<Tramo>>> tramo(tramos, QVector<QVector<Tramo>>(opciones, QVector<Tramo>(opciones)));
+    for (int k = 0; k < tramos; ++k)
+        for (int m = 0; m < opciones; ++m) {
+            if (!libre(k, m))
+                continue;
+            for (int q = 0; q < opciones; ++q) {
+                if (!libre(k + 1, q))
+                    continue;
+                Tramo &t = tramo[k][m][q];
+                t.largo = pos[k][m].distanceTo(pos[k + 1][q]);
+                t.vale = t.largo >= droneChars.minWaypointDistance && t.largo <= droneChars.maxWaypointDistance;
+                if (!t.vale)
+                    continue;
+                const double az = pos[k][m].azimuthTo(pos[k + 1][q]);
+                const int pasos = std::max(1, int(std::ceil(t.largo / kPasoTerreno)));
+                t.techo = -1e9;
+                t.fondo = 1e9;
+                for (int j = 0; j <= pasos; ++j) {
+                    const double c = cota(pos[k][m].atDistanceAndAzimuth(t.largo * j / pasos, az));
+                    const double h = std::isfinite(c) ? c : 0.0;
+                    t.techo = std::max(t.techo, h);
+                    t.fondo = std::min(t.fondo, h);
+                }
+            }
+        }
+
+    const bool alaFija = droneChars.type == DroneType::FIXED_WING;
+    const double v = velocidadPorDefecto();
+    const double radio = alaFija ? radioDeGiro(v) : std::max(droneChars.minTurnRadius, 1.0);
+    const double subeEnTramo = droneChars.maxClimbRate / std::max(v, 0.5);   // m de subida por m de tramo
+    const double infinito = std::numeric_limits<double>::infinity();
+
+    // Pesos de cada prioridad (en "metros equivalentes").
+    struct Pesos { double largo, subida, exceso, accidentado, giroGrado; };
+    auto pesos = [](Prioridad p) {
+        switch (p) {
+        case Prioridad::Segura: return Pesos{0.5, 10.0, 200.0, 1.0, 2.0};
+        case Prioridad::Rapida: return Pesos{1.0, 2.0, 20.0, 0.0, 0.5};
+        default: return Pesos{1.0, 5.0, 60.0, 0.3, 1.0};
+        }
+    };
+
+    auto conPosiciones = [&](Prioridad pr, const QVector<QGeoCoordinate> &camino) {
+        PropuestaRuta prop;
+        prop.prioridad = pr;
+        prop.nombre = nombrePrioridad(pr);
+        prop.puntos = puntosPorPosiciones(camino, sobreTerreno, terreno);
+        prop.revision = revisar(prop.puntos, terreno);
+        prop.ok = true;
+        return prop;
+    };
+
+    for (Prioridad pr : {Prioridad::Segura, Prioridad::Equilibrada, Prioridad::Rapida}) {
+        const Pesos w = pesos(pr);
+        // coste[k][a][b]: lo mejor para llegar a la estacion k desde a (en k-1) y estando en b.
+        QVector<QVector<QVector<double>>> coste(n, QVector<QVector<double>>(opciones, QVector<double>(opciones, infinito)));
+        QVector<QVector<QVector<int>>> vieneDe(n, QVector<QVector<int>>(opciones, QVector<int>(opciones, -1)));
+        for (int b = 0; b < opciones; ++b) {
+            const Tramo &t = tramo[0][centro][b];
+            if (t.vale)
+                coste[1][centro][b] = w.largo * t.largo + w.accidentado * (t.techo - t.fondo);
+        }
+        for (int k = 1; k < tramos; ++k)
+            for (int a = 0; a < opciones; ++a)
+                for (int b = 0; b < opciones; ++b) {
+                    const double base = coste[k][a][b];
+                    if (!std::isfinite(base))
+                        continue;
+                    const Tramo &antes = tramo[k - 1][a][b];
+                    for (int c = 0; c < opciones; ++c) {
+                        const Tramo &t = tramo[k][b][c];
+                        if (!t.vale)
+                            continue;
+                        double extra = w.largo * t.largo + w.accidentado * (t.techo - t.fondo);
+                        const double sube = std::max(0.0, t.techo - antes.techo);
+                        extra += w.subida * sube + w.exceso * std::max(0.0, sube - subeEnTramo * t.largo);
+                        // Altura del punto b sobre su terreno: por encima de la maxima del dron, muy caro.
+                        const double sobre = std::max(antes.techo, t.techo) + sobreTerreno - suelo[k][b];
+                        extra += 50.0 * std::max(0.0, sobre - droneChars.maxAltitude);
+                        // Giro en b.
+                        double giro = std::fabs(pos[k][b].azimuthTo(pos[k + 1][c]) - pos[k - 1][a].azimuthTo(pos[k][b]));
+                        if (giro > 180.0)
+                            giro = 360.0 - giro;
+                        extra += w.giroGrado * giro;
+                        if (alaFija) {
+                            const double necesita = 2.0 * radio * std::sin(qDegreesToRadians(giro));
+                            extra += 50.0 * std::max(0.0, necesita - t.largo);
+                        }
+                        if (base + extra < coste[k + 1][b][c]) {
+                            coste[k + 1][b][c] = base + extra;
+                            vieneDe[k + 1][b][c] = a;
+                        }
+                    }
+                }
+        // Final: la estacion 9 es P10 (centro).
+        int mejorA = -1;
+        double mejor = infinito;
+        for (int a = 0; a < opciones; ++a)
+            if (coste[n - 1][a][centro] < mejor) {
+                mejor = coste[n - 1][a][centro];
+                mejorA = a;
+            }
+        if (mejorA < 0) {
+            PropuestaRuta prop;
+            prop.prioridad = pr;
+            prop.nombre = nombrePrioridad(pr);
+            prop.motivo = QStringLiteral("No hay combinación de puntos que respete la distancia mínima y máxima "
+                                         "entre puntos en este pasillo.");
+            propuestas.append(prop);
+            continue;
+        }
+        // Hacia atras: los desplazamientos elegidos.
+        QVector<int> elegido(n, centro);
+        int b = centro, a = mejorA;
+        for (int k = n - 1; k >= 1; --k) {
+            elegido[k] = b;
+            elegido[k - 1] = a;
+            const int antes = vieneDe[k][a][b];
+            b = a;
+            a = antes < 0 ? centro : antes;
+        }
+        QVector<QGeoCoordinate> camino;
+        for (int k = 0; k < n; ++k)
+            camino.append(pos[k][elegido[k]]);
+        propuestas.append(conPosiciones(pr, camino));
+    }
+
+    // La recta, para comparar.
+    QVector<QGeoCoordinate> recta;
+    for (int k = 0; k < n; ++k)
+        recta.append(pos[k][centro]);
+    PropuestaRuta laRecta = conPosiciones(Prioridad::Recta, recta);
+    if (!tramo[0][centro][centro].vale)
+        laRecta.motivo = QStringLiteral("En recta, los tramos (%1 m) no caben entre la distancia mínima y la "
+                                        "máxima del dron.").arg(largoRecta / tramos, 0, 'f', 0);
+    propuestas.append(laRecta);
+    if (!hayCota)
+        for (PropuestaRuta &pr : propuestas)
+            pr.motivo = pr.motivo.isEmpty() ? QStringLiteral("Sin datos de elevación: las rutas no han podido "
+                                                             "tener en cuenta el terreno.") : pr.motivo;
+    return propuestas;
 }
 
 // Simula el vuelo en planta: velocidad del tramo, giro con su radio

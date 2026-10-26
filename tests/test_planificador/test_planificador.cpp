@@ -78,6 +78,7 @@ private slots:
     void generarRutaSobreElTerreno();
     void laderaQueElDronNoSube();
     void trayectoriaProbable();
+    void proponerRutas();
     void loVeTodoNoSoloElPrimero();
     void separacionEntrePuntos();
     void aceleracionConSuDistancia();
@@ -305,6 +306,51 @@ void TestPlanificador::trayectoriaProbable()
     QVERIFY(qAbs(r.perfilReal.first().y() - 100.0) < 0.01);
     QVERIFY(qAbs(r.perfilReal.last().x() - 300.0) < 1.0);
     QVERIFY(qAbs(r.perfilReal.last().y() - 160.0) < 0.5);
+}
+
+// El optimizador. En llano, las tres propuestas son la recta. Con una cresta
+// de 300 m que cruza la recta (de 1300 a 1700 m de P1) y un paso a 400-700 m
+// al norte, la Segura va por el paso: menos altura y sin avisos de subida,
+// aunque sea mas larga; la Rapida no es mas larga que la Segura. Con P10 a
+// 10 km no caben 10 puntos (9 tramos de 1000 m como mucho): lo dice.
+void TestPlanificador::proponerRutas()
+{
+    RoutePlanner rp(alaFija());
+    const QGeoCoordinate p1(23.1, -82.4);
+    const QGeoCoordinate p10 = p1.atDistanceAndAzimuth(2700, 90);
+    auto llano = [](const QGeoCoordinate &) { return 100.0; };
+    const auto planas = rp.proponerRutas(p1, p10, 50, llano, 1000);
+    QCOMPARE(planas.size(), 4);
+    for (const PropuestaRuta &pr : planas) {
+        QVERIFY2(pr.ok, qPrintable(pr.motivo));
+        QCOMPARE(pr.puntos.size(), 10);
+        QVERIFY2(qAbs(pr.revision.distancia - 2700.0) < 5.0, qPrintable(pr.nombre));
+        QVERIFY(pr.puntos.last().pos.distanceTo(p10) < 1.0);
+    }
+
+    auto cresta = [p1](const QGeoCoordinate &c) {
+        const double d = p1.distanceTo(c), az = qDegreesToRadians(p1.azimuthTo(c));
+        const double este = d * std::sin(az), norte = d * std::cos(az);
+        const bool enCresta = este > 1300 && este < 1700;
+        const bool enPaso = norte > 400 && norte < 700;
+        return enCresta && !enPaso ? 400.0 : 100.0;
+    };
+    const auto rutas = rp.proponerRutas(p1, p10, 50, cresta, 1000);
+    QCOMPARE(rutas.size(), 4);
+    const PropuestaRuta &segura = rutas[0], &rapida = rutas[2], &recta = rutas[3];
+    QCOMPARE(segura.nombre, QStringLiteral("Segura"));
+    QCOMPARE(recta.nombre, QStringLiteral("Recta"));
+    QVERIFY2(recta.revision.alturaMax > 400.0, qPrintable(QString::number(recta.revision.alturaMax)));
+    QVERIFY2(segura.revision.alturaMax < 200.0, qPrintable(QString::number(segura.revision.alturaMax)));
+    QVERIFY(segura.revision.distancia > recta.revision.distancia);
+    QVERIFY(segura.revision.valida());
+    QVERIFY(conCodigo(segura.revision, "sube_rapido").isEmpty());
+    QVERIFY(rapida.revision.distancia <= segura.revision.distancia + 1.0);
+
+    const auto lejos = rp.proponerRutas(p1, p1.atDistanceAndAzimuth(10000, 90), 50, llano, 1000);
+    QCOMPARE(lejos.size(), 1);
+    QVERIFY(!lejos.first().ok);
+    QVERIFY2(lejos.first().motivo.contains("9000 m"), qPrintable(lejos.first().motivo));
 }
 
 // Antes la validacion se paraba en el primer problema; ahora salen todos, y

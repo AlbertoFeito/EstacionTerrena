@@ -83,6 +83,10 @@ struct RevisionRuta
     QString resumenErrores() const;
 };
 
+//! Una ruta propuesta por el optimizador: sus puntos, su revision y, si no
+//! se pudo hacer, por que.
+struct PropuestaRuta;
+
 /**
  * @brief Revisa rutas segun las caracteristicas del dron.
  *
@@ -92,6 +96,11 @@ struct RevisionRuta
  */
 class RoutePlanner {
 public:
+    //! Que prima al optimizar: Segura (margen y subidas suaves), Rapida
+    //! (tiempo), Equilibrada (una mezcla). Recta es la linea P1-P10, para comparar.
+    enum class Prioridad { Segura, Equilibrada, Rapida, Recta };
+    static QString nombrePrioridad(Prioridad p);
+
     //! Cota del terreno en metros o NaN si no hay dato.
     using FuncionTerreno = std::function<double(const QGeoCoordinate &)>;
 
@@ -138,6 +147,27 @@ public:
      */
     QVector<QGeoCoordinate> trayectoriaProbable(const QList<E_Punto> &puntos, double radioAcercamiento) const;
 
+    /**
+     * @brief Propone rutas de \a p1 a \a p10 sabiendo el terreno y el dron: una
+     *        Segura, una Equilibrada y una Rapida, y la Recta para comparar.
+     *
+     * Busca en un pasillo de ±\a anchoPasillo m alrededor de la recta (ver el
+     * .cpp: programacion dinamica sobre desplazamientos laterales). Las
+     * alturas y velocidades salen de puntosPorPosiciones y cada propuesta va
+     * revisada. Si es imposible (P10 demasiado lejos para 10 puntos), devuelve
+     * una sola con el motivo.
+     */
+    QVector<PropuestaRuta> proponerRutas(const QGeoCoordinate &p1, const QGeoCoordinate &p10, double sobreTerreno,
+                                         const FuncionTerreno &terreno, double anchoPasillo = 1000.0) const;
+
+    //! Los puntos por esas posiciones con altura (\a sobreTerreno m sobre lo
+    //! mas alto de sus tramos) y velocidad que el dron pueda seguir.
+    QList<E_Punto> puntosPorPosiciones(const QVector<QGeoCoordinate> &pos, double sobreTerreno,
+                                       const FuncionTerreno &terreno, bool *conTerreno = nullptr) const;
+
+    //! Velocidad con la que se generan las rutas (65 % de la maxima en ala fija, 45 % en cuadroptero).
+    double velocidadPorDefecto() const;
+
     //! Radio de giro del ala fija a \a velocidad m/s: el de un giro coordinado
     //! con kAlabeoGrados de alabeo, r = v² / (g·tan φ), y nunca menos que el
     //! radio minimo configurado del dron.
@@ -156,6 +186,16 @@ public:
 private:
     DroneCharacteristics droneChars; ///< Características del dron.
     double g = 9.81;                 ///< Aceleración de la gravedad (m/s²).
+};
+
+struct PropuestaRuta
+{
+    RoutePlanner::Prioridad prioridad = RoutePlanner::Prioridad::Recta;
+    QString nombre;            //!< "Segura", "Equilibrada", "Rápida" o "Recta"
+    QList<E_Punto> puntos;     //!< vacia si no se pudo
+    RevisionRuta revision;
+    bool ok = false;
+    QString motivo;            //!< por que no se pudo, o una advertencia
 };
 
 #endif // ROUTEPLANNER_H
