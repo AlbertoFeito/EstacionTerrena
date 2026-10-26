@@ -1553,3 +1553,13 @@ revés de lo esperado.
 En total pasan 123 pruebas. En la app, con la cresta sintética: con 1.000 m de
 pasillo se ve el sombreado recortado a 1.000 m; con 5.000 m, «hasta 1.600 m…
 pedir más pasillo no cambia nada», y las propuestas cruzan por el paso.
+
+**Después.** El usuario preguntó cuál era el pasillo mínimo y pidió que se viera
+en la ventana. Ahora hay una línea fija en gris bajo el campo del pasillo:
+
+- el campo va de 100 a 5.000 m a cada lado;
+- junto a P1 y P10 el pasillo mide 0 y se ensancha hacia el centro;
+- si P10 está cerca de 9 × la distancia máxima, cabe poco o nada a los lados;
+- para ir justo por la recta, está la fila «Recta».
+
+El tooltip del campo dice el rango y el valor por defecto (1.000 m).

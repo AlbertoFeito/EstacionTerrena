@@ -36,7 +36,8 @@ VentanaPropuestas::VentanaPropuestas(AlturaWorker *alturaWorker, QWidget *padre)
     m_pasillo->setSingleStep(100);
     m_pasillo->setValue(1000);
     m_pasillo->setSuffix(tr(" m"));
-    m_pasillo->setToolTip(tr("Hasta dónde puede apartarse la ruta de la recta P1-P10, a cada lado"));
+    m_pasillo->setToolTip(tr("Hasta dónde puede apartarse la ruta de la recta P1-P10, a cada lado: de 100 a "
+                             "5000 m (1000 por defecto)"));
     auto *recalcular = new QPushButton(tr("Calcular"), this);
     connect(recalcular, &QPushButton::clicked, this, &VentanaPropuestas::calcular);
     auto *arriba = new QHBoxLayout;
@@ -44,6 +45,15 @@ VentanaPropuestas::VentanaPropuestas(AlturaWorker *alturaWorker, QWidget *padre)
     arriba->addWidget(m_pasillo);
     arriba->addWidget(recalcular);
     arriba->addStretch();
+
+    // Como funciona el pasillo, siempre a la vista (lo de arriba es lo que se pide;
+    // m_alcance, lo que cabe de verdad con este P1 y este P10).
+    auto *ayuda = new QLabel(tr("El pasillo va de 100 a 5000 m a cada lado de la recta. Junto a P1 y P10 mide 0 "
+                                "(esos puntos no se mueven) y se ensancha hacia el centro. Si P10 está cerca de "
+                                "9 × la distancia máxima entre puntos del dron, cabe poco o nada a los lados. "
+                                "Para ir justo por la recta, elige la fila «Recta»."), this);
+    ayuda->setWordWrap(true);
+    ayuda->setStyleSheet(QStringLiteral("color: #9e9e9e; font-size: 11px;"));
 
     m_alcance = new QLabel(this);
     m_alcance->setWordWrap(true);
@@ -81,6 +91,7 @@ VentanaPropuestas::VentanaPropuestas(AlturaWorker *alturaWorker, QWidget *padre)
 
     auto *capa = new QVBoxLayout(this);
     capa->addLayout(arriba);
+    capa->addWidget(ayuda);
     capa->addWidget(m_alcance);
     capa->addWidget(m_tabla);
     capa->addWidget(m_detalle);
