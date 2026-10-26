@@ -55,8 +55,10 @@ namespace InformeRuta {
 QStringList comoSeRevisa()
 {
     return {
-        QStringLiteral("La altura y la velocidad de cada punto, dentro de los límites del dron (los de su "
-                       "configuración)."),
+        QStringLiteral("La altura de cada punto sobre el terreno de debajo (la altura sobre el mar menos la "
+                       "cota), dentro de la mínima y la máxima del dron; sin datos de elevación, se cuenta desde el "
+                       "nivel del mar."),
+        QStringLiteral("La velocidad de cada punto, dentro de los límites del dron (los de su configuración)."),
         QStringLiteral("La distancia entre puntos, entre la mínima y la máxima del dron."),
         QStringLiteral("La velocidad: si le da para acelerar o frenar de un punto al siguiente con su aceleración "
                        "máxima (v² = v₀² ± 2·a·d)."),
@@ -131,7 +133,8 @@ QString html(const RevisionRuta &r, const DroneCharacteristics &dron, const QStr
     // Cifras
     QString terreno;
     if (r.hayTerreno)
-        terreno = QStringLiteral("pasa a %1 m del terreno como mínimo").arg(r.holguraTerreno, 0, 'f', 0);
+        terreno = QStringLiteral("pasa a %1 m del terreno como mínimo (cada %2 m de cada tramo)")
+                      .arg(r.holguraTerreno, 0, 'f', 0).arg(RoutePlanner::kPasoTerreno, 0, 'f', 0);
     else
         terreno = QStringLiteral("sin datos de elevación: no comprobado");
     const QList<QPair<QString, QString>> cifras{
@@ -142,8 +145,13 @@ QString html(const RevisionRuta &r, const DroneCharacteristics &dron, const QStr
         {QStringLiteral("Alturas"), QStringLiteral("de %1 a %2 m sobre el mar (sube %3 m y baja %4 m en total)")
                                         .arg(r.alturaMin, 0, 'f', 0).arg(r.alturaMax, 0, 'f', 0)
                                         .arg(r.subida, 0, 'f', 0).arg(r.bajada, 0, 'f', 0)},
+        {QStringLiteral("Sobre el terreno"), std::isfinite(r.sobreTerrenoMin)
+             ? QStringLiteral("los puntos, de %1 a %2 m (el dron admite de %3 a %4 m)")
+                   .arg(r.sobreTerrenoMin, 0, 'f', 0).arg(r.sobreTerrenoMax, 0, 'f', 0)
+                   .arg(dron.minAltitude, 0, 'f', 0).arg(dron.maxAltitude, 0, 'f', 0)
+             : QStringLiteral("sin datos de elevación")},
         {QStringLiteral("Velocidades"), velocidades(r)},
-        {QStringLiteral("Terreno"), terreno},
+        {QStringLiteral("Entre puntos"), terreno},
     };
     h += QStringLiteral("<table cellspacing='0' cellpadding='2'>");
     for (const auto &c : cifras)

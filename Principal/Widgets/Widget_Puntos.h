@@ -249,8 +249,8 @@ private:
     QPushButton *pB_ExportarAnalisis;
 
     // Métodos auxiliares
-    double calcularAltitudVuelo(double terreno, const DroneCharacteristics &drone) const;
-    void generarPuntosPorDefecto();
+    void generarRutaDesde(const QGeoCoordinate &p1);
+    QSpinBox *m_spinSobreTerreno = nullptr;   // altura sobre el terreno de las rutas nuevas
     void updateUIForDroneConfigured(bool configured);
     void mostrarInfoDronActual();
     void limpiarTodo();

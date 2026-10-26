@@ -27,6 +27,7 @@
 #include <QProgressDialog>
 #include <limits>
 #include "Rutas.h"
+#include "MyQSettings/myqsetting.h"
 
 // ============================================================================
 // IMPLEMENTACIÓN DE Widget_Puntos (VERSIÓN COMPACTA, SIN .ui)
@@ -120,6 +121,20 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     pb_Mostrar->setCheckable(true);
     pB_AnalisisDetallado = new QPushButton("Análisis", this);
     pB_CancelarSeleccion = new QPushButton("Cancelar", this);
+    // A cuanto por encima del terreno se ponen los puntos al generar la ruta;
+    // se recuerda en conf.ini.
+    m_spinSobreTerreno = new QSpinBox(this);
+    m_spinSobreTerreno->setRange(5, 3000);
+    m_spinSobreTerreno->setSingleStep(10);
+    m_spinSobreTerreno->setSuffix(tr(" m"));
+    m_spinSobreTerreno->setValue(MyQSetting().cargarSetting(Rutas::confIni(), QStringLiteral("sobre_terreno"),
+                                                            QStringLiteral("RUTAS"), 50).toInt());
+    m_spinSobreTerreno->setToolTip(tr("Altura sobre el terreno, como mínimo en toda la ruta, al crearla (clic "
+                                      "derecho en el mapa) o al restablecerla: cada punto queda así por encima "
+                                      "de lo más alto de sus tramos. Al arrastrar un punto conserva la suya."));
+    connect(m_spinSobreTerreno, QOverload<int>::of(&QSpinBox::valueChanged), this, [](int v) {
+        MyQSetting().guardarSetting(Rutas::confIni(), QStringLiteral("sobre_terreno"), v, QStringLiteral("RUTAS"));
+    });
     pB_CancelarSeleccion->setVisible(false);
 
     // Botones ocultos (por compatibilidad con código existente)
@@ -179,7 +194,12 @@ Widget_Puntos::Widget_Puntos(AlturaWorker *alturaWorker, QWidget *parent) :
     gestion->addWidget(pb_guardar, 0, 1);
     gestion->addWidget(pB_LimpiaRuta, 1, 0);
     gestion->addWidget(pB_EliminaRuta, 1, 1);
-    gestion->addWidget(pB_CancelarSeleccion, 2, 0, 1, 2);
+    // Altura sobre el terreno de las rutas nuevas (clic derecho y Restablecer).
+    auto *etiquetaSobre = new QLabel(tr("Sobre el terreno"));
+    etiquetaSobre->setToolTip(m_spinSobreTerreno->toolTip());
+    gestion->addWidget(etiquetaSobre, 2, 0);
+    gestion->addWidget(m_spinSobreTerreno, 2, 1);
+    gestion->addWidget(pB_CancelarSeleccion, 3, 0, 1, 2);
     izq->addLayout(gestion);
     izq->addStretch();
     label_PuntosFijos->setText(tr("10 puntos fijos: se mueven arrastrándolos en el mapa "
@@ -347,35 +367,7 @@ void Widget_Puntos::setRouteVisible(bool visible)
 // MÉTODOS PRIVADOS AUXILIARES
 // ------------------------------------------------------------
 
-/**
- * @brief Calcula la altitud de vuelo recomendada para una coordenada, sumando un margen de seguridad sobre el terreno.
- * @param terreno Altura del terreno en metros.
- * @param drone Características del dron para acotar la altitud.
- * @return Altitud de vuelo en metros.
- */
-double Widget_Puntos::calcularAltitudVuelo(double terreno, const DroneCharacteristics &drone) const
-{
-    const double SAFETY_OFFSET = 50.0;
-    double altitud = terreno + SAFETY_OFFSET;
-    altitud = qBound(drone.minAltitude, altitud, drone.maxAltitude);
-    altitud = qMax(altitud, 50.0);
-    return altitud;
-}
 
-/**
- * @brief Genera puntos por defecto para la ruta actual (10 puntos) usando el modelo.
- */
-void Widget_Puntos::generarPuntosPorDefecto()
-{
-    if (!modelo->isDroneConfigured()) {
-        qWarning() << "No se puede generar puntos: dron no configurado";
-        return;
-    }
-    modelo->borraTodosLosElementos();
-    QList<E_Punto> puntosDefault = modelo->generarPuntosPorDefecto(10);
-    for (const E_Punto &punto : puntosDefault)
-        modelo->agregarElemento(punto);
-}
 
 // ------------------------------------------------------------
 // ACTUALIZACIÓN DE INTERFAZ
@@ -634,36 +626,8 @@ void Widget_Puntos::onRutaConfigurada(const QString &tipoDron, const QString &no
 }
 
 
-/**
- * @brief Maneja el movimiento de un punto en el mapa, actualizando coordenadas y altitud.
- * ...
- *
- * \startuml
- * participant "MapaMision (mapa)" as Map
- * participant "Widget_Puntos" as Widget
- * participant "MiModelo" as Model
- * participant "AlturaWorker" as AltWorker
- *
- * Map -> Widget: onPointMoved(index, nuevaPos)
- * activate Widget
- *
- * Widget -> Model: setData(idxLat, nuevaPos.latitude())
- * Widget -> Model: setData(idxLon, nuevaPos.longitude())
- *
- * Widget -> AltWorker: obtenerAltura(lat, lon)
- * AltWorker --> Widget: terreno
- *
- * Widget -> Model: getDroneCharacteristics()
- * Model --> Widget: drone
- *
- * Widget -> Widget: calcularAltitudVuelo(terreno, drone)
- * Widget --> Widget: nuevaAltitud
- *
- * Widget -> Model: setData(idxAlt, nuevaAltitud)
- *
- * deactivate Widget
- * \enduml
- */
+// El operador ha soltado el punto \a index en \a nuevaPos: el modelo lo mueve
+// conservando su altura sobre el terreno (MiModelo::moverPunto).
 void Widget_Puntos::onPointMoved(int index, const QGeoCoordinate &nuevaPos)
 {
     if (!modelo || !modelo->isDroneConfigured() || modelo->rowCount() == 0)
@@ -671,17 +635,9 @@ void Widget_Puntos::onPointMoved(int index, const QGeoCoordinate &nuevaPos)
     if (index < 0 || index >= modelo->rowCount() || !nuevaPos.isValid())
         return;
 
-    // Altitud segun el terreno del sitio nuevo; todo va al modelo de una vez
-    // (un solo repintado de la ruta, sin estados a medio mover).
-    double nuevaAltitud = std::numeric_limits<double>::quiet_NaN();
-    if (m_alturaWorker) {
-        DroneCharacteristics drone = modelo->getDroneCharacteristics();
-        qint16 terreno = m_alturaWorker->obtenerAltura(nuevaPos.latitude(),
-                                                       nuevaPos.longitude());
-        if (terreno < 0) terreno = 0;
-        nuevaAltitud = calcularAltitudVuelo(terreno, drone);
-    }
-    modelo->moverPunto(index, nuevaPos, nuevaAltitud);
+    // Conserva su altura sobre el terreno; todo va al modelo de una vez (un
+    // solo repintado de la ruta, sin estados a medio mover).
+    modelo->moverPunto(index, nuevaPos);
 }
 
 /**
@@ -721,149 +677,41 @@ void Widget_Puntos::cancelarSeleccionPuntoInicial()
     emit sI_cancelarSeleccionPuntoInicial();
 }
 
-/**
- * @brief Agrega el punto inicial y genera los 9 restantes.
- * ...
- *
- * \startuml
- * start
- * :Verificar modo selección y configuración;
- * if (no válido) then (sí)
- *   :cancelarSeleccionPuntoInicial();
- *   stop
- * endif
- *
- * :Obtener drone del modelo;
- * :Obtener altura terreno para P1;
- * :Calcular altitud P1 con margen;
- * :Calcular velocidad por defecto;
- * :Calcular radio por defecto;
- * :Calcular distancia óptima;
- *
- * :Crear punto P1;
- * :Agregar P1 al modelo;
- *
- * :Inicializar puntoActual = coordenada;
- * :azimut = 90°;
- *
- * while (i desde 2 hasta 10)
- *   :puntoActual = puntoActual.atDistanceAndAzimuth(distanciaOptima, azimut);
- *   :Obtener altura terreno;
- *   :Calcular altitud con margen;
- *   :Crear punto Pi;
- *   :Agregar Pi al modelo;
- * endwhile
- *
- * :Finalizar modo selección;
- * :Actualizar interfaz;
- * :emitir señales;
- * stop
- * \enduml
- */
+// Clic derecho en el mapa en modo "elegir P1": sale del modo y genera la ruta
+// desde ahi (generarRutaDesde).
 void Widget_Puntos::agregarPuntoInicialYGenerarResto(const QGeoCoordinate &coordenada)
 {
-    // Verificar que estamos en modo selección y que todo está configurado
     if (!m_modoSeleccionPuntoInicial) return;
-    if (!modelo->isDroneConfigured() || !m_alturaWorker) {
+    if (!modelo->isDroneConfigured()) {
         cancelarSeleccionPuntoInicial();
         return;
     }
-
-    DroneCharacteristics drone = modelo->getDroneCharacteristics();
-
-    // ------------------------------------------------------------
-    // 1. Obtener altura del terreno para el punto P1
-    // ------------------------------------------------------------
-    qint16 terrenoP1 = m_alturaWorker->obtenerAltura(coordenada.latitude(),
-                                                     coordenada.longitude());
-    if (terrenoP1 < 0) terrenoP1 = 0;  // si no hay datos, asumimos nivel del mar
-    double altitudP1 = calcularAltitudVuelo(terrenoP1, drone);  // aplica margen y límites
-
-    // ------------------------------------------------------------
-    // 2. Calcular valores por defecto para velocidad y radio
-    // ------------------------------------------------------------
-    double defaultVelocidad;
-    if (drone.type == DroneType::FIXED_WING) {
-        defaultVelocidad = drone.maxSpeed * 0.65;        // 65% de la máxima para ala fija
-    } else {
-        defaultVelocidad = drone.maxSpeed * 0.45;        // 45% para quadcóptero
-    }
-    defaultVelocidad = qMax(defaultVelocidad, drone.minSpeed);  // no bajar del mínimo
-
-    double defaultRadio;
-    if (drone.type == DroneType::FIXED_WING) {
-        double radioTeorico = (defaultVelocidad * defaultVelocidad) / (9.81 * 0.577);
-        defaultRadio = qMax(radioTeorico * 1.5, drone.minTurnRadius * 2.0);
-    } else {
-        defaultRadio = 10.0;  // valor fijo para quadcóptero
-    }
-
-    // ------------------------------------------------------------
-    // 3. Calcular distancia óptima entre puntos (punto medio)
-    // ------------------------------------------------------------
-    double distanciaOptima = (drone.minWaypointDistance + drone.maxWaypointDistance) / 2.0;
-
-    // ------------------------------------------------------------
-    // 4. Crear el punto P1 y agregarlo al modelo
-    // ------------------------------------------------------------
-    E_Punto p1;
-    p1.id = 0;
-    p1.nombre = "P1";
-    p1.modo = 0;
-    p1.pos = coordenada;
-    p1.altura = altitudP1;
-    p1.velocidad = defaultVelocidad;
-    p1.radio = defaultRadio;
-    p1.distanciaAnterior = 0.0;
-    p1.tasaAscenso = 0.0;
-
-    modelo->agregarElemento(p1);  // esto ya valida y añade el punto
-
-    // ------------------------------------------------------------
-    // 5. Generar los puntos P2 a P10
-    // ------------------------------------------------------------
-    double azimut = 90.0;  // dirección este (se puede cambiar o hacer configurable)
-    QGeoCoordinate puntoActual = coordenada;
-
-    for (int i = 2; i <= 10; ++i) {
-        // Calcular la siguiente coordenada a la distancia óptima en el azimut fijo
-        puntoActual = puntoActual.atDistanceAndAzimuth(distanciaOptima, azimut);
-
-        // Obtener altura del terreno para este nuevo punto
-        qint16 terreno = m_alturaWorker->obtenerAltura(puntoActual.latitude(),
-                                                       puntoActual.longitude());
-        if (terreno < 0) terreno = 0;
-        double altitudPunto = calcularAltitudVuelo(terreno, drone);
-
-        // Crear el punto
-        E_Punto p;
-        p.id = i - 1;
-        p.nombre = QString("P%1").arg(i);
-        p.modo = 0;
-        p.pos = puntoActual;
-        p.altura = altitudPunto;
-        p.velocidad = defaultVelocidad;
-        p.radio = defaultRadio;
-        p.distanciaAnterior = distanciaOptima;  // será la distancia entre puntos consecutivos
-        p.tasaAscenso = 0.0;  // se recalculará automáticamente al validar
-
-        modelo->agregarElemento(p);
-    }
-
-    // ------------------------------------------------------------
-    // 6. Finalizar modo selección y actualizar interfaz
-    // ------------------------------------------------------------
     m_modoSeleccionPuntoInicial = false;
     pB_CancelarSeleccion->setVisible(false);
-    label_Estado->setText("Ruta de 10 puntos generada con altitud sobre terreno");
-    label_Estado->setStyleSheet("color: green; font-weight: bold;");
     emit sI_cancelarSeleccionPuntoInicial();
+    generarRutaDesde(coordenada);
+}
 
-    // Refrescar vista y habilitar botones
+// Rehace los 10 puntos desde \a p1, cada uno a la altura sobre el terreno
+// elegida en el panel. Lo usan el clic derecho y «Restablecer». Si falta la
+// elevacion en algun punto, avisa: ahi la altura cuenta desde el nivel del mar.
+void Widget_Puntos::generarRutaDesde(const QGeoCoordinate &p1)
+{
+    bool conTerreno = true;
+    const QList<E_Punto> puntos = modelo->generarRuta(p1, m_spinSobreTerreno->value(), &conTerreno);
+    modelo->borraTodosLosElementos();
+    for (const E_Punto &punto : puntos)
+        modelo->agregarElemento(punto);
+
     updateUIForDroneConfigured(true);
-    tw_puntosRuta->viewport()->update();
-    tw_puntosRuta->resizeColumnsToContents();
-    pb_Mostrar->setChecked(true);
+    modelo->revalidarRutaCompleta();
+    emit sI_pintaRuta(pb_Mostrar->isChecked());
+    if (!conTerreno)
+        QMessageBox::warning(this, tr("Sin datos de elevación"),
+                             tr("En parte de la ruta no hay datos de elevación: ahí la altura se ha puesto "
+                                "a %1 m sobre el nivel del mar, sin saber cuánto hay de terreno debajo.\n\n"
+                                "Revisa esas alturas a mano (el perfil y la columna «S/terr.» no lo pueden "
+                                "comprobar).").arg(m_spinSobreTerreno->value()));
 }
 
 /**
@@ -1114,22 +962,25 @@ void Widget_Puntos::on_pB_LimpiaRuta_clicked()
         return;
     }
 
+    // Se rehace desde el P1 que hay (antes se iba a un punto fijo, 23° N 82° O).
+    if (modelo->rowCount() == 0) {
+        QMessageBox::information(this, tr("Restablecer ruta"),
+                                 tr("La ruta no tiene puntos: haz clic derecho en el mapa donde quieras P1."));
+        return;
+    }
+    const QGeoCoordinate p1 = modelo->obtenerLista().first().pos;
+
     QMessageBox::StandardButton reply;
     reply = QMessageBox::question(this, "Restablecer ruta",
-                                  QString("¿Restablecer los 10 puntos por defecto en '%1'?\n"
-                                          "Se perderán todas las modificaciones actuales.")
-                                  .arg(obtenerNombreTablaLimpio(nombreRuta)),
+                                  tr("¿Rehacer los 10 puntos de '%1' desde P1, a %2 m sobre el terreno?\n"
+                                     "Se perderán las modificaciones actuales.")
+                                  .arg(obtenerNombreTablaLimpio(nombreRuta)).arg(m_spinSobreTerreno->value()),
                                   QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
     if (reply != QMessageBox::Yes) return;
 
     QString nombreRutaLimpio = obtenerNombreTablaLimpio(nombreRuta);
     modelo->limpiaRutaCompleta(nombreRutaLimpio);
-    generarPuntosPorDefecto();
-    modelo->revalidarRutaCompleta();
-
-    emit sI_pintaRuta(pb_Mostrar->isChecked());
-    QMessageBox::information(this, "Ruta restablecida",
-                             "La ruta ha sido restablecida a los 10 puntos por defecto.");
+    generarRutaDesde(p1);
 }
 
 /**
@@ -1304,9 +1155,12 @@ void Widget_Puntos::mostrarGuia()
 
     guia += "<h3>Cómo se crea</h3><ul>";
     guia += "<li>Con el dron elegido, clic derecho en el mapa: ese es P1 y los demás se generan hacia el este, "
-            "a 50 m sobre el terreno.</li>";
-    guia += "<li>Después se arrastran los puntos en el mapa (la altura se ajusta al terreno del sitio nuevo) "
-            "o se cambian los valores en la tabla.</li></ul>";
+            "a la altura <b>sobre el terreno</b> que digas en el panel (50 m si no la cambias) como mínimo en toda "
+            "la ruta: cada punto queda así por encima de lo más alto de los tramos que lo tocan.</li>";
+    guia += "<li>Después se arrastran los puntos en el mapa (cada uno conserva su altura sobre el terreno) "
+            "o se cambian los valores en la tabla: «Alt.» es la altura sobre el mar, la que se manda al dron, "
+            "y «S/terr.», la que queda sobre el terreno de debajo (editar una cambia la otra).</li>";
+    guia += "<li>La altura mínima y la máxima del dron cuentan sobre el terreno.</li></ul>";
 
     guia += "<h3>Qué te dice la revisión</h3><ul>";
     guia += QStringLiteral("<li><span style='color:%1'><b>Error</b></span>: incumple un límite del dron o pasa por el "

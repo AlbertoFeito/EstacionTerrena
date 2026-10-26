@@ -74,6 +74,8 @@ class TestPlanificador : public QObject
 private slots:
     void rutaRectaSinProblemas();
     void alturaYVelocidadFueraDeLimites();
+    void alturaSobreElTerreno();
+    void generarRutaSobreElTerreno();
     void loVeTodoNoSoloElPrimero();
     void separacionEntrePuntos();
     void aceleracionConSuDistancia();
@@ -139,6 +141,66 @@ void TestPlanificador::alturaYVelocidadFueraDeLimites()
     auto parada = recta(3, 300, 100, 5);
     parada[1].velocidad = 0;
     QVERIFY(conCodigo(RoutePlanner(cuadro).revisar(parada), "velocidad_baja").isEmpty());
+}
+
+// Los limites de altura del dron (30 a 500 m) cuentan sobre el terreno. Con
+// el terreno a 600 m: un punto a 620 m va a 20 m (error, y el arreglo dice
+// 630 m sobre el mar); uno a 500 m esta bajo tierra (como la ruta plana de la
+// captura del usuario); uno a 1200 m va a 600 m (error por arriba); a 700 m
+// va bien. Antes se comparaba la altura sobre el mar y los cuatro "pasaban".
+void TestPlanificador::alturaSobreElTerreno()
+{
+    RoutePlanner rp(alaFija());
+    auto meseta = [](const QGeoCoordinate &) { return 600.0; };
+    auto ruta = recta(4, 300, 700, 16);
+    ruta[0].altura = 620;
+    ruta[1].altura = 500;
+    ruta[3].altura = 1200;
+    const RevisionRuta r = rp.revisar(ruta, meseta);
+    QVERIFY(qAbs(r.cotas.value(0) - 600.0) < 1e-9);
+    QVERIFY(qAbs(r.sobreTerrenoMin + 100.0) < 0.5);
+    QVERIFY(qAbs(r.sobreTerrenoMax - 600.0) < 0.5);
+
+    const auto bajas = conCodigo(r, "altura_baja");
+    QCOMPARE(bajas.size(), 2);
+    QVERIFY2(bajas[0].explicacion.contains("20 m sobre el terreno"), qPrintable(bajas[0].explicacion));
+    QVERIFY2(bajas[0].solucion.contains("630 m sobre el mar"), qPrintable(bajas[0].solucion));
+    QCOMPARE(bajas[1].desde, 1);
+    QCOMPARE(conCodigo(r, "altura_alta").size(), 1);
+    QCOMPARE(conCodigo(r, "altura_alta").first().desde, 3);
+    QVERIFY(!conCodigo(r, "terreno_choca").isEmpty());   // P2 bajo tierra
+    for (const Hallazgo &h : r.hallazgos)
+        QVERIFY(!(h.codigo.startsWith("altura") && h.desde == 2));   // P3, a 100 m, bien
+}
+
+// La ruta por defecto: 10 puntos al este cada (20 + 1000) / 2 = 510 m. Con
+// terreno a 100 m y un pico de 200 m entre P3 y P4 (a 1275 m de P1), P3 y P4
+// quedan a 250 m (50 sobre el pico) y los demas a 150: la recta entre dos
+// puntos no baja de 50 m sobre el terreno. Sin elevacion, a 50 m sobre el mar
+// y conTerreno = false.
+void TestPlanificador::generarRutaSobreElTerreno()
+{
+    RoutePlanner rp(alaFija());
+    const QGeoCoordinate p1(23.1, -82.4);
+    const QGeoCoordinate pico = p1.atDistanceAndAzimuth(1275, 90);
+    auto terreno = [pico](const QGeoCoordinate &c) { return c.distanceTo(pico) < 15 ? 200.0 : 100.0; };
+    bool conTerreno = false;
+    const QList<E_Punto> ruta = rp.generarRuta(p1, 50, terreno, &conTerreno);
+    QVERIFY(conTerreno);
+    QCOMPARE(ruta.size(), 10);
+    QVERIFY(qAbs(ruta[1].distanciaA(ruta[2]) - 510.0) < 1.0);
+    for (int i = 0; i < ruta.size(); ++i) {
+        const double esperada = (i == 2 || i == 3) ? 250.0 : 150.0;
+        QVERIFY2(qAbs(ruta[i].altura - esperada) < 0.5, qPrintable(QStringLiteral("P%1 a %2").arg(i + 1).arg(ruta[i].altura)));
+    }
+    QVERIFY(qAbs(ruta[0].velocidad - 25.0 * 0.65) < 0.01);
+    const RevisionRuta r = rp.revisar(ruta, terreno);
+    QVERIFY(conCodigo(r, "terreno_choca").isEmpty() && conCodigo(r, "terreno_roza").isEmpty());
+
+    auto nada = [](const QGeoCoordinate &) { return std::numeric_limits<double>::quiet_NaN(); };
+    const QList<E_Punto> sin = rp.generarRuta(p1, 50, nada, &conTerreno);
+    QVERIFY(!conTerreno);
+    QVERIFY(qAbs(sin[5].altura - 50.0) < 0.01);
 }
 
 // Antes la validacion se paraba en el primer problema; ahora salen todos, y
@@ -356,7 +418,8 @@ void TestPlanificador::informe()
     QVERIFY(html.contains("Cómo se revisa"));
     const QString texto = InformeRuta::texto(r, d, QStringLiteral("prueba"), ruta);
     QVERIFY(texto.contains("[Error] P3: Por debajo de la altura mínima"));
-    QVERIFY(texto.contains("Cómo arreglarlo: Sube P3 a 30 m o más."));
+    QVERIFY2(texto.contains("Cómo arreglarlo: Sube P3 a 30 m sobre el mar o más (30 m sobre el terreno)."),
+             qPrintable(texto));
 }
 
 QTEST_GUILESS_MAIN(TestPlanificador)

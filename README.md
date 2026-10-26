@@ -146,7 +146,9 @@ de 10 puntos en *Rutas*; para que la siga, *Mandos* en régimen automático.
    posición que llega fija la casa (la «H»).
 2. *Rutas → Panel de rutas* (Ctrl+R; flota abajo, encima del mapa, y se recuerda si se dejó
    abierto) → **Nueva**: elegir el dron y el nombre de la ruta; después, clic
-   derecho en el mapa en el punto inicial (se generan los 10 puntos, que se
+   derecho en el mapa en el punto inicial (se generan los 10 puntos a la altura
+   *Sobre el terreno* del panel, 50 m si no se cambia, como mínimo en toda la
+   ruta; «Alt.» es la altura sobre el mar y «S/terr.», sobre el terreno; los puntos se
    pueden arrastrar o editar en la tabla; doble clic en uno centra el mapa en
    él) y **Enviar al dron**. Antes, la revisión de la ruta dice qué está mal y
    cómo arreglarlo: icono y color en cada fila de la tabla (el detalle, con el

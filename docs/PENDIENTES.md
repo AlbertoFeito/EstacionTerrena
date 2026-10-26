@@ -13,6 +13,10 @@ hacer una, se borra de aquí y se cuenta en `BITACORA.md`.
   cambiados (como la librería antigua, §27). ¿Es a propósito o un error?
 - Si hay una trama en la que el dron devuelve el plan (`newPlanificacionReceived`
   existe en la estación, pero nada la emite).
+- **Qué altura espera el autopiloto en `z`** de cada punto del plan: la estación
+  manda la altura sobre el nivel del mar (§31) y el simulador no tiene terreno
+  (trata el suelo como 0). Si espera altura sobre el terreno o sobre el punto
+  de despegue, hay que convertirla al armar la trama, no en la ruta.
 - La columna **Radio** de cada punto de la ruta no se manda: la trama del plan
   (`sPUNTOXYZ`) no la lleva (`parametro_00..02` van a 0) y el acercamiento es el
   radio de Mandos, uno para todos. ¿El autopiloto usa algún radio por punto? Si

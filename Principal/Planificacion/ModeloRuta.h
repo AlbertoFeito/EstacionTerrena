@@ -176,25 +176,19 @@ public:
      */
     const QList<E_Punto> &obtenerLista() const;
 
-    // Garantizar 10 puntos
-    /**
-     * @brief Ajusta el número de puntos de la ruta a un número fijo (por defecto 10), añadiendo o eliminando según sea necesario.
-     * @param numRequerido Número de puntos deseado.
-     */
-    void ajustarAPuntosFijos(int numRequerido = 10);
 
     /**
-     * @brief Genera puntos por defecto para una nueva ruta, teniendo en cuenta el dron configurado y el terreno si está disponible.
-     * @param count Número de puntos a generar.
-     * @param base Coordenada base para el primer punto (si no se especifica, usa un punto por defecto).
-     * @param distancia Distancia entre puntos (si es <=0, se usa la distancia óptima).
-     * @param azimut Dirección de avance en grados.
-     * @return Lista de puntos generados.
+     * @brief La ruta por defecto desde \a p1: 10 puntos hacia el este, separados
+     *        la media entre la distancia minima y la maxima del dron, y a
+     *        \a sobreTerreno m sobre el terreno como minimo en toda la ruta (cada
+     *        punto, por encima de lo mas alto de los tramos que lo tocan).
+     * @param conTerreno Si no es nulo, false cuando a algun punto le falta la
+     *        cota (ahi la altura se cuenta desde el nivel del mar).
      */
-    QList<E_Punto> generarPuntosPorDefecto(int count = 10,
-                                           const QGeoCoordinate &base = QGeoCoordinate(23.0, -82.0),
-                                           double distancia = 100.0,
-                                           double azimut = 90.0) const;
+    QList<E_Punto> generarRuta(const QGeoCoordinate &p1, double sobreTerreno, bool *conTerreno = nullptr) const;
+
+    //! Cota del terreno en metros, o NaN si no hay dato.
+    double cotaTerreno(const QGeoCoordinate &pos) const;
 
     // Persistencia
     /**
@@ -268,14 +262,12 @@ public:
     bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
 
     /**
-     * @brief Lleva el punto \a fila a \a pos con altura \a altura de una vez:
-     *        una escritura en la base y una revalidacion (un solo dataChanged),
-     *        en vez de tres setData (latitud, longitud y altura) que repintan
-     *        la ruta tres veces y la dejan un momento a medio mover.
-     *        Con \a altura NaN se queda la que tenia.
+     * @brief Lleva el punto \a fila a \a pos conservando su altura sobre el
+     *        terreno, de una vez: una escritura en la base y una revalidacion
+     *        (un solo dataChanged). Sin cota, se queda la altura sobre el mar.
      * @return false si la fila no existe o la posicion no es valida.
      */
-    bool moverPunto(int fila, const QGeoCoordinate &pos, double altura);
+    bool moverPunto(int fila, const QGeoCoordinate &pos);
 
     // Revalidación
     /**

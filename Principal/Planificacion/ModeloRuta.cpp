@@ -438,135 +438,20 @@ const QList<E_Punto> &MiModelo::obtenerLista() const
     return listaDatos;
 }
 
-/**
- * @brief Ajusta el número de puntos de la ruta a un número fijo (por defecto 10), añadiendo o eliminando según sea necesario.
- * @param numRequerido Número de puntos deseado.
- */
-void MiModelo::ajustarAPuntosFijos(int numRequerido)
+
+// Cota del terreno del mapa, o NaN si no hay dato (ni mapa).
+double MiModelo::cotaTerreno(const QGeoCoordinate &pos) const
 {
-    if (!isDroneConfigured()) {
-        qWarning() << "No se puede ajustar: dron no configurado";
-        return;
-    }
-
-    int actual = listaDatos.size();
-    if (actual == numRequerido) {
-        return;
-    }
-
-    beginResetModel();
-
-    if (actual < numRequerido) {
-        int aAgregar = numRequerido - actual;
-        QGeoCoordinate base = listaDatos.isEmpty() ? QGeoCoordinate(23.0, -82.0) : listaDatos.last().pos;
-        QList<E_Punto> nuevos = generarPuntosPorDefecto(aAgregar, base, 100.0, 90.0);
-
-        for (int i = 0; i < nuevos.size(); ++i) {
-            E_Punto p = nuevos[i];
-            p.id = actual + i;
-            p.nombre = QString("P%1").arg(actual + i + 1);
-            listaDatos.append(p);
-        }
-    } else {
-        listaDatos.erase(listaDatos.begin() + numRequerido, listaDatos.end());
-    }
-
-    endResetModel();
-
-    for (int i = 0; i < listaDatos.size(); ++i) {
-        if (i > 0)
-            listaDatos[i].distanciaAnterior = listaDatos[i-1].distanciaA(listaDatos[i]);
-        else
-            listaDatos[i].distanciaAnterior = 0.0;
-    }
-
-    revalidarRutaCompleta();
+    return m_alturaWorker ? m_alturaWorker->cota(pos) : std::numeric_limits<double>::quiet_NaN();
 }
 
-/**
- * @brief Genera puntos por defecto para una nueva ruta, teniendo en cuenta el dron configurado y el terreno si está disponible.
- * @param count Número de puntos a generar.
- * @param base Coordenada base para el primer punto (si no se especifica, usa un punto por defecto).
- * @param distancia Distancia entre puntos (si es <=0, se usa la distancia óptima).
- * @param azimut Dirección de avance en grados.
- * @return Lista de puntos generados.
- */
-QList<E_Punto> MiModelo::generarPuntosPorDefecto(int count, const QGeoCoordinate &base,
-                                                 double distancia, double azimut) const
+// La ruta por defecto desde p1 (la genera RoutePlanner con el terreno del mapa).
+QList<E_Punto> MiModelo::generarRuta(const QGeoCoordinate &p1, double sobreTerreno, bool *conTerreno) const
 {
-    QList<E_Punto> puntos;
-
-    if (!isDroneConfigured()) {
-        double alt = 100.0;
-        double vel = 15.0;
-        double rad = 20.0;
-        QGeoCoordinate puntoActual = base;
-        for (int i = 0; i < count; ++i) {
-            E_Punto p;
-            p.id = i;
-            p.nombre = QString("P%1").arg(i + 1);
-            p.modo = 0;
-            p.pos = puntoActual;
-            p.altura = alt;
-            p.velocidad = vel;
-            p.radio = rad;
-            p.distanciaAnterior = (i == 0) ? 0.0 : p.pos.distanceTo(puntos.last().pos);
-            p.tasaAscenso = 0.0;
-            puntos.append(p);
-            if (i < count - 1)
-                puntoActual = puntoActual.atDistanceAndAzimuth(distancia, azimut);
-        }
-        return puntos;
-    }
-
-    // Calcular distancia óptima: punto medio entre min y max
-    double distanciaOptima = (droneChars.minWaypointDistance + droneChars.maxWaypointDistance) / 2.0;
-    if (distancia <= 0) distancia = distanciaOptima;
-
-    double defaultVelocidad;
-    if (droneChars.type == DroneType::FIXED_WING)
-        defaultVelocidad = droneChars.maxSpeed * 0.65;
-    else
-        defaultVelocidad = droneChars.maxSpeed * 0.45;
-    defaultVelocidad = qMax(defaultVelocidad, droneChars.minSpeed);
-
-    double defaultRadio;
-    if (droneChars.type == DroneType::FIXED_WING) {
-        double radioTeorico = (defaultVelocidad * defaultVelocidad) / (9.81 * 0.577);
-        defaultRadio = qMax(radioTeorico * 1.5, droneChars.minTurnRadius * 2.0);
-    } else {
-        defaultRadio = 10.0;
-    }
-
-    const double SAFETY_OFFSET = 50.0; // margen sobre el terreno
-
-    QGeoCoordinate puntoActual = base;
-    for (int i = 0; i < count; ++i) {
-        E_Punto p;
-        p.id = i;
-        p.nombre = QString("P%1").arg(i + 1);
-        p.modo = 0;
-        p.pos = puntoActual;
-
-        // Obtener altura del terreno si es posible
-        double terreno = 0;
-        if (m_alturaWorker) {
-            terreno = m_alturaWorker->obtenerAltura(p.pos.latitude(), p.pos.longitude());
-            if (terreno < 0) terreno = 0; // valor negativo indica error
-        }
-        double altitudBase = terreno + SAFETY_OFFSET;
-        p.altura = qBound(droneChars.minAltitude, altitudBase, droneChars.maxAltitude);
-
-        p.velocidad = defaultVelocidad;
-        p.radio = defaultRadio;
-        p.distanciaAnterior = (i == 0) ? 0.0 : p.pos.distanceTo(puntos.last().pos);
-        p.tasaAscenso = 0.0;
-        puntos.append(p);
-
-        if (i < count - 1)
-            puntoActual = puntoActual.atDistanceAndAzimuth(distancia, azimut);
-    }
-    return puntos;
+    if (!isDroneConfigured())
+        return {};
+    return planner->generarRuta(p1, sobreTerreno,
+                                [this](const QGeoCoordinate &c) { return cotaTerreno(c); }, conTerreno);
 }
 
 // ------------------------------------------------------------
@@ -843,7 +728,7 @@ int MiModelo::rowCount(const QModelIndex &parent) const
 int MiModelo::columnCount(const QModelIndex &parent) const
 {
     Q_UNUSED(parent);
-    return 10;
+    return 11;
 }
 
 // Lo que la revision ve en el punto \a fila en una linea, para los CSV (sin comas).
@@ -888,9 +773,13 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
         case 4: return QString::number(item.pos.longitude(), 'f', 5);
         case 5: return QString::number(item.distanciaAnterior, 'f', 0);
         case 6: return QString::number(item.altura, 'f', 0);
-        case 7: return QString::number(item.velocidad, 'f', 1);
-        case 8: return QString::number(item.radio, 'f', 0);
-        case 9:
+        case 7: {
+            const double cota = revision().cotas.value(index.row(), std::numeric_limits<double>::quiet_NaN());
+            return std::isfinite(cota) ? QString::number(item.altura - cota, 'f', 0) : QStringLiteral("—");
+        }
+        case 8: return QString::number(item.velocidad, 'f', 1);
+        case 9: return QString::number(item.radio, 'f', 0);
+        case 10:
             return QVariant();   // el estado va como icono (DecorationRole), sin texto repetido
         default: return QVariant();
         }
@@ -903,16 +792,24 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
         case 3: return item.pos.latitude();
         case 4: return item.pos.longitude();
         case 6: return item.altura;
-        case 7: return item.velocidad;
-        case 8: return item.radio;
+        case 7: {
+            const double cota = revision().cotas.value(index.row(), std::numeric_limits<double>::quiet_NaN());
+            return std::isfinite(cota) ? QVariant(item.altura - cota) : QVariant();
+        }
+        case 8: return item.velocidad;
+        case 9: return item.radio;
         default: return QVariant();
         }
     }
     // El punto en una linea y, debajo, cada problema con su porque y su arreglo.
     if (role == Qt::ToolTipRole) {
-        QString t = QStringLiteral("<table width='400'><tr><td><b>%1</b> · %2 m · %3 m/s")
-                        .arg(item.nombre.toHtmlEscaped(), QString::number(item.altura, 'f', 0),
-                             QString::number(item.velocidad, 'f', 1));
+        const double cota = revision().cotas.value(index.row(), std::numeric_limits<double>::quiet_NaN());
+        const QString alturas = std::isfinite(cota)
+                ? QStringLiteral("%1 m sobre el mar (%2 sobre el terreno)").arg(item.altura, 0, 'f', 0)
+                      .arg(item.altura - cota, 0, 'f', 0)
+                : QStringLiteral("%1 m sobre el mar").arg(item.altura, 0, 'f', 0);
+        QString t = QStringLiteral("<table width='400'><tr><td><b>%1</b> · %2 · %3 m/s")
+                        .arg(item.nombre.toHtmlEscaped(), alturas, QString::number(item.velocidad, 'f', 1));
         if (index.row() > 0)
             t += QStringLiteral(" · %1 m desde el anterior").arg(item.distanciaAnterior, 0, 'f', 0);
         if (suyos.isEmpty())
@@ -939,9 +836,9 @@ QVariant MiModelo::data(const QModelIndex &index, int role) const
     // tabla se comia el perfil. El fondo rojo y el icono ya lo marcan.
     // Numeros a la derecha (se comparan de un vistazo); nombre y modo, centrados.
     if (role == Qt::TextAlignmentRole)
-        return int(index.column() >= 3 && index.column() <= 8 ? Qt::AlignRight | Qt::AlignVCenter
+        return int(index.column() >= 3 && index.column() <= 9 ? Qt::AlignRight | Qt::AlignVCenter
                                                               : Qt::AlignCenter);
-    if (role == Qt::DecorationRole && index.column() == 9) {
+    if (role == Qt::DecorationRole && index.column() == 10) {
         // Iconos del estilo (los :/icons/... de antes no existian en ningun .qrc).
         QStyle *estilo = QApplication::style();
         switch (peor) {
@@ -976,8 +873,17 @@ bool MiModelo::setData(const QModelIndex &index, const QVariant &value, int role
     case 4: item.pos.setLongitude(value.toDouble()); cambioAceptado = true; break;
     case 5: return false; // no editable
     case 6: item.altura = value.toDouble(); cambioAceptado = true; break;
-    case 7: item.velocidad = value.toDouble(); cambioAceptado = true; break;
-    case 8: item.radio = value.toDouble(); cambioAceptado = true; break;
+    case 7: {
+        // Sobre el terreno: se guarda la altura sobre el mar que le corresponde.
+        const double cota = cotaTerreno(item.pos);
+        if (!std::isfinite(cota))
+            return false;
+        item.altura = float(cota + value.toDouble());
+        cambioAceptado = true;
+        break;
+    }
+    case 8: item.velocidad = value.toDouble(); cambioAceptado = true; break;
+    case 9: item.radio = value.toDouble(); cambioAceptado = true; break;
     default: return false;
     }
 
@@ -994,18 +900,21 @@ bool MiModelo::setData(const QModelIndex &index, const QVariant &value, int role
     return false;
 }
 
-// Mueve un punto (posicion y, si llega, altura) con un solo guardado y una
-// sola revalidacion: el arrastre en el mapa no debe repintar la ruta tres veces.
-bool MiModelo::moverPunto(int fila, const QGeoCoordinate &pos, double altura)
+// Mueve un punto conservando su altura sobre el terreno (si sabia 30 m sobre
+// una loma, sigue a 30 m sobre lo que haya en el sitio nuevo). Sin cota en
+// alguno de los dos sitios, se queda la altura sobre el mar que tenia. Un solo
+// guardado y una sola revalidacion: el arrastre no debe repintar tres veces.
+bool MiModelo::moverPunto(int fila, const QGeoCoordinate &pos)
 {
     if (fila < 0 || fila >= listaDatos.size() || !pos.isValid())
         return false;
 
     E_Punto &item = listaDatos[fila];
+    const double antes = cotaTerreno(item.pos), despues = cotaTerreno(pos);
+    if (std::isfinite(antes) && std::isfinite(despues))
+        item.altura = float(item.altura - antes + despues);
     item.pos.setLatitude(pos.latitude());
     item.pos.setLongitude(pos.longitude());
-    if (!std::isnan(altura))
-        item.altura = altura;
 
     if (!currentRouteName.isEmpty())
         actualizarElementoEnTabla(currentRouteName, item);
@@ -1020,7 +929,11 @@ Qt::ItemFlags MiModelo::flags(const QModelIndex &index) const
 {
     if (!index.isValid()) return Qt::NoItemFlags;
     Qt::ItemFlags flags = QAbstractTableModel::flags(index);
-    if (index.column() == 0 || index.column() == 5 || index.column() == 9)
+    if (index.column() == 0 || index.column() == 5 || index.column() == 10)
+        return flags;
+    // Sin cota, la altura sobre el terreno no se sabe: no se edita.
+    if (index.column() == 7 && !std::isfinite(revision().cotas.value(index.row(),
+                                                                     std::numeric_limits<double>::quiet_NaN())))
         return flags;
     return flags | Qt::ItemIsEditable;
 }
@@ -1042,19 +955,22 @@ QVariant MiModelo::headerData(int section, Qt::Orientation orientation, int role
         case 4: return "Longitud";
         case 5: return "Dist. (m)";
         case 6: return "Alt. (m)";
-        case 7: return "Vel. (m/s)";
-        case 8: return "Radio (m)";
-        case 9: return "";
+        case 7: return "S/terr. (m)";
+        case 8: return "Vel. (m/s)";
+        case 9: return "Radio (m)";
+        case 10: return "";
         default: return QVariant();
         }
     }
     if (role == Qt::ToolTipRole) {
         switch (section) {
         case 5: return "Distancia desde el punto anterior, en metros";
-        case 6: return "Altura de vuelo, en metros";
-        case 7: return "Velocidad en m/s, la que vuela el dron (en pantalla se ve en km/h: x 3,6)";
-        case 8: return "Radio de giro en el punto, en metros";
-        case 9: return "Estado del punto: bien, con avisos o con errores (el detalle, al pasar el ratón por la fila)";
+        case 6: return "Altura sobre el nivel del mar, en metros: la que se manda al dron";
+        case 7: return "Altura sobre el terreno de debajo, en metros (— si no hay datos de elevación). "
+                       "Editarla cambia la altura sobre el mar";
+        case 8: return "Velocidad en m/s, la que vuela el dron (en pantalla se ve en km/h: x 3,6)";
+        case 9: return "Radio de giro en el punto, en metros (no se manda al dron)";
+        case 10: return "Estado del punto: bien, con avisos o con errores (el detalle, al pasar el ratón por la fila)";
         default: return QVariant();
         }
     }

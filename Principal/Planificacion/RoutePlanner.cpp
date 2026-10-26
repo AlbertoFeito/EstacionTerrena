@@ -112,6 +112,72 @@ double RoutePlanner::calcularTiempoVuelo(const QList<E_Punto> &puntos) const
     return total;
 }
 
+// La ruta por defecto desde p1: 10 puntos hacia el este, separados la media
+// entre la distancia minima y la maxima del dron, a la velocidad por defecto.
+// Cada punto queda \a sobreTerreno m por encima de lo mas alto del terreno en
+// los tramos que lo tocan (mirado cada kPasoTerreno m): como los
+// dos extremos de cada tramo libran su punto mas alto, la recta entre ellos
+// nunca baja de esa altura sobre el terreno. Donde no hay cota se cuenta desde
+// el nivel del mar, y \a conTerreno sale false.
+QList<E_Punto> RoutePlanner::generarRuta(const QGeoCoordinate &p1, double sobreTerreno, const FuncionTerreno &terreno,
+                                         bool *conTerreno) const
+{
+    const int n = 10;
+    const double separacion = (droneChars.minWaypointDistance + droneChars.maxWaypointDistance) / 2.0;
+    double velocidad = droneChars.maxSpeed * (droneChars.type == DroneType::FIXED_WING ? 0.65 : 0.45);
+    velocidad = std::max(velocidad, droneChars.minSpeed);
+    // La columna Radio no viaja al dron; se rellena como siempre.
+    double radio = 10.0;
+    if (droneChars.type == DroneType::FIXED_WING)
+        radio = std::max((velocidad * velocidad) / (9.81 * 0.577) * 1.5, droneChars.minTurnRadius * 2.0);
+
+    auto cota = [&terreno](const QGeoCoordinate &c) {
+        return terreno ? terreno(c) : std::numeric_limits<double>::quiet_NaN();
+    };
+    QVector<QGeoCoordinate> pos;
+    pos.append(p1);
+    for (int i = 1; i < n; ++i)
+        pos.append(pos.last().atDistanceAndAzimuth(separacion, 90.0));
+
+    // Lo mas alto bajo cada punto y bajo cada tramo (NaN: sin ningun dato).
+    bool todoConCota = true;
+    auto mayor = [](double a, double b) { return std::isfinite(a) ? (std::isfinite(b) ? std::max(a, b) : a) : b; };
+    QVector<double> bajoPunto(n), bajoTramo(n - 1, std::numeric_limits<double>::quiet_NaN());
+    for (int i = 0; i < n; ++i) {
+        bajoPunto[i] = cota(pos[i]);
+        todoConCota = todoConCota && std::isfinite(bajoPunto[i]);
+    }
+    const int pasos = std::max(1, int(std::ceil(separacion / kPasoTerreno)));
+    for (int i = 0; i + 1 < n; ++i)
+        for (int k = 0; k <= pasos; ++k)
+            bajoTramo[i] = mayor(bajoTramo[i], cota(pos[i].atDistanceAndAzimuth(separacion * k / pasos, 90.0)));
+
+    QList<E_Punto> puntos;
+    for (int i = 0; i < n; ++i) {
+        double techo = bajoPunto[i];
+        if (i > 0)
+            techo = mayor(techo, bajoTramo[i - 1]);
+        if (i + 1 < n)
+            techo = mayor(techo, bajoTramo[i]);
+        E_Punto p;
+        p.id = i;
+        p.nombre = QString("P%1").arg(i + 1);
+        p.modo = 0;
+        p.pos = pos[i];
+        p.altura = float((std::isfinite(techo) ? techo : 0.0) + sobreTerreno);
+        p.velocidad = float(velocidad);
+        p.radio = float(radio);
+        p.distanciaAnterior = i == 0 ? 0.0 : separacion;
+        p.altitudObjetivo = p.altura;
+        p.tiempoTransicion = 0;
+        p.tasaAscenso = 0.0;
+        puntos.append(p);
+    }
+    if (conTerreno)
+        *conTerreno = todoConCota;
+    return puntos;
+}
+
 // Revisa la ruta entera: puntos, tramos (simulando la altura a la que va de
 // verdad), terreno, giros y autonomia. No se para en el primer problema.
 RevisionRuta RoutePlanner::revisar(const QList<E_Punto> &p, const FuncionTerreno &terreno) const
@@ -161,22 +227,48 @@ RevisionRuta RoutePlanner::revisar(const QList<E_Punto> &p, const FuncionTerreno
     r.usoDistancia = droneChars.maxRange > 0 ? r.distancia / droneChars.maxRange : 0.0;
     r.usoTiempo = droneChars.endurance > 0 ? r.tiempo / droneChars.endurance : 0.0;
 
+    // --- El terreno bajo cada punto (NaN si no hay dato) ---------------------
+    r.cotas.fill(std::numeric_limits<double>::quiet_NaN(), n);
+    if (terreno)
+        for (int i = 0; i < n; ++i)
+            r.cotas[i] = terreno(p[i].pos);
+
     // --- Cada punto: altura y velocidad dentro de lo que puede el dron -------
+    // Los limites de altura del dron son sobre el terreno: la altura de cada
+    // punto (sobre el mar) menos la cota de debajo. Sin cota, se cuenta desde
+    // el nivel del mar y se dice.
     for (int i = 0; i < n; ++i) {
         const QString pn = nombre(i);
         const double h = p[i].altura, v = p[i].velocidad;
-        if (h < droneChars.minAltitude)
+        const double cota = r.cotas[i];
+        const bool hayCota = std::isfinite(cota);
+        const double sobre = hayCota ? h - cota : h;
+        const QString donde = hayCota
+                ? QStringLiteral("%1 va a %2 m sobre el terreno (el terreno está a %3 m y el punto a %4 m sobre "
+                                 "el mar)").arg(pn, num(sobre), num(cota), num(h))
+                : QStringLiteral("%1 va a %2 m (sin datos del terreno, contados desde el nivel del mar)")
+                      .arg(pn, num(h));
+        if (hayCota) {
+            r.sobreTerrenoMin = std::isfinite(r.sobreTerrenoMin) ? std::min(r.sobreTerrenoMin, sobre) : sobre;
+            r.sobreTerrenoMax = std::isfinite(r.sobreTerrenoMax) ? std::max(r.sobreTerrenoMax, sobre) : sobre;
+        }
+        const double base = hayCota ? cota : 0.0;
+        // Medio metro de tolerancia: las alturas se guardan en float y un
+        // punto puesto justo en el limite no debe salir como error.
+        if (sobre < droneChars.minAltitude - 0.5)
             anadir(Gravedad::Error, QStringLiteral("altura_baja"), i, -1,
                    QStringLiteral("Por debajo de la altura mínima"),
-                   QStringLiteral("%1 está a %2 m y este dron vuela a %3 m como mínimo.")
-                       .arg(pn, num(h), num(droneChars.minAltitude)),
-                   QStringLiteral("Sube %1 a %2 m o más.").arg(pn, num(droneChars.minAltitude)));
-        if (h > droneChars.maxAltitude)
+                   QStringLiteral("%1, y este dron vuela a %2 m sobre el terreno como mínimo.")
+                       .arg(donde, num(droneChars.minAltitude)),
+                   QStringLiteral("Sube %1 a %2 m sobre el mar o más (%3 m sobre el terreno).")
+                       .arg(pn, num(base + droneChars.minAltitude), num(droneChars.minAltitude)));
+        if (sobre > droneChars.maxAltitude + 0.5)
             anadir(Gravedad::Error, QStringLiteral("altura_alta"), i, -1,
                    QStringLiteral("Por encima de la altura máxima"),
-                   QStringLiteral("%1 está a %2 m y este dron sube hasta %3 m.")
-                       .arg(pn, num(h), num(droneChars.maxAltitude)),
-                   QStringLiteral("Baja %1 a %2 m o menos.").arg(pn, num(droneChars.maxAltitude)));
+                   QStringLiteral("%1, y este dron vuela a %2 m sobre el terreno como mucho.")
+                       .arg(donde, num(droneChars.maxAltitude)),
+                   QStringLiteral("Baja %1 a %2 m sobre el mar o menos (%3 m sobre el terreno).")
+                       .arg(pn, num(base + droneChars.maxAltitude), num(droneChars.maxAltitude)));
         if (v > droneChars.maxSpeed)
             anadir(Gravedad::Error, QStringLiteral("velocidad_alta"), i, -1,
                    QStringLiteral("Más rápido de lo que puede el dron"),
@@ -328,8 +420,9 @@ RevisionRuta RoutePlanner::revisar(const QList<E_Punto> &p, const FuncionTerreno
                 const QString sitio = QStringLiteral("A %1 m de %2, camino de %3, el terreno está a %4 m y el dron "
                                                      "pasa a %5 m")
                                           .arg(num(dondePeor), an, bn, num(cotaPeor), num(alturaPeor));
-                const QString arreglo = QStringLiteral("Sube %1 y %2 hasta %3 m por lo menos (lo más alto del terreno "
-                                                       "en el tramo, %4 m, más %5 m), o aparta el tramo de esa zona.")
+                const QString arreglo = QStringLiteral("Sube %1 y %2 hasta %3 m sobre el mar por lo menos (lo más alto "
+                                                       "del terreno en el tramo, %4 m, más %5 m), o aparta el tramo de "
+                                                       "esa zona.")
                                             .arg(an, bn, num(cotaMax + kHolguraAviso), num(cotaMax), num(kHolguraAviso));
                 if (peor < 0.0)
                     anadir(Gravedad::Error, QStringLiteral("terreno_choca"), i, i + 1,
@@ -358,6 +451,8 @@ RevisionRuta RoutePlanner::revisar(const QList<E_Punto> &p, const FuncionTerreno
             r.bajada += a.altura - b.altura;
         alturaReal = llega;
     }
+    for (double c : qAsConst(r.cotas))
+        algunTerreno = algunTerreno || std::isfinite(c);
     r.hayTerreno = algunTerreno;
     if (terreno && !algunTerreno)
         anadir(Gravedad::Nota, QStringLiteral("sin_terreno"), -1, -1,

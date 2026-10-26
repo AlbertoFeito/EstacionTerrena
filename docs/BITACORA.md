@@ -1201,3 +1201,82 @@ subida de 150 m en 300 m:
 - al subir P4 a 60 m en la tabla, el informe abierto se rehace sin ese error.
 
 Se ha mirado con los dos temas.
+
+## 31. Altura sobre el terreno: la ruta nueva ya no atraviesa las lomas
+
+El usuario preguntó cómo maneja una ruta nueva la altura del terreno y la altura
+sobre el terreno, y mandó una captura: terreno de 470 a 660 m y la ruta plana a
+500 m, metida en las lomas, con «No válida: 9 errores».
+
+### Lo que pasaba
+
+Cada punto tenía una sola altura, sobre el nivel del mar. Al crear la ruta se
+calculaba así: terreno del punto + 50 m, recortada entre la altura mínima y la
+máxima del dron, y nunca menos de 50 m. Esto tenía varios fallos:
+
+- **Mezclaba referencias.** La altura mínima y la máxima del dron (50 y 500 m
+  en el ala fija estándar) son alturas sobre el terreno, pero se aplicaban a la
+  altura sobre el mar. Con terreno a 600 m, 600 + 50 = 650 se recortaba a 500,
+  **100 m bajo tierra**, sin aviso. Es la captura.
+- **Solo miraba el terreno en el punto**, no entre puntos.
+- **Sin elevación, suponía terreno a 0 m** sin decirlo.
+- **Arrastrar un punto pisaba la altura puesta a mano** (volvía a +50).
+- **«Restablecer» llevaba la ruta a un punto fijo** (23° N, 82° O), con otra
+  separación.
+
+### Lo que hay ahora
+
+- **Los límites de altura del dron cuentan sobre el terreno.** La revisión
+  resta a la altura de cada punto la cota de debajo (`RevisionRuta::cotas`). Sin
+  cota, cuenta desde el nivel del mar y lo dice. El arreglo da las dos cifras:
+  «Sube P4 a 650 m sobre el mar o más (50 m sobre el terreno)». Hay medio metro
+  de tolerancia porque las alturas se guardan en `float`: un punto puesto justo
+  en el límite salía como error, con 49,99 m.
+- **El panel tiene «Sobre el terreno»** (50 m por defecto; se guarda en
+  `conf.ini`, `[RUTAS] sobre_terreno`). Sirve al crear la ruta con el clic
+  derecho y al restablecerla.
+- **La ruta nueva libra el terreno en toda su longitud, no solo en los puntos**
+  (`RoutePlanner::generarRuta`). Cada punto queda por encima de lo más alto
+  del terreno en los tramos que lo tocan (mirado cada 20 m). Como los dos
+  extremos de cada tramo libran su punto más alto, la recta entre ellos nunca
+  baja de esa altura sobre el terreno. Con la cota solo en cada punto, la
+  primera prueba en la app seguía chocando entre puntos.
+- **Sin elevación**, la ruta se genera desde el nivel del mar y un aviso dice
+  que esas alturas no se han podido comprobar.
+- **Arrastrar conserva la altura sobre el terreno** del punto
+  (`MiModelo::moverPunto`): si iba a 30 m sobre una loma, sigue a 30 m sobre lo
+  que haya en el sitio nuevo. Sin cota en alguno de los dos sitios, se queda la
+  altura sobre el mar.
+- **La tabla muestra las dos alturas.** «Alt.» es sobre el mar (la que se manda
+  al dron) y la columna nueva «S/terr.», sobre el terreno, con «—» si no hay
+  dato. Editar «S/terr.» cambia «Alt.». El tooltip de cada fila trae las dos, y
+  el informe dice entre qué alturas sobre el terreno van los puntos.
+- **«Restablecer»** rehace los 10 puntos desde el P1 que hay, igual que el clic
+  derecho. Se quitaron `generarPuntosPorDefecto`, `calcularAltitudVuelo` y
+  `ajustarAPuntosFijos` (este no lo usaba nadie).
+
+Lo que se manda al dron no cambia: la altura sobre el mar, como hasta ahora.
+Queda en `PENDIENTES.md` confirmar que es lo que espera el autopiloto en `z`.
+
+### Pruebas
+
+`test_planificador` pasa a 15 casos:
+
+- `alturaSobreElTerreno`: la meseta a 600 m, con un punto bajo, uno bajo
+  tierra (el de la captura), uno demasiado alto y uno bien;
+- `generarRutaSobreElTerreno`: un pico entre P3 y P4 deja esos dos a 50 m
+  sobre el pico y los demás a 50 m sobre el llano; sin elevación, a 50 m sobre
+  el mar.
+
+En total pasan 119 pruebas.
+
+En la app, con un `.hgt` sintético de lomas de 300 m añadido al paquete de
+prueba:
+
+- la ruta vieja, plana a 50 m, sale con alturas negativas sobre el terreno y
+  19 errores;
+- «Restablecer» deja «Válida, con 2 avisos», pasa a 50 m del terreno como
+  mínimo, y los avisos son de bajadas que el dron hace más despacio, llegando
+  más alto;
+- editar «S/terr.» de P1 a 120 m cambia «Alt.» de 672 a 570 m, y la revisión
+  avisa de que así el tramo P1 → P2 ya no libra la cresta.

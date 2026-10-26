@@ -64,6 +64,9 @@ struct RevisionRuta
     double alturaMin = 0.0, alturaMax = 0.0;         //!< m
     double subida = 0.0, bajada = 0.0;               //!< m acumulados
     double holguraTerreno = std::numeric_limits<double>::quiet_NaN();  //!< m, la menor de la ruta
+    QVector<double> cotas;         //!< terreno bajo cada punto, m (NaN sin dato)
+    double sobreTerrenoMin = std::numeric_limits<double>::quiet_NaN();  //!< altura de los puntos sobre
+    double sobreTerrenoMax = std::numeric_limits<double>::quiet_NaN();  //!< el terreno, m (NaN sin dato)
     bool hayTerreno = false;       //!< se ha podido comprobar el terreno (algun dato)
 
     //! true si no hay errores (los avisos no impiden enviarla).
@@ -90,6 +93,8 @@ public:
 
     //! Alabeo maximo supuesto en los giros del ala fija (el mismo de siempre).
     static constexpr double kAlabeoGrados = 30.0;
+    //! Altura minima y maxima del dron: sobre el terreno (la de cada punto
+    //! menos la cota de debajo), no sobre el mar.
     //! Por debajo de esto sobre el terreno es error; por debajo de kHolguraAviso, aviso.
     static constexpr double kHolguraMinima = 10.0;
     static constexpr double kHolguraAviso = 30.0;
@@ -105,6 +110,18 @@ public:
      * @param terreno Cota del terreno; si no se da, no se mira el terreno.
      */
     RevisionRuta revisar(const QList<E_Punto> &puntos, const FuncionTerreno &terreno = {}) const;
+
+    /**
+     * @brief La ruta por defecto desde \a p1: 10 puntos hacia el este, separados
+     *        la media entre la distancia minima y la maxima del dron, a su
+     *        velocidad por defecto y a \a sobreTerreno m sobre el terreno como
+     *        minimo en toda la ruta (cada punto, por encima de lo mas alto de
+     *        los tramos que lo tocan).
+     * @param conTerreno Si no es nulo, false cuando a algun punto le falta la
+     *        cota (ahi la altura se cuenta desde el nivel del mar).
+     */
+    QList<E_Punto> generarRuta(const QGeoCoordinate &p1, double sobreTerreno, const FuncionTerreno &terreno,
+                               bool *conTerreno = nullptr) const;
 
     //! Radio de giro del ala fija a \a velocidad m/s: el de un giro coordinado
     //! con kAlabeoGrados de alabeo, r = v² / (g·tan φ), y nunca menos que el
